@@ -1,68 +1,66 @@
-# Talloc, the TauOS allocator
-(TauOS is on the list of projects that I'll "definitely get back to someday," don't pay it any mind)
+# Talloc
+_The TauOS Allocator_
 
-Talloc is a `no_std` allocator suitable for projects such as operating system kernels. Performance and flexibility were the primary considerations during development.
+Talloc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal apps.
 
-Practical concerns in `no_std` environments are also catered to, such as custom OOM handling, expanding the arena, managing the metadata, and avoiding holes of usable memory in the arena (such as for physical memory allocation). Less practical `no_std` concerns are also accounted for, such as stretching an arena over the zero address. (This use-case is relatively untested, be warned.)
-
-On the other hand, using Talloc as a simple arena allocator is made easy too.
+Using Talloc as a simple arena allocator is easy, but practical concerns in `no_std` environments are facilitated, such as custom OOM handling, changing the arena size, managing the metadata, and avoiding holes of usable memory in the arena. Less practical `no_std` concerns are also handled, such as spanning an arena over the zero address (fun!).
 
 ## Usage
 
 Use it as a global allocator as follows:
 ```rust
+use talloc::*;
+
+const MIN_SIZE: usize = 0x80;
+
 #[global_allocator]
-static ALLOCATOR: Tallock<{talloc::SPEED_BIAS}> = 
-    talloc::Talloc::<{talloc::SPEED_BIAS}>::new_empty(MIN_SIZE, talloc::alloc_error)
+static ALLOCATOR: Tallock<SPEED_BIAS> = Talloc::<SPEED_BIAS>::new_empty(MIN_SIZE, alloc_error)
     .wrap_spin_lock();
 
 // initialize it later...
-let arena = talloc::Span::from(0x0..0x100000);
-unsafe { ALLOCATOR.lock().extend(arena, MIN_SIZE, talloc::MemMode::Automatic, talloc::alloc_error); }
+let arena = Span::from(0x100000..0x10000000);
+unsafe { ALLOCATOR.lock().extend(arena, MemMode::Automatic); }
 ```
 
 Use it as an arena allocator via the `Allocator` API like so:
 ```rust
 let arena = vec![0u8; SIZE];
 let min_block_size = 0x20;
-let tallock = Talloc::<{talloc::SPEED_BIAS}>::new_arena(&mut arena, min_block_size)
-    .wrap_spin_lock();
+let tallock = Talloc::<SPEED_BIAS>::new_arena(&mut arena, min_block_size).wrap_spin_lock();
 
 tallock.allocate(...);
 ```
 
-The `Talloc::new`, `Talloc::extend`, and `Talloc::release` functions give plenty of flexibility for more niche applications.
+The `BIAS` parameter, `Talloc::extend`, and `Talloc::release` functions give plenty of flexibility for niche applications, as detailed later.
 
 ## Performance
 O(log n) worst case allocations and deallocations. In practice, it's often O(1) and very fast even when it isn't. See the benchmarks below.
 
 Growing memory always forces a memory copy. Shrinking is always in-place.
 
-Getting the leading zero bit count is used a lot. Compiling with `RUST_FLAGS="-C target-cpu=native"` is recommended to take advantage of the `lzcnt` instruction on most AMD64/Intel64 CPUs. `RUST_FLAGS="-C target-feature=+lzcnt"` is a more general way to achieve this, if portability is desired over other performance optimizations.
-
-## Efficiency
-Efficiency depends primarily on the choice of the `BIAS` parameter. With `0`, average waste is a quarter of the allocation, although situations where align is greater than size can make this far worse.
-
-Average waste is halved for each increment of `BIAS` over zero. `SPEED_BIAS=2` has an average waste of an eighth, while `EFFICIENCY_BIAS=3` has an average waste of a sixteenth of the allocation size.
-
-Metadata is required by `Talloc`. The arena will be used unless otherwise specified. The bitmap grows proportionally with the arena, taking up the most space. For large arenas with minimal min_size, this can be as much as 1/64 of the arena, but for each power of two greater greater of min_size, the requirement is divided by two.
-
-## Methods
-A buddy system of power-of-two block size is used. A linked list tracks free blocks while a bitmap tracks the availability of pairs to each other for reclaiming contiguous chunks of memory. Finally, a small additional bitmap is used to track which block sizes are available. 
-
-In combination, Talloc never needs to search for free memory to allocate or re-combine. Allocation failure is known after a few bit manipulations. This makes Talloc's performance not only fast, but very stable, as Talloc doesn't really experience heap pressure.
-
-The main trade-off is complexity.
-
-## Testing
-
-A fair bit of fuzzing has been conducted.
-
-TODO :)
+Compiling with `RUST_FLAGS="-C target-cpu=native"` or `RUST_FLAGS="-C target-feature=+lzcnt"` is recommended to take advantage of the `lzcnt` instruction on most AMD64/Intel64 CPUs.
 
 ## Benchmarks
 
 While results vary for different values of Talloc's `BIAS` parameter, the results aren't that different between `SPEED_BIAS` and `EFFICIENCY_BIAS`.
+
+### galloc's benchmarks:
+
+Note: the original benchmarks have been modified slightly (e.g. replacing `rand` with `fastrand`) in order to alleviate the bottleneck on Talloc.
+
+#### Random Actions Benchmark Results
+
+![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
+
+Talloc outperforms the alternatives. 
+
+#### Heap Exhaustion Benchmark Results
+
+![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
+
+Here we see Talloc's lower memory effeciency gets penalized. 
+
+Using EFFICIENCY_BIAS, Talloc is brought onto par with linked_list_allocator in Heap Exhaustion, but the lead in Random Actions is reduced to below 200%.
 
 ### simple_chunk_allocator's benchmarks
 
@@ -110,33 +108,71 @@ RESULTS OF BENCHMARK: Talloc
 
 Similar trend, but the effect is far more pronounced under overbearing heap pressure.
 
-### galloc's benchmarks:
+## Efficiency
+Efficiency depends primarily on the choice of the `BIAS` parameter. With `0`, average waste is a quarter of the allocation, although situations where align is greater than size can make this far worse. `min_size` determines the minimum allocatable size - many allocations smaller than this may also be wasteful.
 
-Note: the original benchmarks have been modified slightly (e.g. replacing `rand` with `fastrand`) in order to alleviate the bottleneck on Talloc.
+Average waste is halved for each increment of `BIAS` above `1`. `SPEED_BIAS=2` has an average waste of an eighth, while `EFFICIENCY_BIAS=3` has an average waste of a sixteenth of the allocation size (regardless of alignment).
 
-#### Random Actions Benchmark Results
+Metadata is required by `Talloc`. The arena will be used unless otherwise specified. The bitmap grows proportionally with the arena, taking up the most space. For large arenas with `min_size <= 0x10` bytes, this can be as much as 1/64 of the arena (1/32 if the arena size is just over a power of two), but for each power of two greater of min_size, the requirement is divided by two. For example, an 8GiB heap with `min_size = 128` bytes requires just over 16MiB of metadata. Not too shabby.
 
-![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
+## Methods
+A buddy system of power-of-two block size is used. A linked list tracks free blocks while a bitmap tracks the availability of pairs to each other for reclaiming contiguous chunks of memory. Finally, a small additional bitmap is used to track which block sizes are available. 
 
-Talloc outperforms the alternatives. 
+In combination, Talloc never needs to search for free memory to allocate or re-combine. Allocation failure is known after a few bit manipulations. This makes Talloc's performance not only fast, but very consistant - Talloc doesn't really experience heap pressure.
 
-#### Heap Exhaustion Benchmark Results
+The main trade-off is complexity.
 
-![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
+## Testing
 
-Here we see Talloc's lower memory effeciency gets penalized. 
+A fair bit of fuzzing has been conducted.
 
-Using EFFICIENCY_BIAS, Talloc is brought onto par with linked_list_allocator in Heap Exhaustion, but the lead in Random Actions is reduced to below 200%.
+## TODO
 
+- Tests and doctests
+- Doc linking
+- Maybe make it usable jemallocator-style in std environments with page management
+    - Figure out how to do this efficiently (can we tell the system to page low-use pages aggressively?)
+    - Maybe using mmap-rs?
+    - Then benchmark against jemallocator/the systems allocator for a few laughs and tears
+    - See how many platforms I'd care to support?
+
+## General Usage
+
+Here is the list of methods:
+* Allocation:
+    * `alloc`
+    * `dealloc`
+    * `shrink`
+* Information:
+    * `get_arena` - returns the current arena memory region
+    * `get_meta_mem` - returns the current metadata memory region
+    * `req_meta_mem` - returns the necessary metadata memory for an extended arena
+* Management:
+    * `extend` - initialize or extend the arena region
+    * `release` - release specified memory in the arena for allocation
+    * `wrap_spin_lock` - wraps the Talloc in a Tallock, which supports the `GlobalAlloc` and `Allocator` APIs
+
+Constructors:
+* `new` - creates a new Talloc with an empty arena
+* `new_arena` - creates and fully initializes a Talloc for the provided arena
+
+See their docs for more info.
+
+`Span` is a handy-dandy little type for describing memory regions, because trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs gets annoying. See `Span::from*` and `span.to_*` functions for conversions.
 
 ## Advanced Usage
 
-OOM handling, extending, and releasing memory. See the example below.
+The least self-explanatory components are the `extend` and `release`, as well as the `oom_handler` function
+required by every Talloc (giving is `talloc::alloc_error` is the simplest method, returns AllocError on OOM).
+
+See their docs (including the `OomHandler` type's) for more details.
+
+An example of how these components can be put together is given below.
 
 ```rust
 fn oom_handler(talloc: &mut Talloc<BIAS>, layout: Layout) -> Result<(), AllocError> {
-    // an allocation or reallocation has failed! we must free up some memory
-    // we'll go through a toy example of how to handle this situation
+    // alloc doesn't have enough memory, and we just got called! we must free up some memory
+    // we'll go through an example of how to handle this situation manually
 
     // we can inspect `layout` to estimate how much we should free up for this allocation
     // or we can extend by any amount (increasing powers of two has good time complexity)

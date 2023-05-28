@@ -141,7 +141,7 @@ static CHUNK_ALLOCATOR: GlobalChunkAllocator<'static, CHUNK_SIZE> =
 
 fn main() {
     const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
-    const TRIALS_AMOUNT: usize = 50;
+    const TRIALS_AMOUNT: usize = 10;
 
     let _ = std::fs::remove_dir_all(BENCHMARK_RESULTS_DIR);
 
@@ -149,14 +149,16 @@ fn main() {
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
     let benchmarks = benchmark_list!(
-        random_actions, 
-        heap_exhaustion
+        random_actions/* , 
+        heap_exhaustion */
     );
     let allocators = allocator_list!(
         init_talloc,
-        init_galloc,
+        init_jemalloc,
+        /* init_linux, */
+        init_galloc/* ,
         init_linked_list_allocator,
-        init_chunk_allocator
+        init_chunk_allocator */
     );
     
     for benchmark in benchmarks {
@@ -227,6 +229,14 @@ fn init_chunk_allocator() -> &'static dyn GlobalAlloc {
         .unwrap();
     }
     &CHUNK_ALLOCATOR
+}
+
+fn init_jemalloc() -> &'static dyn GlobalAlloc {
+    &tikv_jemallocator::Jemalloc
+}
+
+fn init_linux() -> &'static dyn GlobalAlloc {
+    &std::alloc::System
 }
 
 pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize {

@@ -2,7 +2,7 @@ use core::ops::Range;
 
 use crate::{align_down, align_up};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Span {
     pub base: isize,
     pub acme: isize,
@@ -54,6 +54,10 @@ impl Span {
         Self { base: 0, acme: 0 }
     }
 
+    pub const fn new(base: isize, acme: isize) -> Self {
+        Self { base, acme }
+    }
+
     pub const fn from_base_size(base: isize, size: usize) -> Self {
         Self {
             base,
@@ -68,7 +72,12 @@ impl Span {
         }
     }
 
-
+    pub fn from_ptr_slice(slice: *mut [u8]) -> Self {
+        slice.into()
+    }
+    pub fn from_ptr_range(range: Range<*mut u8>) -> Self {
+        range.into()
+    }
 
     pub const fn base_ptr(&self) -> *mut u8 {
         self.base as *mut u8
@@ -170,7 +179,7 @@ impl Span {
         }
     }
     #[inline]
-    pub const fn clamp(self, other: Span) -> Self {
+    pub const fn within(self, other: Span) -> Self {
         Self {
             base: if other.base > self.base { other.base } else { self.base },
             acme: if other.acme < self.acme { other.acme } else { self.acme },
@@ -186,4 +195,8 @@ impl Span {
     }
 }
 
-// todo impl Display for Span ? Empty / 0xlo..0xhi ?
+impl core::fmt::Display for Span {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{:p}..{:p}", self.base_ptr(), self.acme_ptr()))
+    }
+}

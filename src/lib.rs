@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 #![cfg_attr(not(test), no_std)]
 
 #![feature(alloc_layout_extra)]
@@ -22,6 +24,7 @@ mod tallock;
 
 
 //pub use utils::copy_slice_bits; // for fuzzing
+
 #[cfg(feature = "spin")]
 pub use tallock::Tallock;
 pub use span::Span;
@@ -34,12 +37,20 @@ use core::{
 };
 
 
+// desciptive error for failures
+// borrow allocator_api's if available, else define our own
 #[cfg(feature = "allocator")]
 pub use core::alloc::AllocError;
 
 #[cfg(not(feature = "allocator"))]
+#[derive(Debug)]
 pub struct AllocError();
-
+#[cfg(not(feature = "allocator"))]
+impl core::fmt::Display for AllocError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("memory allocation failed")
+    }
+}
 
 
 const NULL: isize = 0;
@@ -49,13 +60,18 @@ const NODE_ALIGN: usize = core::mem::align_of::<LlistNode<()>>();
 
 /// The minimum value of `min_size`. Lower values are clamped to this value.
 pub const MIN_MIN_SIZE: usize = NODE_SIZE.next_power_of_two();
-/// The minimum arena size eligible for `extend` using`MemMode::Automatic`.
+/// The minimum arena size eligible for `extend` using `MemMode::Automatic`.
+/// Smaller values yield `Err(AllocError)`.
 pub const MIN_ARENA_SIZE: usize = 1 << 6;
 
-
+/// Fastest, waste a quarter of memory on average (or more, if size < align).
 pub const MAX_SPEED_BIAS: usize = 0;
+/// Fast, waste an eighth of memory on average.
 pub const SPEED_BIAS: usize = 2;
+/// Not quite as fast, waste a sixteenth of memory on average.
 pub const EFFICIENCY_BIAS: usize = 3;
+/// Slower, waste half a `min_size` on average.
+pub const MAX_EFFICIENCY_BIAS: usize = usize::MAX;
 
 
 /// Simple `OomHandler` function that immediately returns `Err(AllocError)`.
@@ -99,7 +115,9 @@ pub enum MemMode {
     Manual {
         /// Whether new memeory is automatically released.
         auto_release: bool, 
-        /// Must be in accordance with `req_meta_mem`.
+        /// Must be in accordance with [`req_meta_mem`].
+        /// 
+        /// [`req_meta_mem`]: method.Talloc.req_meta_mem.html
         metadata_memory: Option<*mut u8> 
     },
 }
@@ -122,12 +140,12 @@ impl MemMode {
 /// `Ok(())` will result in another attempt.
 /// 
 /// Recovering may involve the following steps:
-/// - Call `talloc.get_arena()` to fetch the current arena.
-/// - Call `extend` on the arena to get a `new_arena`.
-/// - Call `talloc.get_meta_mem()` to fetch the old metadata memory.
-/// - Call `talloc.req_meta_mem(new_arena)` to get the new metadata memory requirement.
-/// - Call `talloc.extend(new_arena, mem_mode)` to extend the allocator's arena.
-/// - Call `talloc.release(mem)` to release some memory for allocation.
+/// - `talloc.get_arena()` to fetch the current arena.
+/// - [`extend`] (extend) the arena to get a `new_arena`.
+/// - `talloc.get_meta_mem()` to fetch the old metadata memory.
+/// - `talloc.req_meta_mem(new_arena)` to get the new metadata memory requirement.
+/// - `talloc.extend(new_arena, mem_mode)` to extend the allocator's arena.
+/// - `talloc.release(mem)` to release some memory for allocation.
 /// 
 /// See the example in the README of this project. TODO LINK
 /// 
@@ -688,7 +706,7 @@ impl<const BIAS: usize> Talloc<BIAS> {
     
             let old_ctrl_size = self.llists.len() * NODE_SIZE + self.bitmap.len();
             let old_ctrl_mem = Span::from_ptr_size(self.llists.cast(), old_ctrl_size);
-            let contained_ctrl_mem = old_ctrl_mem.align_outward(self.min_size).clamp(self.arena);
+            let contained_ctrl_mem = old_ctrl_mem.align_outward(self.min_size).within(self.arena);
             talloc.release(contained_ctrl_mem);
 
             talloc.scan_llists_for_errors();
@@ -740,7 +758,7 @@ impl<const BIAS: usize> Talloc<BIAS> {
     /// * `span` must not overlap the current metadata memory, `get_meta_mem`.
     /// * Unallocated memory in `span` must not be modified.
     pub unsafe fn release(&mut self, span: Span) {
-        let span = span.clamp(self.arena).align_inward(self.min_size);
+        let span = span.within(self.arena).align_inward(self.min_size);
         
         // nothing to release; return early
         if span.is_empty() { return; }

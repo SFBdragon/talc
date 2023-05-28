@@ -63,7 +63,7 @@ def plot_benchmark(filename):
         diff = round(difference_average(v1, v2), 2)    
         full_diff_str += f'{k1} - {k2}: {diff}%\n'
             
-    plt.figtext(0.133, 0.71, full_diff_str, fontsize=10)
+    plt.figtext(0.25, 0.76, full_diff_str, fontsize=10)
     plt.show()
 
 def percentage_difference(a,b):
