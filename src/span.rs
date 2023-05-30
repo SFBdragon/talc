@@ -2,10 +2,19 @@ use core::ops::Range;
 
 use crate::{align_down, align_up};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Span {
     pub base: isize,
     pub acme: isize,
+}
+
+impl core::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Span")
+            .field("base", &format_args!("{:#x}", self.base))
+            .field("acme", &format_args!("{:#x}", self.acme))
+            .finish()
+    }
 }
 
 impl From<Range<*mut u8>> for Span {

@@ -27,6 +27,7 @@ pub const unsafe fn next_pow2_nonzero(val: usize) -> usize {
     1 << u64::BITS - (val - 1).leading_zeros()
 }
 
+
 /// Copy bits from `src` `src_base..src_acme` into `dst` `dst_base..dst_acme`,
 /// where the indecies are in bits from the slices' respective bases.
 pub fn copy_slice_bits(dst: *mut [u8], src: *const [u8], dst_bit_index: usize, src_bit_index: usize, bit_len: usize) {

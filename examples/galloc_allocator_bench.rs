@@ -109,7 +109,7 @@ macro_rules! benchmark_list {
 
 struct NamedAllocator {
     name: &'static str,
-    init_fn: fn() -> &'static dyn GlobalAlloc,
+    init_fn: fn() -> &'static (dyn GlobalAlloc + Send + Sync),
 }
 
 macro_rules! allocator_list {
@@ -128,8 +128,8 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALLOC_ALLOCATOR: talloc::Tallock<{talloc::SPEED_BIAS}> = 
-    talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error).wrap_spin_lock();
+static mut TALLOC_ALLOCATOR: talloc::Talloc<{talloc::SPEED_BIAS}> = 
+    talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error);
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
@@ -154,7 +154,7 @@ fn main() {
     );
     let allocators = allocator_list!(
         init_talloc,
-        init_jemalloc,
+        /* init_jemalloc, */
         /* init_linux, */
         init_galloc/* ,
         init_linked_list_allocator,
@@ -171,7 +171,16 @@ fn main() {
                     let mean: Mean = (0..TRIALS_AMOUNT)
                         .map(|_| {
                             let allocator_ref = (allocator.init_fn)();
-                            (benchmark.benchmark_fn)(duration, allocator_ref) as f64
+                            std::thread::scope(|s| {
+                                let pts = [
+                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                ];
+                                
+                                pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b) as f64
+                            })
                         })
                         .collect();
                     println!("hi");
@@ -196,10 +205,10 @@ fn main() {
     }
 }
 
-fn init_talloc() -> &'static dyn GlobalAlloc {
+fn init_talloc() -> &'static (dyn GlobalAlloc + Send + Sync) {
     unsafe {
-        TALLOC_ALLOCATOR = talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error).wrap_spin_lock();
-        TALLOC_ALLOCATOR.lock().extend(HEAP.as_mut_slice().into(), talloc::MemMode::Automatic).unwrap();
+        TALLOC_ALLOCATOR = talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error);
+        TALLOC_ALLOCATOR.core.write().extend(HEAP.as_mut_slice().into(), talloc::MemMode::Automatic).unwrap();
     }
     unsafe { &TALLOC_ALLOCATOR }
 }
@@ -211,7 +220,7 @@ fn init_linked_list_allocator() -> &'static dyn GlobalAlloc {
     &LINKED_LIST_ALLOCATOR
 }
 
-fn init_galloc() -> &'static dyn GlobalAlloc {
+fn init_galloc() -> &'static (dyn GlobalAlloc + Send + Sync) {
     unsafe {
         GALLOC_ALLOCATOR = good_memory_allocator::SpinLockedAllocator::empty();
     }

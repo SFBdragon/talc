@@ -28,11 +28,11 @@ use simple_chunk_allocator::{GlobalChunkAllocator, DEFAULT_CHUNK_SIZE};
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
 use talloc::Talloc;
 
-use std::alloc::{Allocator, Layout};
+use std::alloc::{Allocator, Layout, GlobalAlloc};
 use std::time::Instant;
 
 /// This is already enough to fill the corresponding heaps.
-const BENCH_DURATION: f64 = 1.0;
+const BENCH_DURATION: f64 = 3.0;
 
 /// 160 MiB heap size.
 const HEAP_SIZE: usize = 0xa000000;
@@ -54,7 +54,7 @@ static mut HEAP_BITMAP_MEMORY: PageAlignedBytes<BITMAP_SIZE> = PageAlignedBytes(
 /// execute it with `RUSTFLAGS="-C target-cpu=native" cargo run --example bench --release`
 ///
 fn main() {
-    let chunk_allocator = unsafe {
+    /* let chunk_allocator = unsafe {
         GlobalChunkAllocator::<DEFAULT_CHUNK_SIZE>::new(
             HEAP_MEMORY.0.as_mut_slice(),
             HEAP_BITMAP_MEMORY.0.as_mut_slice(),
@@ -62,7 +62,7 @@ fn main() {
     };
 
     let bench_chunk = benchmark_allocator(&mut chunk_allocator.allocator_api_glue());
-
+ */
     let mut linked_list_allocator = unsafe {
         linked_list_allocator::LockedHeap::new(HEAP_MEMORY.0.as_mut_ptr() as _, HEAP_SIZE)
     };
@@ -80,12 +80,12 @@ fn main() {
     let mut talloc = Talloc::<{talloc::SPEED_BIAS}>::new_arena(
             unsafe { &mut HEAP_MEMORY.0 }, 
             DEFAULT_CHUNK_SIZE
-        ).wrap_spin_lock();
+        );
 
     let bench_talloc = benchmark_allocator(&mut talloc);
 
-    print_bench_results("Chunk Allocator", &bench_chunk);
-    println!();
+    /* print_bench_results("Chunk Allocator", &bench_chunk);
+    println!(); */
     print_bench_results("Linked List Allocator", &bench_linked);
     println!();
     print_bench_results("Galloc", &bench_galloc);
@@ -93,7 +93,7 @@ fn main() {
     print_bench_results("Talloc", &bench_talloc);
 }
 
-fn benchmark_allocator(alloc: &mut dyn Allocator) -> BenchRunResults {
+fn benchmark_allocator(alloc: &mut dyn GlobalAlloc) -> BenchRunResults {
     let mut x = 0u32;
     let mut now_fn = || unsafe { std::arch::x86_64::__rdtscp(std::ptr::addr_of_mut!(x)) };
 
@@ -110,7 +110,7 @@ fn benchmark_allocator(alloc: &mut dyn Allocator) -> BenchRunResults {
         let size = fastrand::usize(64..16384);
         let layout = Layout::from_size_align(size, powers_of_two[alignment_i]).unwrap();
         let alloc_begin = now_fn();
-        let alloc_res = alloc.allocate(layout);
+        let alloc_res = unsafe { alloc.alloc(layout) };
         let alloc_ticks = now_fn() - alloc_begin;
         all_alloc_measurements.push(alloc_ticks);
         all_allocations.push(Some((layout, alloc_res)));
@@ -131,13 +131,13 @@ fn benchmark_allocator(alloc: &mut dyn Allocator) -> BenchRunResults {
             .filter(|x| x.is_some())
             // .take() important; so that we don't allocate the same allocation multiple times ;)
             .map(|x| x.take().unwrap())
-            .filter(|(_, res)| res.is_ok())
-            .map(|(layout, res)| (layout, res.unwrap()))
+            .filter(|(_, res)| !res.is_null())
+            .map(|(layout, res)| (layout, res))
             .take(count_allocations_to_free)
             .for_each(|(layout, allocation)| unsafe {
                 // println!("dealloc: layout={:?}", layout);
                 all_deallocations.push((layout, allocation));
-                alloc.deallocate(allocation.as_non_null_ptr(), layout);
+                alloc.dealloc(allocation, layout);
             });
     }
 
@@ -150,7 +150,7 @@ fn benchmark_allocator(alloc: &mut dyn Allocator) -> BenchRunResults {
             .iter()
             .filter(|x| x.is_some())
             .map(|x| x.as_ref().unwrap())
-            .map(|(_layout, res)| res.is_ok())
+            .map(|(_layout, res)| !res.is_null())
             .count() as _,
         deallocations: all_deallocations.len() as _,
         allocation_measurements: all_alloc_measurements,

@@ -1,5 +1,3 @@
-use core::cell::Cell;
-
 
 /// Describes a linked list node.
 /// 
@@ -19,13 +17,12 @@ use core::cell::Cell;
 /// 
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
 #[derive(Debug)]
-pub struct LlistNode<T> {
-    pub data: T, // this is superfluous in this project, maybe remove it
-    pub next: Cell<*mut LlistNode<T>>,
-    pub prev: Cell<*mut LlistNode<T>>,
+pub(crate) struct LlistNode {
+    pub next: *mut LlistNode,
+    pub prev: *mut LlistNode,
 }
 
-impl<T> LlistNode<T> {
+impl LlistNode {
     /// Create a new independent node in place.
     /// 
     /// Warning: This will not call `remove` on `node`, regardless of initialization. 
@@ -36,12 +33,9 @@ impl<T> LlistNode<T> {
     /// ### Safety:
     /// * `node` must be valid for writes and properly aligned.
     #[inline]
-    pub unsafe fn new_llist(node: *mut Self, data: T) {
-        node.write(Self {
-            data,
-            prev: Cell::new(node),
-            next: Cell::new(node),
-        });
+    pub unsafe fn new(node: *mut Self) {
+        debug_assert!(node > 0x10000 as _);
+        node.write(Self { prev: node, next: node });
     }
 
     /// Create a new node as a member of an existing linked list in place of `node`.
@@ -57,15 +51,12 @@ impl<T> LlistNode<T> {
     /// ### Safety:
     /// * `node` must be `ptr::write`-able.
     /// * `prev` and `next` must be dereferencable and valid.
-    pub unsafe fn new(node: *mut Self, prev: *mut Self, next: *mut Self, data: T) {
-        node.write(Self { 
-            data,
-            prev: Cell::new(prev),
-            next: Cell::new(next),
-        });
+    pub unsafe fn insert(node: *mut Self, prev: *mut Self, next: *mut Self) {
+        debug_assert!(node > 0x10000 as _);
+        node.write(Self { prev, next });
 
-        (*next).prev.set(node);
-        (*prev).next.set(node);
+        (*next).prev = node;
+        (*prev).next = node;
     }
     
     /// Move `self` into a new location, leaving `self` as an isolated node.
@@ -73,17 +64,19 @@ impl<T> LlistNode<T> {
     /// * `dest` must be `ptr::write`-able.
     /// * `self` must be dereferencable and valid.
     pub unsafe fn mov(src: *mut Self, dst: *mut Self) {
+        debug_assert!(src > 0x10000 as _);
+        debug_assert!(dst > 0x10000 as _);
         // src.prev and src.next can be src, so order of ops is important
-        let src_prev = (*src).prev.get();
-        let src_next = (*src).next.get();
-        (*src_prev).next.set(dst);
-        (*src_next).prev.set(dst);
+        let src_prev = (*src).prev;
+        let src_next = (*src).next;
+        (*src_prev).next = dst;
+        (*src_next).prev = dst;
 
         let src_node = src.read();
 
         // src can be dst, so write in the canaries after reading but before writing
-        (*src).prev.set(0xabc as *mut _);
-        (*src).next.set(0xabc as *mut _);
+        (*src).prev = 0xabc as *mut _;
+        (*src).next = 0xabc as *mut _;
 
         dst.write(src_node);
     }
@@ -92,15 +85,17 @@ impl<T> LlistNode<T> {
     /// If `self` is linked only to itself, this is effectively a no-op.
     /// ### Safety:
     /// * `self` must be dereferencable and valid.
-    pub unsafe fn remove(node: *mut Self) -> T {
-        let prev = (*node).prev.get();
-        let next = (*node).next.get();
-        (*prev).next.set(next);
-        (*next).prev.set(prev);
+    pub unsafe fn remove(node: *mut Self) {
+        debug_assert!(node > 0x10000 as _);
+        let prev = (*node).prev;
+        let next = (*node).next;
+        debug_assert!(prev > 0x10000 as _, "{:p} {:p} {:p}", node, prev, next);
+        debug_assert!(next > 0x10000 as _);
+        (*prev).next = next;
+        (*next).prev = prev;
 
-        (*node).prev.set(node);
-        (*node).next.set(node);
-        node.read().data
+        (*node).prev = node;
+        (*node).next = node;
     }
 
 
@@ -118,16 +113,16 @@ impl<T> LlistNode<T> {
     /// * All arguments must be dereferencable and valid.
     pub unsafe fn relink(start: *mut Self, end: *mut Self, prev: *mut Self, next: *mut Self) {
         // link up old list
-        let start_prev = (*start).prev.get();
-        let end_next   = (*end)  .next.get();
-        (*start_prev).next.set(end_next);
-        (*end_next)  .prev.set(start_prev);
+        let start_prev = (*start).prev;
+        let end_next   = (*end)  .next;
+        (*start_prev).next = end_next;
+        (*end_next)  .prev = start_prev;
 
         // link up new list
-        (*start).prev.set(prev);
-        (*end)  .next.set(next);
-        (*prev) .next.set(start);
-        (*next) .prev.set(end);
+        (*start).prev = prev;
+        (*end)  .next = next;
+        (*prev) .next = start;
+        (*next) .prev = end;
     }
 
 
@@ -136,7 +131,7 @@ impl<T> LlistNode<T> {
     /// ### Safety:
     /// `start`'s linked list must remain in a valid state during iteration.
     /// Modifying `LlistNode`s already returned by the iterator is okay.
-    pub unsafe fn iter_mut(sentinel: *mut Self) -> IterMut<T> {
+    pub unsafe fn iter_mut(sentinel: *mut Self) -> IterMut {
         IterMut::new(sentinel)
     }
 }
@@ -147,24 +142,24 @@ impl<T> LlistNode<T> {
 /// This `struct` is created by `LlistNode::iter_mut`. See its documentation for more.
 #[derive(Debug, Clone, Copy)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct IterMut<T> {
-    forward: *mut LlistNode<T>,
-    backward: *mut LlistNode<T>,
+pub(crate) struct IterMut {
+    forward: *mut LlistNode,
+    backward: *mut LlistNode,
     ongoing: bool,
 }
-impl<T> IterMut<T> {
+impl IterMut {
     /// Create a new iterator over a linked list, *except* `sentinel`.
-    pub unsafe fn new(sentinel: *mut LlistNode<T>) -> Self {
+    pub unsafe fn new(sentinel: *mut LlistNode) -> Self {
         Self {
-            forward: (*sentinel).next.get(),
-            backward: (*sentinel).prev.get(),
-            ongoing: sentinel != (*sentinel).next.get(),
+            forward: (*sentinel).next,
+            backward: (*sentinel).prev,
+            ongoing: sentinel != (*sentinel).next,
         }
     }
 }
 
-impl<T> Iterator for IterMut<T> {
-    type Item = *mut LlistNode<T>;
+impl Iterator for IterMut {
+    type Item = *mut LlistNode;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ongoing {
@@ -172,22 +167,7 @@ impl<T> Iterator for IterMut<T> {
             if self.forward == self.backward {
                 self.ongoing = false;
             }
-            self.forward = unsafe { (*self.forward).next.get() };
-            Some(ret)
-        } else {
-            None
-        }
-    }
-}
-
-impl<T> DoubleEndedIterator for IterMut<T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.ongoing {
-            let ret = self.backward;
-            if self.forward == self.backward {
-                self.ongoing = false;
-            }
-            self.backward = unsafe { (*self.backward).prev.get() };
+            self.forward = unsafe { (*self.forward).next };
             Some(ret)
         } else {
             None
