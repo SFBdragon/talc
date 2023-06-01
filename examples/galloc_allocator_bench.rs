@@ -35,8 +35,8 @@ use std::{
 
 use average::Mean;
 
-const CHUNKS_AMOUNT: usize = 1 << 20;
-const CHUNK_SIZE: usize = 256;
+const CHUNKS_AMOUNT: usize = 1 << 18;
+const CHUNK_SIZE: usize = 64;
 const HEAP_SIZE: usize = CHUNKS_AMOUNT * CHUNK_SIZE;
 
 static mut HEAP: simple_chunk_allocator::PageAligned<[u8; HEAP_SIZE]> =
@@ -129,7 +129,7 @@ macro_rules! allocator_list {
 }
 
 static mut TALLOC_ALLOCATOR: talloc::Talloc<{talloc::SPEED_BIAS}> = 
-    talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error);
+    talloc::Talloc::new(CHUNK_SIZE);
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
@@ -141,7 +141,7 @@ static CHUNK_ALLOCATOR: GlobalChunkAllocator<'static, CHUNK_SIZE> =
 
 fn main() {
     const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
-    const TRIALS_AMOUNT: usize = 10;
+    const TRIALS_AMOUNT: usize = 5;
 
     let _ = std::fs::remove_dir_all(BENCHMARK_RESULTS_DIR);
 
@@ -171,16 +171,20 @@ fn main() {
                     let mean: Mean = (0..TRIALS_AMOUNT)
                         .map(|_| {
                             let allocator_ref = (allocator.init_fn)();
-                            std::thread::scope(|s| {
-                                let pts = [
-                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
-                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
-                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
-                                    s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
-                                ];
-                                
-                                pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b) as f64
-                            })
+                            if true {
+                                (benchmark.benchmark_fn)(duration, allocator_ref) as f64
+                            } else {
+                                std::thread::scope(|s| {
+                                    let pts = [
+                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref)),
+                                    ];
+                                    
+                                    pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b) as f64
+                                })
+                            }
                         })
                         .collect();
                     println!("hi");
@@ -207,8 +211,8 @@ fn main() {
 
 fn init_talloc() -> &'static (dyn GlobalAlloc + Send + Sync) {
     unsafe {
-        TALLOC_ALLOCATOR = talloc::Talloc::new(CHUNK_SIZE, talloc::alloc_error);
-        TALLOC_ALLOCATOR.core.write().extend(HEAP.as_mut_slice().into(), talloc::MemMode::Automatic).unwrap();
+        TALLOC_ALLOCATOR = talloc::Talloc::new(CHUNK_SIZE);
+        TALLOC_ALLOCATOR.core.lock().extend(HEAP.as_mut_slice().into(), talloc::MemMode::Automatic).unwrap();
     }
     unsafe { &TALLOC_ALLOCATOR }
 }
@@ -260,8 +264,8 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize 
     
             match action {
                 0 => {
-                    let size = fastrand::usize(100..=1000);
-                    let alignment = 1 << fastrand::usize(0..=10);
+                    let size = fastrand::usize(20..=200);
+                    let alignment = 1 << fastrand::usize(0..=7);
                     if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
                         v.push(allocation)
                     }
@@ -276,7 +280,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize 
                     if !v.is_empty() {
                         let index = fastrand::usize(0..v.len());
                         if let Some(random_allocation) = v.get_mut(index) {
-                            let size = fastrand::usize(100..=10000);
+                            let size = fastrand::usize(20..=2000);
                             random_allocation.realloc(size);
                         }
                     }

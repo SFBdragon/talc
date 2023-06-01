@@ -32,10 +32,10 @@ use std::alloc::{Allocator, Layout, GlobalAlloc};
 use std::time::Instant;
 
 /// This is already enough to fill the corresponding heaps.
-const BENCH_DURATION: f64 = 3.0;
+const BENCH_DURATION: f64 = 1.0;
 
 /// 160 MiB heap size.
-const HEAP_SIZE: usize = 0xa000000;
+const HEAP_SIZE: usize = 0x10000000;
 /// Backing memory for heap management.
 static mut HEAP_MEMORY: PageAlignedBytes<HEAP_SIZE> = PageAlignedBytes([0; HEAP_SIZE]);
 
@@ -79,7 +79,7 @@ fn main() {
 
     let mut talloc = Talloc::<{talloc::SPEED_BIAS}>::new_arena(
             unsafe { &mut HEAP_MEMORY.0 }, 
-            DEFAULT_CHUNK_SIZE
+            64
         );
 
     let bench_talloc = benchmark_allocator(&mut talloc);
@@ -101,14 +101,11 @@ fn benchmark_allocator(alloc: &mut dyn GlobalAlloc) -> BenchRunResults {
     let mut all_deallocations = Vec::new();
     let mut all_alloc_measurements = Vec::new();
 
-    let powers_of_two = [1, 2, 4, 8, 16, 32, 64, 128];
-
     // run for 10s
     let bench_begin_time = Instant::now();
     while bench_begin_time.elapsed().as_secs_f64() <= BENCH_DURATION {
-        let alignment_i = fastrand::usize(0..powers_of_two.len());
         let size = fastrand::usize(64..16384);
-        let layout = Layout::from_size_align(size, powers_of_two[alignment_i]).unwrap();
+        let layout = Layout::from_size_align(size, 1 << fastrand::u32(0..8)).unwrap();
         let alloc_begin = now_fn();
         let alloc_res = unsafe { alloc.alloc(layout) };
         let alloc_ticks = now_fn() - alloc_begin;
@@ -120,8 +117,8 @@ fn benchmark_allocator(alloc: &mut dyn GlobalAlloc) -> BenchRunResults {
         let count_all_allocations_not_freed_yet =
             all_allocations.iter().filter(|x| x.is_some()).count();
         let count_allocations_to_free =
-            if count_all_allocations_not_freed_yet > 10 && fastrand::usize(0..10) == 0 {
-                7
+            if count_all_allocations_not_freed_yet > 10 && fastrand::usize(0..6) == 0 {
+                5
             } else {
                 0
             };

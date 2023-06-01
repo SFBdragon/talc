@@ -42,10 +42,10 @@ fuzz_target!(|data: (u8, u8, u8, Vec<Actions>)| {
     for action in actions {
         match action {
             Alloc { size, align_bit } => {
-                //println!("ALLOC | size: {:x} align: {:x}", size as usize, 1 << align_bit % 12);
-                if size == 0 { continue; }
+                if size == 0 || align_bit > 12 { continue; }
+                //eprintln!("ALLOC | size: {:x} align: {:x}", size as usize, 1 << align_bit % 12);
 
-                let layout = Layout::from_size_align(size as usize, 1 << align_bit % 12).unwrap();
+                let layout = Layout::from_size_align(size as usize, 1 << align_bit).unwrap();
                 let ptr = unsafe { allocator.alloc(layout) };
 
                 if ptr::null_mut() != ptr {
@@ -58,7 +58,7 @@ fuzz_target!(|data: (u8, u8, u8, Vec<Actions>)| {
                 
                 let (ptr, layout) = allocations[index as usize];
                 
-                //println!("DEALLOC | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
+                //eprintln!("DEALLOC | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
                 unsafe { allocator.dealloc(ptr, layout); }
                 allocations.swap_remove(index as usize);
             }
@@ -68,30 +68,34 @@ fuzz_target!(|data: (u8, u8, u8, Vec<Actions>)| {
 
                 let (ptr, old_layout) = allocations[index as usize];
 
-                //println!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x} new_align: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize, 1 << new_align_bit % 12);
+                
+                //eprintln!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize);
                 
                 let new_layout = Layout::from_size_align(new_size as usize, old_layout.align()).unwrap();
 
                 let ptr = unsafe { allocator.realloc(ptr, old_layout, new_size as usize) };
 
-                if ptr::null_mut() != ptr {
+                if !ptr.is_null() {
                     allocations[index as usize] = (ptr, new_layout);
                     //unsafe { ptr.as_ptr().as_mut_ptr().add(old_layout.size()).write_bytes(0xcd, layout.size()); }
                 }
             }
             Extend { low, high } => {
-                let new_arena = allocator.core.read().get_arena()
+                //eprintln!("EXTEND | low: {} high: {} old arena {}", low, high, allocator.core.lock().get_arena());
+
+                let new_arena = allocator.core.lock().get_arena()
                     .extend(low as usize, high as usize)
                     .above(arena.as_mut_ptr() as isize)
                     .below(arena.as_mut_ptr().wrapping_add(arena.len()) as isize);
 
-                let _ = unsafe { allocator.core.write().extend(new_arena, MemMode::Automatic) };
+                let _ = unsafe { allocator.core.lock().extend(new_arena, MemMode::Automatic) };
             }
         }
     }
 
     // Free any remaining allocations.
     for (ptr, layout) in allocations {
+        //eprintln!("DEALLOC FINAL | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
         unsafe { allocator.dealloc(ptr, layout); }
     }
 
