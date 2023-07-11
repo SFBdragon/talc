@@ -1,0 +1,36 @@
+[package]
+name = "talloc-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+spin = "0.9.8"
+rand = "0.8.5"
+
+[dependencies.talloc]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_arena"
+path = "fuzz_targets/fuzz_arena.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_bits"
+path = "fuzz_targets/fuzz_bits.rs"
+test = false
+doc = false
