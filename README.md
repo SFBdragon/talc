@@ -1,6 +1,10 @@
 # Talloc
 _The TauOS Allocator_
 
+![License](https://img.shields.io/crates/l/talloc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talloc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talloc?style=flat-square)
+
+
+
 Talloc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps.
 
 Using Talloc as a simple arena allocator is easy, but practical concerns in `no_std` environments are facilitated too, such as custom OOM handling, as well as powerful features like extending and reducing the allocation arena dynamically.
