@@ -1,8 +1,7 @@
-# Talloc_The TauOS Allocator_
-
+# Talloc
+_The TauOS Allocator_
 
 ![License](https://img.shields.io/crates/l/talloc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talloc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talloc?style=flat-square)
-
 
 
 Talloc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps.
@@ -177,9 +176,11 @@ fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
 
     let old_arena: Span = talloc.get_arena();
 
-    if old_arena.acme == ARENA_TOP_LIMIT {
-        // we won't free any more, so return AllocError
-        return Err(AllocError);
+    if let Span::Sized { base: _, acme } = old_arena {
+        if acme == ARENA_TOP_LIMIT {
+           // we won't free any more, so return AllocError
+            return Err(AllocError);
+        }
     }
 
     // we're going to extend the arena upward, doubling its size
