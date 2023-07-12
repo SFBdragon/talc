@@ -1,5 +1,5 @@
-# Talloc
-_The TauOS Allocator_
+# Talloc_The TauOS Allocator_
+
 
 ![License](https://img.shields.io/crates/l/talloc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talloc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talloc?style=flat-square)
 
@@ -113,10 +113,10 @@ Note that:
 
 
 
-## Method
-This is a dlmalloc-style implementation with boundary tagging and bucketing used to efficiently do general-purpose allocation.
+## Algorithms
+This is a dlmalloc-style implementation with boundary tagging and bucketing aimed at general-purpose use cases.
 
-The main differences compared to Galloc is that Talloc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
+The main differences compared to Galloc is that Talloc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations.
 
