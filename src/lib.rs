@@ -80,8 +80,8 @@ const BIN_COUNT: usize = usize::BITS as usize * 2;
 
 /// `size` should be larger or equal to MIN_CHUNK_SIZE
 #[inline]
-unsafe fn g_of_size(size: usize) -> u8 {
-    // this mess determine the bucketing strategy used by the allocator
+unsafe fn bucket_of_size(size: usize) -> usize {
+    // this mess determines the bucketing strategy used by the allocator
     // the default is to have a bucket per multiple of word size from the minimum
     // chunk size up to WORD_BUCKETED_SIZE and double word gap (sharing two sizes)
     // up to DOUBLE_BUCKETED_SIZE, and from there on use pseudo-logarithmic sizes.
@@ -91,38 +91,60 @@ unsafe fn g_of_size(size: usize) -> u8 {
     // and increase by some power of two fraction (quarters, on 64 bit machines)
     // until reaching the next power of two, and repeat:
     // e.g. begin at 32, increase by quarters: 32, 40, 48, 56, 64, 80, 96, 112, 128, ...
-    // going from a size to a bucket or a bucket to a size here is only a handful
-    // of instructions, but it looks a bit magic.
-
-    // to get g of size, take the base two logarithm and subtract the number of bits
-    // taken up by the fractional contribution to get the slide factor. slide the size
-    // and clear the top bit to get the fractional index. add the fractional index
-    // to the (size log2 minus the offset multiplied by the number of fractions).
-    // this algorithm is reversible too, but this is not used as of yet.
 
     // note to anyone adding support for another word size: use buckets.py to figure it out
     const ERRMSG: &str = "Unsupported system word size, open an issue/create a PR!";
-    const WORD_BIN_LIMIT: usize = match WORD_SIZE { 8 => 256, 4 => 64, _ => panic!("{}", ERRMSG) };
-    const DOUBLE_BIN_LIMIT: usize = match WORD_SIZE { 8 => 512, 4 => 128, _ => panic!("{}", ERRMSG) };
-    /// Log 2 of the number of divisions per power of 2.
-    const G_P2DV: usize = match WORD_SIZE { 8 => 4u8, 4 => 2, _ => panic!("{}", ERRMSG) }.ilog2() as usize;
 
-    const DBL_BUCKET_G: u8 = ((WORD_BIN_LIMIT - MIN_CHUNK_SIZE) / WORD_SIZE) as u8;
-    const EXP_BUCKET_G: usize = DBL_BUCKET_G as usize + ((DOUBLE_BIN_LIMIT - WORD_BIN_LIMIT) / WORD_SIZE / 2);
-    /// Log 2 of inimum chunk size.
-    const G_OFST: usize = DOUBLE_BIN_LIMIT.ilog2() as usize;
+    /// up to what size do we use a bin for every multiple of a word
+    const WORD_BIN_LIMIT: usize = match WORD_SIZE { 8 => 256, 4 => 64, _ => panic!("{}", ERRMSG) };
+    /// up to what size beyond that do we use a bin for every multiple of a doubleword
+    const DOUBLE_BIN_LIMIT: usize = match WORD_SIZE { 8 => 512, 4 => 128, _ => panic!("{}", ERRMSG) };
+    /// how many buckets are linearly spaced among each power of two magnitude (how many divisions)
+    const DIVS_PER_POW2: usize = match WORD_SIZE { 8 => 4, 4 => 2, _ => panic!("{}", ERRMSG) };
+    /// how many bits are used to determine the division
+    const DIV_BITS: usize = DIVS_PER_POW2.ilog2() as usize;
+
+    /// the bucket index at which the doubleword separated buckets start
+    const DBL_BUCKET: usize = (WORD_BIN_LIMIT - MIN_CHUNK_SIZE) / WORD_SIZE;
+    /// the bucket index at which the peudo-exponentially separated buckets start
+    const EXP_BUCKET: usize = DBL_BUCKET + (DOUBLE_BIN_LIMIT - WORD_BIN_LIMIT) / WORD_SIZE / 2;
+    /// Log 2 of (minimum pseudo-exponential chunk size)
+    const MIN_EXP_BITS_LESS_ONE: usize = DOUBLE_BIN_LIMIT.ilog2() as usize;
+
 
     debug_assert!(size >= MIN_CHUNK_SIZE);
 
     if size < WORD_BIN_LIMIT {
-        ((size - MIN_CHUNK_SIZE) / WORD_SIZE) as u8
+        // single word separated bucket
+
+        (size - MIN_CHUNK_SIZE) / WORD_SIZE
     } else if size < DOUBLE_BIN_LIMIT {
-        (size / (2 * WORD_SIZE)) as u8 - (WORD_BIN_LIMIT / (2 * WORD_SIZE)) as u8 + DBL_BUCKET_G
-        // equiv to (size - WORD_BIN_LIMIT) / 2WORD_SIZE + DBL_BUCKET_G
+        // double word separated bucket
+
+        // equiv to (size - WORD_BIN_LIMIT) / 2WORD_SIZE + DBL_BUCKET
+        // but saves an instruction
+        size / (2 * WORD_SIZE) - WORD_BIN_LIMIT / (2 * WORD_SIZE) + DBL_BUCKET
     } else {
-        let size_log2 = size.ilog2() as usize;
-        let g = ((size >> size_log2 - G_P2DV) ^ (1 << G_P2DV)) + ((size_log2 - G_OFST) << G_P2DV);
-        (g + EXP_BUCKET_G).min(BIN_COUNT - 1) as u8
+        // pseudo-exponentially separated bucket
+
+        // here's what a size is, bit by bit: 1_div_extra
+        // e.g. with four divisions 1_01_00010011000
+        // the bucket is determined by the magnitude and the division
+        // mag 0 div 0, mag 0 div 1, mag 0 div 2, mag 0 div 3, mag 1 div 0, ...
+
+        let bits_less_one = size.ilog2() as usize;
+
+        // the magnitude the size belongs to.
+        // calculate the difference in bit count i.e. difference in power
+        let magnitude = bits_less_one - MIN_EXP_BITS_LESS_ONE;
+        // the division of the magnitude the size belongs to.
+        // slide the size to get the division bits at the bottom and remove the top bit
+        let division = (size >> bits_less_one - DIV_BITS) - DIVS_PER_POW2;
+        // the index into the pseudo-exponential buckets.
+        let bucket_offset = magnitude * DIVS_PER_POW2 + division;
+
+        // cap the max bucket at the last bucket
+        (bucket_offset + EXP_BUCKET).min(BIN_COUNT - 1)
     }
 }
 
@@ -265,23 +287,23 @@ impl Talloc {
     /// # Safety:
     /// - Do not dereference the pointer. Use `read_llist` instead.
     /// - `g` must be lower than `BUCKET_COUNT`
-    unsafe fn get_llist_ptr(&mut self, g: u8) -> *mut Option<NonNull<LlistNode>> {
-        debug_assert!(g < BIN_COUNT as u8);
+    unsafe fn get_llist_ptr(&mut self, b: usize) -> *mut Option<NonNull<LlistNode>> {
+        debug_assert!(b < BIN_COUNT);
         
-        self.llists.as_mut_ptr().add(g as usize)
+        self.llists.as_mut_ptr().add(b)
     }
 
     /// Safely read from `llists`.
     /// # Safety:
     /// `g` must be lower than `BUCKET_COUNT`
-    unsafe fn read_llist(&mut self, g: u8) -> Option<NonNull<LlistNode>> {
+    unsafe fn read_llist(&mut self, b: usize) -> Option<NonNull<LlistNode>> {
         // read volatile gets around the issue with violating Rust's aliasing rules
         // by preventing the compiler from eliding or messing with reads to the
         // linked list pointers. For example, Rust will not realize that removing
         // a node in the linked list might modify the llists while we hold an
         // &mut to the struct, and you get weird behaviour due to optimizations.
         // see llists's docs on safety for some more info.
-        self.get_llist_ptr(g).read_volatile()
+        self.get_llist_ptr(b).read_volatile()
     }
 
 
@@ -294,28 +316,28 @@ impl Talloc {
     }
 
     #[inline]
-    fn set_avails(&mut self, g: u8) {
-        debug_assert!(g < 128);
+    fn set_avails(&mut self, b: usize) {
+        debug_assert!(b < BIN_COUNT);
 
-        if g < 64 {
-            debug_assert!(self.availability_low & 1 << g == 0);
-            self.availability_low ^= 1 << g;
+        if b < 64 {
+            debug_assert!(self.availability_low & 1 << b == 0);
+            self.availability_low ^= 1 << b;
         } else {
-            debug_assert!(self.availability_high & 1 << g - 64 == 0);
-            self.availability_high ^= 1 << g - 64;
+            debug_assert!(self.availability_high & 1 << b - 64 == 0);
+            self.availability_high ^= 1 << b - 64;
         }
     }
     #[inline]
-    fn clear_avails(&mut self, g: u8) {
-        debug_assert!(g < 128);
+    fn clear_avails(&mut self, b: usize) {
+        debug_assert!(b < BIN_COUNT);
 
         // if head is the last node
-        if g < 64 {
-            self.availability_low ^= 1 << g;
-            debug_assert!(self.availability_low & 1 << g == 0);
+        if b < 64 {
+            self.availability_low ^= 1 << b;
+            debug_assert!(self.availability_low & 1 << b == 0);
         } else {
-            self.availability_high ^= 1 << g - 64;
-            debug_assert!(self.availability_high & 1 << g - 64 == 0);
+            self.availability_high ^= 1 << b - 64;
+            debug_assert!(self.availability_high & 1 << b - 64 == 0);
         }
     }
 
@@ -325,20 +347,20 @@ impl Talloc {
         debug_assert!(ge_min_size_apart(base, acme));
         let size = acme.sub_ptr(base);
 
-        let g = g_of_size(size);
+        let b = bucket_of_size(size);
         let free_chunk = FreeChunk(base);
 
-        if self.read_llist(g).is_none() {
-            self.set_avails(g);
+        if self.read_llist(b).is_none() {
+            self.set_avails(b);
         }
         
         LlistNode::insert(
             free_chunk.node_ptr(), 
-            self.get_llist_ptr(g), 
-            self.read_llist(g)
+            self.get_llist_ptr(b), 
+            self.read_llist(b)
         );
 
-        debug_assert!(self.read_llist(g).is_some());
+        debug_assert!(self.read_llist(b).is_some());
 
         // write in low size tag above the node pointers
         *free_chunk.size_ptr() = size;
@@ -347,13 +369,13 @@ impl Talloc {
     }
 
     #[inline]
-    unsafe fn remove_chunk_from_record(&mut self, node_ptr: *mut LlistNode, g: u8) {
-        debug_assert!(self.read_llist(g).is_some());
+    unsafe fn remove_chunk_from_record(&mut self, node_ptr: *mut LlistNode, b: usize) {
+        debug_assert!(self.read_llist(b).is_some());
 
         LlistNode::remove(node_ptr);
         
-        if self.read_llist(g).is_none() {
-            self.clear_avails(g);
+        if self.read_llist(b).is_none() {
+            self.clear_avails(b);
         }
     }
 
@@ -422,21 +444,25 @@ impl Talloc {
     /// Returns `(chunk_ptr, chunk_size, alloc_ptr)`
     unsafe fn get_sufficient_chunk(&mut self, layout: Layout) -> Option<(*mut u8, *mut u8, *mut u8)> {
         let req_chunk_size = Self::required_chunk_size(layout.size());
-        let mut g = g_of_size(req_chunk_size) as i8 - 1;
+
+        // we need to cast to isize to allow this to wrap to -1 
+        // and have comparisons (within larger_nonempty_bucket) work right
+        // this will immediately correct after the first call to larger_nonempty_bucket
+        let mut b = bucket_of_size(req_chunk_size) as isize - 1;
 
         if layout.align() <= ALIGN {
             // the required alignment is most often the machine word size (or less)
             // a faster loop without alignment checking is used in this case
             loop {
-                g = self.g_of_larger_nonempty_bucket(g)?;
+                b = self.larger_nonempty_bucket(b)?;
     
-                for node_ptr in LlistNode::iter_mut(self.read_llist(g as u8)) {
+                for node_ptr in LlistNode::iter_mut(self.read_llist(b as usize)) {
                     let free_chunk = FreeChunk(node_ptr.as_ptr().cast());
                     let chunk_size = *free_chunk.size_ptr();
     
                     // if the chunk size is sufficient, remove from bookkeeping data structures and return
                     if chunk_size >= req_chunk_size {
-                        self.remove_chunk_from_record(free_chunk.node_ptr(), g as u8);
+                        self.remove_chunk_from_record(free_chunk.node_ptr(), b as usize);
     
                         return Some((
                             free_chunk.ptr(), 
@@ -452,9 +478,9 @@ impl Talloc {
             let align_mask = layout.align() - 1;
 
             loop {
-                g = self.g_of_larger_nonempty_bucket(g)?;
+                b = self.larger_nonempty_bucket(b)?;
 
-                for node_ptr in LlistNode::iter_mut(self.read_llist(g as u8)) {
+                for node_ptr in LlistNode::iter_mut(self.read_llist(b as usize)) {
                     let free_chunk = FreeChunk(node_ptr.as_ptr().cast());
                     let chunk_size = *free_chunk.size_ptr();
 
@@ -465,7 +491,7 @@ impl Talloc {
 
                         // if the remaining size is sufficient, remove the chunk from the books and return
                         if aligned_ptr.add(layout.size()) <= chunk_acme {
-                            self.remove_chunk_from_record(free_chunk.node_ptr(), g as u8);
+                            self.remove_chunk_from_record(free_chunk.node_ptr(), b as usize);
                             return Some((free_chunk.ptr(), chunk_acme, aligned_ptr));
                         }
                     }
@@ -475,33 +501,33 @@ impl Talloc {
     }
 
     #[inline(always)]
-    fn g_of_larger_nonempty_bucket(&self, mut g: i8) -> Option<i8> {
-        // if g == 63, the next up are the high flags, 
-        // so only worry about the low flags for g < 63
-        if g < 63 {
+    fn larger_nonempty_bucket(&self, mut b: isize) -> Option<isize> {
+        // if b == 63, the next up are the high flags, 
+        // so only worry about the low flags for b < 63
+        if b < 63 {
             // shift flags such that only flags for larger buckets are kept
-            let shifted_avails = self.availability_low >> g + 1;
+            let shifted_avails = self.availability_low >> b + 1;
 
             // find the next up, grab from the high flags, or quit
             if shifted_avails != 0 {
-                g += 1 + shifted_avails.trailing_zeros() as i8;
+                b += 1 + shifted_avails.trailing_zeros() as isize;
             } else if self.availability_high != 0 {
-                g = self.availability_high.trailing_zeros() as i8 + 64;
+                b = self.availability_high.trailing_zeros() as isize + 64;
             } else {
                 return None;
             }
         } else {
             // similar process to the above, but the low flags are irrelevant
-            let shifted_avails = self.availability_high >> g - 63;
+            let shifted_avails = self.availability_high >> b - 63;
 
             if shifted_avails != 0 {
-                g += 1 + shifted_avails.trailing_zeros() as i8;
+                b += 1 + shifted_avails.trailing_zeros() as isize;
             } else {
                 return None;
             }
         }
 
-        Some(g)
+        Some(b)
     }
 
 
@@ -525,7 +551,7 @@ impl Talloc {
                 HighChunk::Free(high_chunk) => {
                     // get the size, remove the high free chunk from the books, widen the deallotation
                     let high_chunk_size = *high_chunk.size_ptr();
-                    self.remove_chunk_from_record(high_chunk.node_ptr(), g_of_size(high_chunk_size));
+                    self.remove_chunk_from_record(high_chunk.node_ptr(), bucket_of_size(high_chunk_size));
                     chunk_acme = chunk_acme.add(high_chunk_size);
                 },
             }
@@ -542,7 +568,7 @@ impl Talloc {
 
             self.remove_chunk_from_record(
                 FreeChunk(chunk_ptr).node_ptr(), 
-                g_of_size(low_chunk_size)
+                bucket_of_size(low_chunk_size)
             );
         }
 
@@ -595,7 +621,7 @@ impl Talloc {
 
                 // is the additional memeory sufficient?
                 if high_chunk_acme >= new_req_acme {
-                    self.remove_chunk_from_record(free_chunk.node_ptr(), g_of_size(high_chunk_size));
+                    self.remove_chunk_from_record(free_chunk.node_ptr(), bucket_of_size(high_chunk_size));
 
                     // finally, determine if the remainder of the free block is big enough
                     // to be freed again, or if the entire region should be allocated
@@ -668,7 +694,7 @@ impl Talloc {
                     HighChunk::Free(free_chunk) => {
                         let free_chunk_size = *free_chunk.size_ptr();
                         chunk_acme = free_chunk.ptr().add(free_chunk_size);
-                        self.remove_chunk_from_record(free_chunk.node_ptr(), g_of_size(free_chunk_size));
+                        self.remove_chunk_from_record(free_chunk.node_ptr(), bucket_of_size(free_chunk_size));
                     },
                 }
             } else {
@@ -853,7 +879,7 @@ impl Talloc {
             let top_size = *old_alloc_acme.cast::<usize>().sub(1);
             let top_chunk = FreeChunk(old_alloc_acme.sub(top_size));
 
-            self.remove_chunk_from_record(top_chunk.node_ptr(), g_of_size(top_size));
+            self.remove_chunk_from_record(top_chunk.node_ptr(), bucket_of_size(top_size));
             self.add_chunk_to_record(top_chunk.ptr(), self.alloc_acme);
 
         } else if self.alloc_acme.sub_ptr(old_alloc_acme) > MIN_CHUNK_SIZE {
@@ -870,7 +896,7 @@ impl Talloc {
             let bottom_chunk = FreeChunk(old_alloc_base);
             let bottom_size = *bottom_chunk.size_ptr();
 
-            self.remove_chunk_from_record(bottom_chunk.node_ptr(), g_of_size(bottom_size));
+            self.remove_chunk_from_record(bottom_chunk.node_ptr(), bucket_of_size(bottom_size));
             self.add_chunk_to_record(self.alloc_base, bottom_chunk.ptr().add(bottom_size));
 
         } else if old_alloc_base.sub_ptr(self.alloc_base) > MIN_CHUNK_SIZE {
@@ -951,7 +977,7 @@ impl Talloc {
             );
             
             unsafe {
-                self.remove_chunk_from_record(top_free_chunk.node_ptr(), g_of_size(top_free_size));
+                self.remove_chunk_from_record(top_free_chunk.node_ptr(), bucket_of_size(top_free_size));
             }
 
             if ge_min_size_apart(top_free_chunk.ptr(), new_alloc_acme) {
@@ -977,7 +1003,7 @@ impl Talloc {
             let base_free_chunk_acme = base_free_chunk.ptr().wrapping_add(base_free_size);
 
             unsafe {
-                self.remove_chunk_from_record(base_free_chunk.node_ptr(), g_of_size(base_free_size));
+                self.remove_chunk_from_record(base_free_chunk.node_ptr(), bucket_of_size(base_free_size));
             }
 
             if ge_min_size_apart(new_alloc_base, base_free_chunk_acme) {
@@ -1003,10 +1029,10 @@ impl Talloc {
     pub fn mov(self, dest: &mut core::mem::MaybeUninit<Self>) -> &mut Self {
         let ref_mut = dest.write(self);
 
-        for g in 0..ref_mut.llists.len() {
-            if let Some(ptr) = unsafe { ref_mut.read_llist(g as u8) } {
+        for b in 0..ref_mut.llists.len() {
+            if let Some(ptr) = unsafe { ref_mut.read_llist(b) } {
                 unsafe {
-                    (*ptr.as_ptr()).next_of_prev = ref_mut.get_llist_ptr(g as u8);
+                    (*ptr.as_ptr()).next_of_prev = ref_mut.get_llist_ptr(b);
                 }
             }
         }
@@ -1034,15 +1060,15 @@ impl Talloc {
             assert!(self.arena.contains_span(alloc_span));
             let mut vec = Vec::<(*mut u8, *mut u8)>::new();
 
-            for g in 0..(BIN_COUNT as u8) {
+            for b in 0..BIN_COUNT {
                 let mut any = false;
                 unsafe {
-                    for node in LlistNode::iter_mut(self.read_llist(g)) {
+                    for node in LlistNode::iter_mut(self.read_llist(b)) {
                         any = true;
-                        if g < 64 {
-                            assert!(self.availability_low & 1 << g != 0);
+                        if b < 64 {
+                            assert!(self.availability_low & 1 << b != 0);
                         } else {
-                            assert!(self.availability_high & 1 << g - 64 != 0);
+                            assert!(self.availability_high & 1 << b - 64 != 0);
                         }
     
                         let free_chunk = FreeChunk(node.as_ptr().cast());
@@ -1070,10 +1096,10 @@ impl Talloc {
                 }
     
                 if !any {
-                    if g < 64 {
-                        assert!(self.availability_low & 1 << g == 0);
+                    if b < 64 {
+                        assert!(self.availability_low & 1 << b == 0);
                     } else {
-                        assert!(self.availability_high & 1 << g - 64 == 0);
+                        assert!(self.availability_high & 1 << b - 64 == 0);
                     }
                 }
             }
