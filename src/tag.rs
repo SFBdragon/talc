@@ -1,10 +1,9 @@
-//! A `Tag` is a size with flags in the least significant 
+//! A `Tag` is a size with flags in the least significant
 //! bits and most significant bit for allocated chunks.
 
 // const UNUSED_BITS: usize = 2; //crate::ALIGN.ilog2();
 // on 64 bit machines we have unused 3 bits to work with but
 // let's keep it more portable for now.
-
 
 /// Tag for allocated chunk metadata.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,7 +23,7 @@ impl core::fmt::Debug for Tag {
 impl Tag {
     pub const ALLOCATED_FLAG: usize = 1 << 0; // pointers are always aligned to 4 bytes at least
     pub const IS_LOW_FREE_FLAG: usize = 1 << 1; // pointers are always aligned to 4 bytes at least
-    
+
     const ACME: usize = !(Self::ALLOCATED_FLAG | Self::IS_LOW_FREE_FLAG);
 
     pub fn new(acme: *mut u8, low_free: bool) -> Self {

@@ -2,21 +2,21 @@
 
 Copyright © 2023 Roee Shoshani, Guy Nir
 
-Permission is hereby granted, free of charge, to any person obtaining a copy 
-of this software and associated documentation files (the “Software”), to deal 
-in the Software without restriction, including without limitation the rights 
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
-copies of the Software, and to permit persons to whom the Software is 
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included 
+The above copyright notice and this permission notice shall be included
 in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
@@ -72,11 +72,7 @@ impl<'a, const CHUNK_SIZE: usize> GlobalChunkAllocator<'a, CHUNK_SIZE> {
 
 unsafe impl<'a, const CHUNK_SIZE: usize> GlobalAlloc for GlobalChunkAllocator<'a, CHUNK_SIZE> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.0
-            .lock()
-            .allocate(layout)
-            .map(|p| p.as_mut_ptr())
-            .unwrap_or(core::ptr::null_mut())
+        self.0.lock().allocate(layout).map(|p| p.as_mut_ptr()).unwrap_or(core::ptr::null_mut())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -148,20 +144,17 @@ fn main() {
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
-    let benchmarks = benchmark_list!(
-        random_actions
-        /* ,heap_exhaustion */
-    );
+    let benchmarks = benchmark_list!(random_actions /* ,heap_exhaustion */);
 
     let allocators = allocator_list!(
-        init_talloc
-        ,init_galloc
-        ,init_jemalloc
-        ,init_linux
-        ,init_linked_list_allocator
-        ,init_chunk_allocator
+        init_talloc,
+        init_galloc,
+        init_jemalloc,
+        init_linux,
+        init_linked_list_allocator,
+        init_chunk_allocator
     );
-    
+
     for benchmark in benchmarks {
         let mut csv = String::new();
         for allocator in allocators {
@@ -180,12 +173,25 @@ fn main() {
                                 let barrier = Barrier::new(THREADS);
                                 std::thread::scope(|s| {
                                     let pts = [
-                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref, &barrier)),
-                                        s.spawn(|| (benchmark.benchmark_fn)(duration, allocator_ref, &barrier)),
+                                        s.spawn(|| {
+                                            (benchmark.benchmark_fn)(
+                                                duration,
+                                                allocator_ref,
+                                                &barrier,
+                                            )
+                                        }),
+                                        s.spawn(|| {
+                                            (benchmark.benchmark_fn)(
+                                                duration,
+                                                allocator_ref,
+                                                &barrier,
+                                            )
+                                        }),
                                     ];
                                     assert!(pts.len() == THREADS);
-                                    
-                                    pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b) as f64
+
+                                    pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b)
+                                        as f64
                                 })
                             }
                         })
@@ -204,14 +210,8 @@ fn main() {
         // remove the last newline.
         csv.pop();
 
-        std::fs::write(
-            format!("{}/{}.csv", BENCHMARK_RESULTS_DIR, benchmark.name),
-            csv,
-        )
-        .unwrap();
+        std::fs::write(format!("{}/{}.csv", BENCHMARK_RESULTS_DIR, benchmark.name), csv).unwrap();
     }
-
-    
 }
 
 fn init_talloc() -> &'static (dyn GlobalAlloc + Send + Sync) {
@@ -257,16 +257,20 @@ fn init_linux() -> &'static (dyn GlobalAlloc + Send + Sync) {
     &std::alloc::System
 }
 
-pub fn random_actions(duration: Duration, allocator: &(dyn GlobalAlloc + Send + Sync), barrier: &Barrier) -> usize {
+pub fn random_actions(
+    duration: Duration,
+    allocator: &(dyn GlobalAlloc + Send + Sync),
+    barrier: &Barrier,
+) -> usize {
     let mut score = 0;
     let mut v = Vec::with_capacity(10000);
-    
+
     barrier.wait();
     let start = Instant::now();
     while start.elapsed() < duration {
         for _ in 0..100 {
             let action = fastrand::usize(0..3);
-    
+
             match action {
                 0 => {
                     let size = fastrand::usize(100..=1000);
@@ -275,14 +279,14 @@ pub fn random_actions(duration: Duration, allocator: &(dyn GlobalAlloc + Send + 
                         v.push(allocation);
                         score += 1;
                     }
-                },
-               1 => {
+                }
+                1 => {
                     if !v.is_empty() {
                         let index = fastrand::usize(0..v.len());
                         v.swap_remove(index);
                         score += 1;
                     }
-                },
+                }
                 2 => {
                     if !v.is_empty() {
                         let index = fastrand::usize(0..v.len());
@@ -292,7 +296,7 @@ pub fn random_actions(duration: Duration, allocator: &(dyn GlobalAlloc + Send + 
                         }
                         score += 1;
                     }
-                },
+                }
                 _ => unreachable!(),
             }
         }
@@ -301,10 +305,14 @@ pub fn random_actions(duration: Duration, allocator: &(dyn GlobalAlloc + Send + 
     score
 }
 
-pub fn heap_exhaustion(duration: Duration, allocator: &(dyn GlobalAlloc + Send + Sync), barrier: &Barrier) -> usize {
+pub fn heap_exhaustion(
+    duration: Duration,
+    allocator: &(dyn GlobalAlloc + Send + Sync),
+    barrier: &Barrier,
+) -> usize {
     let mut v = Vec::with_capacity(10000);
     let mut score = 0;
-    
+
     barrier.wait();
     let start = Instant::now();
 
@@ -317,16 +325,16 @@ pub fn heap_exhaustion(duration: Duration, allocator: &(dyn GlobalAlloc + Send +
                 Some(allocation) => {
                     v.push(allocation);
                     score += 1
-                },
+                }
                 None => {
                     // heap was exhausted, penalize the score by sleeping.
                     std::thread::sleep(Duration::from_millis(3));
-    
+
                     // free all allocation to empty the heap.
                     v.clear();
 
                     break;
-                },
+                }
             }
         }
     }
@@ -348,11 +356,7 @@ impl<'a> AllocationWrapper<'a> {
             return None;
         }
 
-        Some(Self {
-            ptr,
-            layout,
-            allocator,
-        })
+        Some(Self { ptr, layout, allocator })
     }
 
     fn realloc(&mut self, new_size: usize) {

@@ -1,7 +1,5 @@
-//#![doc = include_str!("../README.md")]
-
-//#![cfg_attr(not(any(feature = "stdlib", test)), no_std)]
-
+#![doc = include_str!("../README.md")]
+#![cfg_attr(not(test), no_std)]
 #![feature(ptr_sub_ptr)]
 #![feature(pointer_is_aligned)]
 #![feature(offset_of)]
@@ -11,9 +9,7 @@
 #![feature(const_mut_refs)]
 #![feature(slice_ptr_len)]
 #![feature(const_slice_from_raw_parts_mut)]
-
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
-
 #![feature(maybe_uninit_uninit_array)]
 
 #[cfg(feature = "spin")]
@@ -28,15 +24,11 @@ pub use tallock::Tallock;
 #[cfg(all(feature = "spin", feature = "allocator"))]
 pub use tallock::TallockRef;
 
-pub use span::Span;
 use llist::LlistNode;
+pub use span::Span;
 use tag::Tag;
 
-
-use core::{
-    ptr::NonNull,
-    alloc::Layout,
-};
+use core::{alloc::Layout, ptr::NonNull};
 
 // desciptive error for failures
 // borrow allocator_api's if available, else define our own
@@ -55,17 +47,16 @@ impl core::fmt::Display for AllocError {
 }
 
 // Free chunk (3x ptr size minimum):
-//   ?? | NODE: LlistNode (2 * ptr) SIZE: usize, ..???.., SIZE: usize | ?? 
+//   ?? | NODE: LlistNode (2 * ptr) SIZE: usize, ..???.., SIZE: usize | ??
 // Reserved chunk (1x ptr size of overhead):
-//   ?? | TAG: Tag (usize),       ???????         | ??  
+//   ?? | TAG: Tag (usize),       ???????         | ??
 
-// TAG contains a pointer to the top of the reserved chunk, 
-// a is_allocated (set) bit flag differentiating itself from a NODE pointer 
+// TAG contains a pointer to the top of the reserved chunk,
+// a is_allocated (set) bit flag differentiating itself from a NODE pointer
 // (which is aligned and thus does not have that bit set),
 // as well as a is_low_free bit flag which does what is says on the tin
 
 // go check out g_of_size to see how bucketing works
-
 
 const WORD_SIZE: usize = core::mem::size_of::<usize>();
 const ALIGN: usize = core::mem::align_of::<usize>();
@@ -96,11 +87,23 @@ unsafe fn bucket_of_size(size: usize) -> usize {
     const ERRMSG: &str = "Unsupported system word size, open an issue/create a PR!";
 
     /// up to what size do we use a bin for every multiple of a word
-    const WORD_BIN_LIMIT: usize = match WORD_SIZE { 8 => 256, 4 => 64, _ => panic!("{}", ERRMSG) };
+    const WORD_BIN_LIMIT: usize = match WORD_SIZE {
+        8 => 256,
+        4 => 64,
+        _ => panic!("{}", ERRMSG),
+    };
     /// up to what size beyond that do we use a bin for every multiple of a doubleword
-    const DOUBLE_BIN_LIMIT: usize = match WORD_SIZE { 8 => 512, 4 => 128, _ => panic!("{}", ERRMSG) };
+    const DOUBLE_BIN_LIMIT: usize = match WORD_SIZE {
+        8 => 512,
+        4 => 128,
+        _ => panic!("{}", ERRMSG),
+    };
     /// how many buckets are linearly spaced among each power of two magnitude (how many divisions)
-    const DIVS_PER_POW2: usize = match WORD_SIZE { 8 => 4, 4 => 2, _ => panic!("{}", ERRMSG) };
+    const DIVS_PER_POW2: usize = match WORD_SIZE {
+        8 => 4,
+        4 => 2,
+        _ => panic!("{}", ERRMSG),
+    };
     /// how many bits are used to determine the division
     const DIV_BITS: usize = DIVS_PER_POW2.ilog2() as usize;
 
@@ -110,7 +113,6 @@ unsafe fn bucket_of_size(size: usize) -> usize {
     const EXP_BUCKET: usize = DBL_BUCKET + (DOUBLE_BIN_LIMIT - WORD_BIN_LIMIT) / WORD_SIZE / 2;
     /// Log 2 of (minimum pseudo-exponential chunk size)
     const MIN_EXP_BITS_LESS_ONE: usize = DOUBLE_BIN_LIMIT.ilog2() as usize;
-
 
     debug_assert!(size >= MIN_CHUNK_SIZE);
 
@@ -139,7 +141,7 @@ unsafe fn bucket_of_size(size: usize) -> usize {
         let magnitude = bits_less_one - MIN_EXP_BITS_LESS_ONE;
         // the division of the magnitude the size belongs to.
         // slide the size to get the division bits at the bottom and remove the top bit
-        let division = (size >> bits_less_one - DIV_BITS) - DIVS_PER_POW2;
+        let division = (size >> (bits_less_one - DIV_BITS)) - DIVS_PER_POW2;
         // the index into the pseudo-exponential buckets.
         let bucket_offset = magnitude * DIVS_PER_POW2 + division;
 
@@ -147,7 +149,6 @@ unsafe fn bucket_of_size(size: usize) -> usize {
         (bucket_offset + EXP_BUCKET).min(BIN_COUNT - 1)
     }
 }
-
 
 fn low_aligned_fit(ptr: *mut u8, align_mask: usize) -> *mut u8 {
     ((ptr as usize + align_mask) & !align_mask) as *mut u8
@@ -157,7 +158,7 @@ fn align_down(ptr: *mut u8) -> *mut u8 {
     (ptr as usize & !(ALIGN - 1)) as *mut u8
 }
 fn align_up(ptr: *mut u8) -> *mut u8 {
-    (ptr as usize + (ALIGN - 1) & !(ALIGN - 1)) as *mut u8
+    ((ptr as usize + (ALIGN - 1)) & !(ALIGN - 1)) as *mut u8
 }
 
 /// Returns whether the two pointers are greater than `MIN_CHUNK_SIZE` apart.
@@ -176,9 +177,9 @@ unsafe fn chunk_ptr_from_alloc_ptr(ptr: *mut u8) -> (*mut u8, Tag) {
     }
 
     let mut low_ptr = ((ptr as usize - TAG_SIZE) & !(ALIGN - 1)) as *mut u8;
-    
+
     let data = *low_ptr.cast::<PreAllocationData>();
-    
+
     // if the chunk_ptr doesn't point to an allocated tag
     // it points to a pointer to the actual tag
     let tag = if !data.tag.is_allocated() {
@@ -200,7 +201,7 @@ struct FreeChunk(*mut u8);
 impl FreeChunk {
     const NODE_OFFSET: usize = 0;
     const SIZE_OFFSET: usize = NODE_SIZE;
-    
+
     fn ptr(self) -> *mut u8 {
         self.0
     }
@@ -232,23 +233,23 @@ impl HighChunk {
 }
 
 type OomHandler = fn(&mut Talloc, Layout) -> Result<(), AllocError>;
-     
+
 pub fn alloc_error(_: &mut Talloc, _: Layout) -> Result<(), AllocError> {
     Err(AllocError)
 }
 
 /// The TauOS Allocator!
-/// 
+///
 /// Note, you're probably looking for `Tallock` if you want
 /// the spin-locked wrapper with the `GlobalAlloc` and `Allocator`
 /// trait implementations.
-/// 
+///
 /// TODO resolve
 pub struct Talloc {
     oom_handler: OomHandler,
 
     arena: Span,
-    
+
     alloc_base: *mut u8,
     alloc_acme: *mut u8,
 
@@ -258,12 +259,13 @@ pub struct Talloc {
     availability_low: usize,
     /// The high bits of the availability flags.
     availability_high: usize,
-    
+
     /// Linked list buckets.
-    /// # SAFETY:
+    ///
+    /// # Safety
     /// This field is not referenced and modified with respect to Rust's aliasing rules.
     /// This can result in undefined behaviour (resulting in real bugs, trust me).
-    /// 
+    ///
     /// Therefore, do not read directly, instead use `read_llist` and `get_llist_ptr`.
     llists: [Option<NonNull<LlistNode>>; BIN_COUNT],
 }
@@ -289,7 +291,7 @@ impl Talloc {
     /// - `g` must be lower than `BUCKET_COUNT`
     unsafe fn get_llist_ptr(&mut self, b: usize) -> *mut Option<NonNull<LlistNode>> {
         debug_assert!(b < BIN_COUNT);
-        
+
         self.llists.as_mut_ptr().add(b)
     }
 
@@ -306,12 +308,11 @@ impl Talloc {
         self.get_llist_ptr(b).read_volatile()
     }
 
-
     const fn required_chunk_size(size: usize) -> usize {
         if size <= MIN_CHUNK_SIZE - TAG_SIZE {
             MIN_CHUNK_SIZE
         } else {
-            size + TAG_SIZE + (ALIGN - 1) & !(ALIGN - 1)
+            (size + TAG_SIZE + (ALIGN - 1)) & !(ALIGN - 1)
         }
     }
 
@@ -323,8 +324,8 @@ impl Talloc {
             debug_assert!(self.availability_low & 1 << b == 0);
             self.availability_low ^= 1 << b;
         } else {
-            debug_assert!(self.availability_high & 1 << b - 64 == 0);
-            self.availability_high ^= 1 << b - 64;
+            debug_assert!(self.availability_high & 1 << (b - 64) == 0);
+            self.availability_high ^= 1 << (b - 64);
         }
     }
     #[inline]
@@ -336,11 +337,10 @@ impl Talloc {
             self.availability_low ^= 1 << b;
             debug_assert!(self.availability_low & 1 << b == 0);
         } else {
-            self.availability_high ^= 1 << b - 64;
-            debug_assert!(self.availability_high & 1 << b - 64 == 0);
+            self.availability_high ^= 1 << (b - 64);
+            debug_assert!(self.availability_high & 1 << (b - 64) == 0);
         }
     }
-
 
     #[inline]
     unsafe fn add_chunk_to_record(&mut self, base: *mut u8, acme: *mut u8) {
@@ -353,12 +353,8 @@ impl Talloc {
         if self.read_llist(b).is_none() {
             self.set_avails(b);
         }
-        
-        LlistNode::insert(
-            free_chunk.node_ptr(), 
-            self.get_llist_ptr(b), 
-            self.read_llist(b)
-        );
+
+        LlistNode::insert(free_chunk.node_ptr(), self.get_llist_ptr(b), self.read_llist(b));
 
         debug_assert!(self.read_llist(b).is_some());
 
@@ -373,21 +369,20 @@ impl Talloc {
         debug_assert!(self.read_llist(b).is_some());
 
         LlistNode::remove(node_ptr);
-        
+
         if self.read_llist(b).is_none() {
             self.clear_avails(b);
         }
     }
 
-
     /// Allocate a contiguous region of memory according to `layout`, if possible.
-    /// # SAFETY:
+    /// # Safety
     /// `layout.size()` must be nonzero.
     pub unsafe fn malloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
         debug_assert!(layout.size() != 0);
 
         // no checks for initialization are performed, as it would be overhead.
-        // this will return None here as the availability flags are initialized 
+        // this will return None here as the availability flags are initialized
         // to zero; all clear; no memory to allocate, call the OOM handler.
         let (free_chunk_ptr, free_chunk_acme, alloc_ptr) = loop {
             match self.get_sufficient_chunk(layout) {
@@ -395,7 +390,7 @@ impl Talloc {
                 None => (self.oom_handler)(self, layout)?,
             }
         };
-        
+
         let pre_alloc_ptr = align_down(alloc_ptr.sub(TAG_SIZE));
         let mut tag_ptr = free_chunk_acme.sub(MIN_CHUNK_SIZE).min(pre_alloc_ptr);
 
@@ -418,13 +413,13 @@ impl Talloc {
             // the required chunk acme due to the allocation
             align_up(alloc_ptr.add(layout.size())),
             // the required chunk acme due to the minimum chunk size
-            tag_ptr.add(MIN_CHUNK_SIZE)
+            tag_ptr.add(MIN_CHUNK_SIZE),
         );
-        
+
         if ge_min_size_apart(req_acme, free_chunk_acme) {
             // add free block above the allocation
             self.add_chunk_to_record(req_acme, free_chunk_acme);
-            
+
             *tag_ptr.cast() = Tag::new(req_acme, is_low_free);
         } else {
             if free_chunk_acme != self.alloc_acme {
@@ -433,7 +428,7 @@ impl Talloc {
                 debug_assert!(self.is_top_free);
                 self.is_top_free = false;
             }
-            
+
             *tag_ptr.cast() = Tag::new(free_chunk_acme, is_low_free);
         }
 
@@ -442,10 +437,13 @@ impl Talloc {
     }
 
     /// Returns `(chunk_ptr, chunk_size, alloc_ptr)`
-    unsafe fn get_sufficient_chunk(&mut self, layout: Layout) -> Option<(*mut u8, *mut u8, *mut u8)> {
+    unsafe fn get_sufficient_chunk(
+        &mut self,
+        layout: Layout,
+    ) -> Option<(*mut u8, *mut u8, *mut u8)> {
         let req_chunk_size = Self::required_chunk_size(layout.size());
 
-        // we need to cast to isize to allow this to wrap to -1 
+        // we need to cast to isize to allow this to wrap to -1
         // and have comparisons (within larger_nonempty_bucket) work right
         // this will immediately correct after the first call to larger_nonempty_bucket
         let mut b = bucket_of_size(req_chunk_size) as isize - 1;
@@ -455,22 +453,22 @@ impl Talloc {
             // a faster loop without alignment checking is used in this case
             loop {
                 b = self.larger_nonempty_bucket(b)?;
-    
+
                 for node_ptr in LlistNode::iter_mut(self.read_llist(b as usize)) {
                     let free_chunk = FreeChunk(node_ptr.as_ptr().cast());
                     let chunk_size = *free_chunk.size_ptr();
-    
+
                     // if the chunk size is sufficient, remove from bookkeeping data structures and return
                     if chunk_size >= req_chunk_size {
                         self.remove_chunk_from_record(free_chunk.node_ptr(), b as usize);
-    
+
                         return Some((
-                            free_chunk.ptr(), 
-                            free_chunk.ptr().add(chunk_size), 
-                            free_chunk.ptr().add(TAG_SIZE)
+                            free_chunk.ptr(),
+                            free_chunk.ptr().add(chunk_size),
+                            free_chunk.ptr().add(TAG_SIZE),
                         ));
                     }
-                }     
+                }
             }
         } else {
             // a larger than word-size alignement is demanded
@@ -486,7 +484,8 @@ impl Talloc {
 
                     if chunk_size >= req_chunk_size {
                         // calculate the lowest aligned pointer above the tag-offset free chunk pointer
-                        let aligned_ptr: _ = low_aligned_fit(free_chunk.ptr().add(TAG_SIZE), align_mask);
+                        let aligned_ptr =
+                            low_aligned_fit(free_chunk.ptr().add(TAG_SIZE), align_mask);
                         let chunk_acme = free_chunk.ptr().add(chunk_size);
 
                         // if the remaining size is sufficient, remove the chunk from the books and return
@@ -502,11 +501,11 @@ impl Talloc {
 
     #[inline(always)]
     fn larger_nonempty_bucket(&self, mut b: isize) -> Option<isize> {
-        // if b == 63, the next up are the high flags, 
+        // if b == 63, the next up are the high flags,
         // so only worry about the low flags for b < 63
         if b < 63 {
             // shift flags such that only flags for larger buckets are kept
-            let shifted_avails = self.availability_low >> b + 1;
+            let shifted_avails = self.availability_low >> (b + 1);
 
             // find the next up, grab from the high flags, or quit
             if shifted_avails != 0 {
@@ -518,7 +517,7 @@ impl Talloc {
             }
         } else {
             // similar process to the above, but the low flags are irrelevant
-            let shifted_avails = self.availability_high >> b - 63;
+            let shifted_avails = self.availability_high >> (b - 63);
 
             if shifted_avails != 0 {
                 b += 1 + shifted_avails.trailing_zeros() as isize;
@@ -530,14 +529,13 @@ impl Talloc {
         Some(b)
     }
 
-
     /// Free previously allocated/reallocated memory.
-    /// # SAFETY:
+    /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn free(&mut self, ptr: NonNull<u8>, _: Layout) {
         let (mut chunk_ptr, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
         let mut chunk_acme = tag.acme_ptr();
-        
+
         debug_assert!(tag.is_allocated());
         debug_assert!(ge_min_size_apart(chunk_ptr, chunk_acme));
 
@@ -551,9 +549,12 @@ impl Talloc {
                 HighChunk::Free(high_chunk) => {
                     // get the size, remove the high free chunk from the books, widen the deallotation
                     let high_chunk_size = *high_chunk.size_ptr();
-                    self.remove_chunk_from_record(high_chunk.node_ptr(), bucket_of_size(high_chunk_size));
+                    self.remove_chunk_from_record(
+                        high_chunk.node_ptr(),
+                        bucket_of_size(high_chunk_size),
+                    );
                     chunk_acme = chunk_acme.add(high_chunk_size);
-                },
+                }
             }
         } else {
             debug_assert!(!self.is_top_free);
@@ -567,8 +568,8 @@ impl Talloc {
             chunk_ptr = chunk_ptr.sub(low_chunk_size);
 
             self.remove_chunk_from_record(
-                FreeChunk(chunk_ptr).node_ptr(), 
-                bucket_of_size(low_chunk_size)
+                FreeChunk(chunk_ptr).node_ptr(),
+                bucket_of_size(low_chunk_size),
             );
         }
 
@@ -579,16 +580,15 @@ impl Talloc {
     }
 
     /// Grow a previously allocated/reallocated region of memory to `new_size`.
-    /// # SAFETY:
+    /// # Safety
     /// `ptr` must have been previously allocated or reallocated given `old_layout`.
     /// `new_size` must be larger or equal to `old_layout.size()`.
     pub unsafe fn grow(
         &mut self,
-        ptr: NonNull<u8>, 
-        layout: Layout, 
-        new_size: usize
+        ptr: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
     ) -> Result<NonNull<u8>, AllocError> {
-        
         debug_assert!(new_size >= layout.size());
 
         let (chunk_ptr, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
@@ -602,14 +602,14 @@ impl Talloc {
             // the required chunk acme due to the allocation
             align_up(ptr.as_ptr().add(new_size)),
             // the required chunk acme due to the minimum chunk size
-            chunk_ptr.add(MIN_CHUNK_SIZE)
+            chunk_ptr.add(MIN_CHUNK_SIZE),
         );
 
         // short-circuit if the chunk is already large enough
         if new_req_acme <= chunk_acme {
             return Ok(ptr);
         }
-        
+
         // otherwise, check if the chunk above 1) exists 2) is free 3) is large enough
         // because free chunks don't border free chunks, this needn't be recursive
         if chunk_acme != self.alloc_acme {
@@ -621,13 +621,16 @@ impl Talloc {
 
                 // is the additional memeory sufficient?
                 if high_chunk_acme >= new_req_acme {
-                    self.remove_chunk_from_record(free_chunk.node_ptr(), bucket_of_size(high_chunk_size));
+                    self.remove_chunk_from_record(
+                        free_chunk.node_ptr(),
+                        bucket_of_size(high_chunk_size),
+                    );
 
                     // finally, determine if the remainder of the free block is big enough
                     // to be freed again, or if the entire region should be allocated
                     if ge_min_size_apart(new_req_acme, high_chunk_acme) {
                         self.add_chunk_to_record(new_req_acme, high_chunk_acme);
-                        
+
                         Tag::set_acme(chunk_ptr.cast(), new_req_acme);
                     } else {
                         if high_chunk_acme != self.alloc_acme {
@@ -641,7 +644,7 @@ impl Talloc {
                     }
 
                     self.scan_for_errors();
-                    return Ok(ptr)
+                    return Ok(ptr);
                 }
             }
         }
@@ -649,7 +652,8 @@ impl Talloc {
         // grow in-place failed; reallocate the slow way
 
         self.scan_for_errors();
-        let allocation = self.malloc(Layout::from_size_align_unchecked(new_size, layout.align()))?;
+        let allocation =
+            self.malloc(Layout::from_size_align_unchecked(new_size, layout.align()))?;
         allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), layout.size());
         self.free(ptr, layout);
         self.scan_for_errors();
@@ -657,11 +661,11 @@ impl Talloc {
     }
 
     /// Shrink a previously allocated/reallocated region of memory to `new_size`.
-    /// 
+    ///
     /// This function is infallibe given valid inputs, and the reallocation will always be
     /// done in-place, maintaining the validity of the pointer.
-    /// 
-    /// # SAFETY:
+    ///
+    /// # Safety
     /// - `ptr` must have been previously allocated or reallocated given `old_layout`.
     /// - `new_size` must be smaller or equal to `old_layout.size()`.
     /// - `new_size` should be nonzero.
@@ -680,22 +684,25 @@ impl Talloc {
             // the required chunk acme due to the allocation
             align_up(ptr.as_ptr().add(layout.size())),
             // the required chunk acme due to the minimum chunk size
-            chunk_ptr.add(MIN_CHUNK_SIZE)
+            chunk_ptr.add(MIN_CHUNK_SIZE),
         );
-        
+
         // if the remainder between the new required size and the originally allocated
         // size is large enough, free the remainder, otherwise leave it
         if ge_min_size_apart(new_req_acme, chunk_acme) {
             // check if there's a chunk above, whether its taken or not, and
-            // modify the taken is_low_free flag/recombine the free block 
+            // modify the taken is_low_free flag/recombine the free block
             if chunk_acme != self.alloc_acme {
                 match HighChunk::from_ptr(chunk_acme) {
                     HighChunk::Full(tag_ptr) => Tag::set_low_free(tag_ptr),
                     HighChunk::Free(free_chunk) => {
                         let free_chunk_size = *free_chunk.size_ptr();
                         chunk_acme = free_chunk.ptr().add(free_chunk_size);
-                        self.remove_chunk_from_record(free_chunk.node_ptr(), bucket_of_size(free_chunk_size));
-                    },
+                        self.remove_chunk_from_record(
+                            free_chunk.node_ptr(),
+                            bucket_of_size(free_chunk_size),
+                        );
+                    }
                 }
             } else {
                 debug_assert!(!self.is_top_free);
@@ -703,15 +710,12 @@ impl Talloc {
             }
 
             self.add_chunk_to_record(new_req_acme, chunk_acme);
-            
+
             Tag::set_acme(chunk_ptr.cast(), new_req_acme);
         }
 
         self.scan_for_errors();
     }
-
-
-
 
     pub const fn new() -> Self {
         Self {
@@ -743,7 +747,6 @@ impl Talloc {
         }
     }
 
-
     pub const fn get_arena(&self) -> Span {
         self.arena
     }
@@ -754,23 +757,20 @@ impl Talloc {
     }
 
     /// Returns the minimum span containing all allocated memory.
-    /// 
+    ///
     /// `None` indicated there is no allocated memory.
     pub fn get_allocated_span(&self) -> Span {
-
         // check if the arena is nonexistant
         if unsafe { self.alloc_acme.sub_ptr(self.alloc_base) } < MIN_CHUNK_SIZE {
             return Span::Empty;
         }
-        
+
         let mut allocated_acme = self.alloc_acme as isize;
         let mut allocated_base = self.alloc_base as isize;
 
         // check for free space at the arena's top
         if self.is_top_free {
-            let top_free_size = unsafe {
-                *self.alloc_acme.cast::<usize>().sub(1)
-            };
+            let top_free_size = unsafe { *self.alloc_acme.cast::<usize>().sub(1) };
 
             allocated_acme -= top_free_size as isize;
         }
@@ -789,21 +789,22 @@ impl Talloc {
     }
 
     /// Initialize the allocator heap.
-    /// # SAFETY:
+    ///
+    /// # Safety
     /// - After initialization, the allocator structure is invalidated if moved.
     /// This is because there are pointers on the heap to this struct.
     /// - Initialization restores validity, but erases all knowledge of previous allocations.
-    /// 
+    ///
     /// Alternatively, use the `mov` method.
     pub unsafe fn init(&mut self, arena: Span) {
         assert!(!arena.contains(0), "Arena covers the null address!");
-        
+
         self.arena = arena;
 
         self.llists = [None; BIN_COUNT];
         self.availability_low = 0;
         self.availability_high = 0;
-        
+
         match arena.word_align_inward() {
             Span::Sized { base, acme } if acme - base >= MIN_CHUNK_SIZE as isize => {
                 self.alloc_base = base as *mut u8;
@@ -811,7 +812,7 @@ impl Talloc {
 
                 self.add_chunk_to_record(self.alloc_base, self.alloc_acme);
                 self.is_top_free = true;
-            },
+            }
             _ => {
                 self.alloc_acme = core::ptr::null_mut();
                 self.alloc_base = core::ptr::null_mut();
@@ -823,17 +824,17 @@ impl Talloc {
         self.scan_for_errors();
     }
 
-    /// Increase the extent of the arena. 
-    /// 
-    /// # SAFETY:
+    /// Increase the extent of the arena.
+    ///
+    /// # Safety
     /// The entire new_arena memory but be readable and writable
     /// and unmutated besides that which is allocated. So on and so forth.
-    /// 
-    /// # Panics:
+    ///
+    /// # Panics
     /// This function panics if:
-    /// - `new_arena` doesn't contain the old arena 
+    /// - `new_arena` doesn't contain the old arena
     /// - `new_arena` contains the null address
-    /// 
+    ///
     /// A recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talloc::{Span, Talloc};
@@ -859,7 +860,7 @@ impl Talloc {
 
         let old_alloc_base = self.alloc_base;
         let old_alloc_acme = self.alloc_acme;
-        
+
         match new_arena.word_align_inward() {
             // we confirmed the new_arena is bigger than the old arena
             // and that the old allocatable range is bigger than min chunk size
@@ -870,7 +871,7 @@ impl Talloc {
 
                 self.alloc_base = base as *mut u8;
                 self.alloc_acme = acme as *mut u8;
-            },
+            }
         }
 
         // if the top chunk is free, extend the block to cover the new extra area
@@ -881,7 +882,6 @@ impl Talloc {
 
             self.remove_chunk_from_record(top_chunk.node_ptr(), bucket_of_size(top_size));
             self.add_chunk_to_record(top_chunk.ptr(), self.alloc_acme);
-
         } else if self.alloc_acme.sub_ptr(old_alloc_acme) > MIN_CHUNK_SIZE {
             self.add_chunk_to_record(old_alloc_acme, self.alloc_acme);
 
@@ -898,7 +898,6 @@ impl Talloc {
 
             self.remove_chunk_from_record(bottom_chunk.node_ptr(), bucket_of_size(bottom_size));
             self.add_chunk_to_record(self.alloc_base, bottom_chunk.ptr().add(bottom_size));
-
         } else if old_alloc_base.sub_ptr(self.alloc_base) > MIN_CHUNK_SIZE {
             self.add_chunk_to_record(self.alloc_base, old_alloc_base);
 
@@ -910,14 +909,14 @@ impl Talloc {
         self.scan_for_errors();
     }
 
-    /// Reduce the extent of the arena. 
+    /// Reduce the extent of the arena.
     /// The new extent must encompass all current allocations. See below.
-    /// 
+    ///
     /// # Panics:
     /// This function panics if:
     /// - old arena doesn't contain `new_arena`
     /// - `new_arena` doesn't contain all the allocated memory
-    /// 
+    ///
     /// The recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talloc::{Span, Talloc};
@@ -934,16 +933,19 @@ impl Talloc {
     /// ```
     pub fn truncate(&mut self, new_arena: Span) {
         let new_alloc_span = new_arena.word_align_inward();
-        
+
         // check that the new_arena is correct
-        assert!(self.arena.contains_span(new_arena), 
-            "the old arena must contain new_arena!");
-        assert!(new_alloc_span.contains_span(self.get_allocated_span()), 
-            "the new_arena must contain the allocated span!");
+        assert!(self.arena.contains_span(new_arena), "the old arena must contain new_arena!");
+        assert!(
+            new_alloc_span.contains_span(self.get_allocated_span()),
+            "the new_arena must contain the allocated span!"
+        );
 
         // if the old allocatable arena is too small to contain anything, just reinit
         if (self.alloc_acme as isize - self.alloc_base as isize) < MIN_CHUNK_SIZE as isize {
-            unsafe { self.init(new_arena); }
+            unsafe {
+                self.init(new_arena);
+            }
             return;
         }
 
@@ -955,9 +957,11 @@ impl Talloc {
                 self.arena = new_arena;
                 new_alloc_base = base as *mut u8;
                 new_alloc_acme = acme as *mut u8;
-            },
+            }
             _ => {
-                unsafe { self.init(new_arena); }
+                unsafe {
+                    self.init(new_arena);
+                }
                 return;
             }
         }
@@ -968,16 +972,15 @@ impl Talloc {
         if new_alloc_acme < self.alloc_acme {
             debug_assert!(self.is_top_free);
 
-            let top_free_size = unsafe {
-                *self.alloc_acme.cast::<usize>().sub(1)
-            };
+            let top_free_size = unsafe { *self.alloc_acme.cast::<usize>().sub(1) };
 
-            let top_free_chunk = FreeChunk(
-                self.alloc_acme.wrapping_sub(top_free_size)
-            );
-            
+            let top_free_chunk = FreeChunk(self.alloc_acme.wrapping_sub(top_free_size));
+
             unsafe {
-                self.remove_chunk_from_record(top_free_chunk.node_ptr(), bucket_of_size(top_free_size));
+                self.remove_chunk_from_record(
+                    top_free_chunk.node_ptr(),
+                    bucket_of_size(top_free_size),
+                );
             }
 
             if ge_min_size_apart(top_free_chunk.ptr(), new_alloc_acme) {
@@ -1003,7 +1006,10 @@ impl Talloc {
             let base_free_chunk_acme = base_free_chunk.ptr().wrapping_add(base_free_size);
 
             unsafe {
-                self.remove_chunk_from_record(base_free_chunk.node_ptr(), bucket_of_size(base_free_size));
+                self.remove_chunk_from_record(
+                    base_free_chunk.node_ptr(),
+                    bucket_of_size(base_free_size),
+                );
             }
 
             if ge_min_size_apart(new_alloc_base, base_free_chunk_acme) {
@@ -1014,7 +1020,7 @@ impl Talloc {
                 }
             } else {
                 self.alloc_base = base_free_chunk_acme;
-                
+
                 unsafe {
                     debug_assert!(base_free_chunk_acme != self.alloc_acme);
                     Tag::clear_low_free(base_free_chunk_acme.cast());
@@ -1041,15 +1047,13 @@ impl Talloc {
     }
 
     /// Wrap in a spin mutex-locked wrapper struct.
-    /// 
+    ///
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
     #[cfg(feature = "spin")]
     pub const fn spin_lock(self) -> Tallock {
         Tallock(spin::Mutex::new(self))
     }
-
-
 
     /// Debugging function for checking various assumptions.
     fn scan_for_errors(&mut self) {
@@ -1058,7 +1062,8 @@ impl Talloc {
             assert!(self.alloc_acme as isize >= self.alloc_base as isize);
             let alloc_span = Span::new(self.alloc_base as _, self.alloc_acme as _);
             assert!(self.arena.contains_span(alloc_span));
-            let mut vec = Vec::<(*mut u8, *mut u8)>::new();
+
+            //let mut vec = Vec::<(*mut u8, *mut u8)>::new();
 
             for b in 0..BIN_COUNT {
                 let mut any = false;
@@ -1068,15 +1073,15 @@ impl Talloc {
                         if b < 64 {
                             assert!(self.availability_low & 1 << b != 0);
                         } else {
-                            assert!(self.availability_high & 1 << b - 64 != 0);
+                            assert!(self.availability_high & 1 << (b - 64) != 0);
                         }
-    
+
                         let free_chunk = FreeChunk(node.as_ptr().cast());
                         let low_size = *free_chunk.size_ptr();
                         let high_size = *free_chunk.ptr().add(low_size - TAG_SIZE).cast::<usize>();
                         assert!(low_size == high_size);
                         assert!(free_chunk.ptr().add(low_size) <= self.alloc_acme);
-    
+
                         if free_chunk.ptr().add(low_size) < self.alloc_acme {
                             let upper_tag = *free_chunk.ptr().add(low_size).cast::<Tag>();
                             assert!(upper_tag.is_allocated());
@@ -1085,21 +1090,21 @@ impl Talloc {
                             assert!(self.is_top_free);
                         }
 
-                        let low_ptr = free_chunk.ptr();
+                        /* let low_ptr = free_chunk.ptr();
                         let high_ptr = low_ptr.add(low_size);
-                
+
                         for &(other_low, other_high) in &vec {
                             assert!(other_high <= low_ptr || high_ptr <= other_low);
                         }
-                        vec.push((low_ptr, high_ptr));
+                        vec.push((low_ptr, high_ptr)); */
                     }
                 }
-    
+
                 if !any {
                     if b < 64 {
                         assert!(self.availability_low & 1 << b == 0);
                     } else {
-                        assert!(self.availability_high & 1 << b - 64 == 0);
+                        assert!(self.availability_high & 1 << (b - 64) == 0);
                     }
                 }
             }
@@ -1117,7 +1122,6 @@ impl Talloc {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
@@ -1125,39 +1129,48 @@ mod tests {
 
     use super::*;
 
-
     #[test]
     fn it_works() {
         const ARENA_SIZE: usize = 10000000;
 
         let arena = vec![0u8; ARENA_SIZE].into_boxed_slice();
         let arena = Box::leak(arena);
-        
+
         let mut talloc = Talloc::new();
-        unsafe { talloc.init(arena.into()); }
+        unsafe {
+            talloc.init(arena.into());
+        }
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
- 
+
         let a = unsafe { talloc.malloc(layout) };
         assert!(a.is_ok());
-        unsafe { a.unwrap().as_ptr().write_bytes(255, layout.size()); }
+        unsafe {
+            a.unwrap().as_ptr().write_bytes(255, layout.size());
+        }
 
-        let mut x =  vec![NonNull::dangling(); 1000];
+        let mut x = vec![NonNull::dangling(); 1000];
 
         let t1 = std::time::Instant::now();
         for _ in 0..1000 {
             for i in 0..1000 {
                 let allocation = unsafe { talloc.malloc(layout) };
                 assert!(allocation.is_ok());
-                unsafe { allocation.unwrap().as_ptr().write_bytes(0xab, layout.size()); }
+                unsafe {
+                    allocation.unwrap().as_ptr().write_bytes(0xab, layout.size());
+                }
                 x[i] = allocation.unwrap();
             }
 
             for i in 0..500 {
-                unsafe { talloc.free(x[i], layout); }
+                unsafe {
+                    talloc.free(x[i], layout);
+                }
             }
             for i in (500..1000).rev() {
-                unsafe { talloc.free(x[i], layout); }
+                unsafe {
+                    talloc.free(x[i], layout);
+                }
             }
         }
         let t2 = std::time::Instant::now();
@@ -1168,4 +1181,3 @@ mod tests {
         }
     }
 }
-

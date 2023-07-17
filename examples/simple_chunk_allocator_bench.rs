@@ -27,11 +27,11 @@ SOFTWARE.
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 
-use simple_chunk_allocator::{GlobalChunkAllocator, DEFAULT_CHUNK_SIZE};
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
+use simple_chunk_allocator::{GlobalChunkAllocator, DEFAULT_CHUNK_SIZE};
 use talloc::Talloc;
 
-use std::alloc::{Layout, Allocator};
+use std::alloc::{Allocator, Layout};
 use std::time::Instant;
 
 const BENCH_DURATION: f64 = 3.0;
@@ -49,7 +49,6 @@ static mut HEAP_BITMAP_MEMORY: PageAlignedBytes<BITMAP_SIZE> = PageAlignedBytes(
 #[repr(align(4096))]
 struct PageAlignedBytes<const N: usize>([u8; N]);
 
-
 fn main() {
     let chunk_allocator = unsafe {
         GlobalChunkAllocator::<DEFAULT_CHUNK_SIZE>::new(
@@ -59,12 +58,10 @@ fn main() {
     };
     let bench_chunk = benchmark_allocator(&chunk_allocator.allocator_api_glue());
 
-
     let linked_list_allocator = unsafe {
         linked_list_allocator::LockedHeap::new(HEAP_MEMORY.0.as_mut_ptr() as _, HEAP_SIZE)
     };
     let bench_linked = benchmark_allocator(&linked_list_allocator);
-
 
     let mut galloc_allocator =
         good_memory_allocator::SpinLockedAllocator::<DEFAULT_SMALLBINS_AMOUNT>::empty();
@@ -73,11 +70,11 @@ fn main() {
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
-
     let tallock = Talloc::new().spin_lock();
-    unsafe { tallock.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into()); }
+    unsafe {
+        tallock.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into());
+    }
     let bench_talloc = benchmark_allocator(&tallock.allocator_api_ref());
-
 
     print_bench_results("Chunk Allocator", &bench_chunk);
     println!();
@@ -90,16 +87,14 @@ fn main() {
 
 fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
     let mut x = 0u32;
-    let mut now_fn = || unsafe {
-        std::arch::x86_64::__rdtscp(std::ptr::addr_of_mut!(x))
-    };
+    let mut now_fn = || unsafe { std::arch::x86_64::__rdtscp(std::ptr::addr_of_mut!(x)) };
 
     let mut active_allocations = Vec::new();
 
     let mut all_alloc_measurements = Vec::new();
     let mut nofail_alloc_measurements = Vec::new();
     let mut dealloc_measurements = Vec::new();
-    
+
     let mut allocation_attempts = 0;
     let mut successful_allocations = 0;
     let mut pre_fail_allocations = 0;
@@ -131,7 +126,9 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
         }
 
         all_alloc_measurements.push(alloc_ticks);
-        if !any_alloc_failed { nofail_alloc_measurements.push(alloc_ticks); }
+        if !any_alloc_failed {
+            nofail_alloc_measurements.push(alloc_ticks);
+        }
 
         if active_allocations.len() > 10 && fastrand::usize(..10) == 0 {
             for _ in 0..7 {
@@ -139,7 +136,9 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
                 let allocation = active_allocations.swap_remove(index);
 
                 let dealloc_begin = now_fn();
-                unsafe { allocator.deallocate(allocation.0, allocation.1); }
+                unsafe {
+                    allocator.deallocate(allocation.0, allocation.1);
+                }
                 let dealloc_ticks = now_fn() - dealloc_begin;
 
                 deallocations += 1;
@@ -169,14 +168,18 @@ fn print_bench_results(bench_name: &str, res: &BenchRunResults) {
     println!("RESULTS OF BENCHMARK: {bench_name}");
     println!(
         " {:7} allocation attempts, {:7} successful allocations, {:7} pre-fail allocations, {:7} deallocations",
-        res.allocation_attempts, 
+        res.allocation_attempts,
         res.successful_allocations,
         res.pre_fail_allocations,
         res.deallocations
     );
 
-    println!("            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE");
-    println!("---------------------|--------------------------------------------------------------------------|---------");
+    println!(
+        "            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE"
+    );
+    println!(
+        "---------------------|--------------------------------------------------------------------------|---------"
+    );
     print_measurement_set(&res.all_alloc_measurements, "All Allocations");
     print_measurement_set(&res.nofail_alloc_measurements, "Pre-Fail Allocations");
     print_measurement_set(&res.dealloc_measurements, "Deallocations");

@@ -1,13 +1,13 @@
 use crate::Talloc;
 
 use core::{
-    alloc::{GlobalAlloc, Layout}, 
-    ptr::{NonNull, self}
+    alloc::{GlobalAlloc, Layout},
+    cmp::Ordering,
+    ptr::{self, NonNull},
 };
 
-
 /// Wrapper struct containing a mutex-locked `Talloc`.
-/// 
+///
 /// In order to access the `Allocator` API, call `allocator_api_ref`.
 #[derive(Debug)]
 pub struct Tallock(pub spin::Mutex<Talloc>);
@@ -15,7 +15,7 @@ pub struct Tallock(pub spin::Mutex<Talloc>);
 impl Tallock {
     /// Get a reference that implements the `Allocator` API.
     #[cfg(feature = "allocator")]
-    pub fn allocator_api_ref<'a>(&'a self) -> TallockRef<'a> {
+    pub fn allocator_api_ref(&self) -> TallockRef<'_> {
         TallockRef(self)
     }
 }
@@ -30,14 +30,19 @@ unsafe impl GlobalAlloc for Tallock {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if new_size > layout.size() {
-            self.0.lock().grow(NonNull::new_unchecked(ptr), layout, new_size)
-                .map_or(ptr::null_mut(), |nn| nn.as_ptr())
-        } else if new_size < layout.size() {
-            self.0.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
-            ptr
-        } else {
-            ptr
+        match layout.size().cmp(&new_size) {
+            Ordering::Less => self
+                .0
+                .lock()
+                .grow(NonNull::new_unchecked(ptr), layout, new_size)
+                .map_or(ptr::null_mut(), |nn| nn.as_ptr()),
+
+            Ordering::Greater => {
+                self.0.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
+                ptr
+            }
+
+            Ordering::Equal => ptr,
         }
     }
 }
@@ -48,7 +53,6 @@ pub struct TallockRef<'a>(pub &'a Tallock);
 
 #[cfg(feature = "allocator")]
 unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
-
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
         if layout.size() == 0 {
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
@@ -70,7 +74,6 @@ unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-
         debug_assert!(new_layout.size() >= old_layout.size());
 
         if old_layout.size() == 0 {
@@ -84,7 +87,10 @@ unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
         }
 
-        self.0.0.lock().grow(ptr, old_layout, new_layout.size())
+        self.0
+            .0
+            .lock()
+            .grow(ptr, old_layout, new_layout.size())
             .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
     }
 
@@ -94,7 +100,6 @@ unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-        
         let res = self.grow(ptr, old_layout, new_layout);
 
         if let Ok(allocation) = res {
@@ -113,7 +118,6 @@ unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-
         debug_assert!(new_layout.size() <= old_layout.size());
 
         if new_layout.size() == 0 {
@@ -133,6 +137,6 @@ unsafe impl<'a> core::alloc::Allocator for TallockRef<'a> {
 
         self.0.0.lock().shrink(ptr, old_layout, new_layout.size());
 
-        return Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()));
+        Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }
 }
