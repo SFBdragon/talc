@@ -11,26 +11,33 @@ Using Talloc as a simple arena allocator is easy, but practical concerns in `no_
 ## Usage
 
 Use it as a global allocator as follows:
-```rust
+```rust ignore
 use talloc::*;
 
 #[global_allocator]
-static ALLOCATOR: Tallock = Talloc:::new().spin_lock();
+static ALLOCATOR: Tallock = Talloc::new().spin_lock();
+static mut ARENA: [u8; 1000] = [0; 1000];
 
-// initialize it later...
-let arena = Span::from(0x100000..0x10000000);
-unsafe { ALLOCATOR.0.lock().init(arena)); }
+fn main() {
+    // initialize it later...
+    unsafe { ALLOCATOR.0.lock().init(ARENA.as_mut_slice().into()); }
+}
 ```
 
-Use it as an arena allocator via the `Allocator` API like so:
-```rust
-let mut arena = vec![0u8; SIZE];
+Use it as an arena allocator via the `Allocator` API as follows:
+```rust ignore
+use talloc::*;
 
-let tallock = Talloc::new().spin_lock();
-tallock.0.lock().init(arena.deref_mut().into());
-let allocator = tallock.allocator_api_ref();
+fn main () {
+    let mut arena = Box::leak(vec![0u8; 10000].into_boxed_slice());
+    
+    let tallock = Talloc::new().spin_lock();
+    unsafe { tallock.0.lock().init(arena.into()); }
 
-allocator.allocate(...);
+    let allocator = tallock.allocator_api_ref();
+    
+    allocator.allocate(..);
+}
 ```
 
 ## Performance
@@ -69,7 +76,7 @@ Note that:
 
 Note: pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
 
-```rust
+```c
 RESULTS OF BENCHMARK: Chunk Allocator
    25714 allocation attempts,   25535 successful allocations,   22479 pre-fail allocations,   18067 deallocations
             CATEGORY | OCTILE 0     1     2     3     4     5     6      7        8 | AVERAGE
@@ -159,6 +166,10 @@ See their docs for more info.
 Instead of using `Talloc::new`, use `Talloc::with_oom_handler` and pass in a function pointer. This function will now be called upon OOM. This can be useful for a number of reasons, but one possiblity is dynamically extending the arena as required.
 
 ```rust
+#![feature(allocator_api)]
+use talloc::*;
+use core::alloc::Layout;
+
 fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
     // alloc doesn't have enough memory, and we just got called! we must free up some memory
     // we'll go through an example of how to handle this situation
@@ -172,20 +183,18 @@ fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
     // indefinitely, causing an infinite loop
 
     // some limit for the sake of example
-    const ARENA_TOP_LIMIT: isize = 0x80000000;
+    const ARENA_TOP_LIMIT: usize = 0x80000000;
 
     let old_arena: Span = talloc.get_arena();
-
-    if let Span::Sized { base: _, acme } = old_arena {
-        if acme == ARENA_TOP_LIMIT {
-           // we won't free any more, so return AllocError
-            return Err(AllocError);
-        }
-    }
 
     // we're going to extend the arena upward, doubling its size
     // but we'll be sure not to extend past the limit
     let new_arena: Span = old_arena.extend(0, old_arena.size()).below(ARENA_TOP_LIMIT);
+
+    if new_arena == old_arena {
+        // we won't be extending the arena, so we should return AllocError
+        return Err(AllocError);
+    }
 
     unsafe {
         // we're assuming the new memory up to ARENA_TOP_LIMIT is allocatable
