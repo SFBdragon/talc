@@ -13,16 +13,16 @@
 #![feature(maybe_uninit_uninit_array)]
 
 #[cfg(feature = "spin")]
-mod tallock;
+mod talck;
 
 mod llist;
 mod span;
 mod tag;
 
 #[cfg(feature = "spin")]
-pub use tallock::Tallock;
+pub use talck::Talck;
 #[cfg(all(feature = "spin", feature = "allocator"))]
-pub use tallock::TallockRef;
+pub use talck::TalckRef;
 
 use llist::LlistNode;
 pub use span::Span;
@@ -231,20 +231,17 @@ impl HighChunk {
     }
 }
 
-type OomHandler = fn(&mut Talloc, Layout) -> Result<(), AllocError>;
+type OomHandler = fn(&mut Talc, Layout) -> Result<(), AllocError>;
 
-pub fn alloc_error(_: &mut Talloc, _: Layout) -> Result<(), AllocError> {
+pub fn alloc_error(_: &mut Talc, _: Layout) -> Result<(), AllocError> {
     Err(AllocError)
 }
 
-/// The TauOS Allocator!
+/// The Talc Allocator!
 ///
-/// Note, you're probably looking for `Tallock` if you want
-/// the spin-locked wrapper with the `GlobalAlloc` and `Allocator`
-/// trait implementations.
-///
-/// TODO resolve
-pub struct Talloc {
+/// Call `spin_lock` on the struct before initialization to get 
+/// a `Talck` which supports the `GlobalAlloc` and `Allocator` traits.
+pub struct Talc {
     oom_handler: OomHandler,
 
     arena: Span,
@@ -269,11 +266,11 @@ pub struct Talloc {
     llists: [Option<NonNull<LlistNode>>; BIN_COUNT],
 }
 
-unsafe impl Send for Talloc {}
+unsafe impl Send for Talc {}
 
-impl core::fmt::Debug for Talloc {
+impl core::fmt::Debug for Talc {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TallocCore")
+        f.debug_struct("Talc")
             .field("arena", &self.arena)
             .field("alloc_base", &self.alloc_base)
             .field("alloc_acme", &self.alloc_acme)
@@ -284,7 +281,7 @@ impl core::fmt::Debug for Talloc {
     }
 }
 
-impl Talloc {
+impl Talc {
     /// # Safety:
     /// - Do not dereference the pointer. Use `read_llist` instead.
     /// - `b` must be lower than `BUCKET_COUNT`
@@ -836,13 +833,13 @@ impl Talloc {
     ///
     /// A recommended pattern for satisfying these criteria is:
     /// ```rust
-    /// # use talloc::{Span, Talloc};
-    /// # let mut tallock = Talloc::new().spin_lock();
-    /// let mut talloc = tallock.0.lock();
+    /// # use talc::{Span, Talc};
+    /// # let mut talck = Talc::new().spin_lock();
+    /// let mut talc = talck.talc();
     /// // compute the new arena as an extention of the old arena
-    /// let new_arena = talloc.get_arena().extend(1234, 5678).above(0x1000);
+    /// let new_arena = talc.get_arena().extend(1234, 5678).above(0x1000);
     /// // SAFETY: be sure not to extend into memory we can't use
-    /// unsafe { talloc.extend(new_arena); }
+    /// unsafe { talc.extend(new_arena); }
     /// ```
     pub unsafe fn extend(&mut self, new_arena: Span) {
         assert!(new_arena.contains_span(self.arena), "new_span must contain the current arena");
@@ -916,17 +913,17 @@ impl Talloc {
     ///
     /// The recommended pattern for satisfying these criteria is:
     /// ```rust
-    /// # use talloc::{Span, Talloc};
-    /// # let mut tallock = Talloc::new().spin_lock();
+    /// # use talc::{Span, Talc};
+    /// # let mut talck = Talc::new().spin_lock();
     /// // lock the allocator otherwise a race condition may occur
     /// // in between get_allocated_span and truncate
-    /// let mut talloc = tallock.0.lock();
+    /// let mut talc = talck.talc();
     /// // compute the new arena as a reduction of the old arena
-    /// let new_arena = talloc.get_arena().truncate(1234, 5678).fit_over(talloc.get_allocated_span());
+    /// let new_arena = talc.get_arena().truncate(1234, 5678).fit_over(talc.get_allocated_span());
     /// // alternatively...
-    /// let new_arena = Span::from(1234..5678).fit_within(talloc.get_arena()).fit_over(talloc.get_allocated_span());
+    /// let new_arena = Span::from(1234..5678).fit_within(talc.get_arena()).fit_over(talc.get_allocated_span());
     /// // truncate the arena
-    /// talloc.truncate(new_arena);
+    /// talc.truncate(new_arena);
     /// ```
     pub fn truncate(&mut self, new_arena: Span) {
         let new_alloc_span = new_arena.word_align_inward();
@@ -1050,8 +1047,8 @@ impl Talloc {
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
     #[cfg(feature = "spin")]
-    pub const fn spin_lock(self) -> Tallock {
-        Tallock(spin::Mutex::new(self))
+    pub const fn spin_lock(self) -> Talck {
+        Talck(spin::Mutex::new(self))
     }
 
     /// Debugging function for checking various assumptions.
@@ -1135,14 +1132,14 @@ mod tests {
         let arena = vec![0u8; ARENA_SIZE].into_boxed_slice();
         let arena = Box::leak(arena);
 
-        let mut talloc = Talloc::new();
+        let mut talc = Talc::new();
         unsafe {
-            talloc.init(arena.into());
+            talc.init(arena.into());
         }
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
 
-        let a = unsafe { talloc.malloc(layout) };
+        let a = unsafe { talc.malloc(layout) };
         assert!(a.is_ok());
         unsafe {
             a.unwrap().as_ptr().write_bytes(255, layout.size());
@@ -1153,7 +1150,7 @@ mod tests {
         let t1 = std::time::Instant::now();
         for _ in 0..100 {
             for i in 0..100 {
-                let allocation = unsafe { talloc.malloc(layout) };
+                let allocation = unsafe { talc.malloc(layout) };
                 assert!(allocation.is_ok());
                 unsafe {
                     allocation.unwrap().as_ptr().write_bytes(0xab, layout.size());
@@ -1163,12 +1160,12 @@ mod tests {
 
             for i in 0..50 {
                 unsafe {
-                    talloc.free(x[i], layout);
+                    talc.free(x[i], layout);
                 }
             }
             for i in (50..100).rev() {
                 unsafe {
-                    talloc.free(x[i], layout);
+                    talc.free(x[i], layout);
                 }
             }
         }
@@ -1176,7 +1173,7 @@ mod tests {
         println!("duration: {:?}", (t2 - t1) / (1000 * 2000));
 
         unsafe {
-            talloc.free(a.unwrap(), layout);
+            talc.free(a.unwrap(), layout);
         }
     }
 }

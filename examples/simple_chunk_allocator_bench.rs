@@ -29,7 +29,7 @@ SOFTWARE.
 
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
 use simple_chunk_allocator::{GlobalChunkAllocator, DEFAULT_CHUNK_SIZE};
-use talloc::Talloc;
+use talc::Talc;
 
 use std::alloc::{Allocator, Layout};
 use std::time::Instant;
@@ -70,11 +70,11 @@ fn main() {
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
-    let tallock = Talloc::new().spin_lock();
+    let talc = Talc::new().spin_lock();
     unsafe {
-        tallock.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into());
+        talc.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into());
     }
-    let bench_talloc = benchmark_allocator(&tallock.allocator_api_ref());
+    let bench_talc = benchmark_allocator(&talc.allocator_api_ref());
 
     print_bench_results("Chunk Allocator", &bench_chunk);
     println!();
@@ -82,7 +82,7 @@ fn main() {
     println!();
     print_bench_results("Galloc", &bench_galloc);
     println!();
-    print_bench_results("Talloc", &bench_talloc);
+    print_bench_results("Talc", &bench_talc);
 }
 
 fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {

@@ -1,11 +1,11 @@
 [package]
-name = "talloc"
-version = "2.0.0"
+name = "talc"
+version = "1.0.0"
 edition = "2021"
 readme = "README.md"
 authors = ["Shaun Beautement"]
 description = "A fast, consistant, and flexible `no_std`-compatible allocator."
-repository = "https://github.com/SFBdragon/talloc"
+repository = "https://github.com/SFBdragon/talc"
 keywords = ["allocator", "no_std", "kernel", "memory", "heap"]
 categories = ["memory-management", "no-std", "embedded"]
 license = "MIT"

@@ -127,7 +127,7 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALLOC_ALLOCATOR: talloc::Tallock = talloc::Talloc::new().spin_lock();
+static mut TALC_ALLOCATOR: talc::Talck = talc::Talc::new().spin_lock();
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
@@ -147,7 +147,7 @@ fn main() {
     let benchmarks = benchmark_list!(random_actions /* ,heap_exhaustion */);
 
     let allocators = allocator_list!(
-        init_talloc,
+        init_talc,
         init_galloc,
         init_jemalloc,
         init_linux,
@@ -214,12 +214,12 @@ fn main() {
     }
 }
 
-fn init_talloc() -> &'static (dyn GlobalAlloc + Send + Sync) {
+fn init_talc() -> &'static (dyn GlobalAlloc + Send + Sync) {
     unsafe {
-        TALLOC_ALLOCATOR = talloc::Talloc::new().spin_lock();
-        TALLOC_ALLOCATOR.0.lock().init(HEAP.as_mut_ptr_range().into());
+        TALC_ALLOCATOR = talc::Talc::new().spin_lock();
+        TALC_ALLOCATOR.0.lock().init(HEAP.as_mut_ptr_range().into());
     }
-    unsafe { &TALLOC_ALLOCATOR }
+    unsafe { &TALC_ALLOCATOR }
 }
 
 fn init_linked_list_allocator() -> &'static (dyn GlobalAlloc + Send + Sync) {

@@ -38,18 +38,18 @@ for i, bsb in enumerate(range(word_buckets_limit, double_buckets_limit, 2*word_s
 
 print("log bins")
 
-g_ofst = int(math.log2(double_buckets_limit)) # log2_start_pow | 16
-g_p2dv = int(math.log2(exp_fractions)) # log2_div_count | 4
+b_ofst = int(math.log2(double_buckets_limit)) # log2_start_pow | 16
+b_p2dv = int(math.log2(exp_fractions)) # log2_div_count | 4
 
-for g in range(0, (word_size * 8 * 2) - word_bins_count - double_bins_count):
+for b in range(0, (word_size * 8 * 2) - word_bins_count - double_bins_count):
     # calculation for size from g
-    size = ((1 << g_p2dv) + (g & ((1<<g_p2dv)-1))) << ((g >> g_p2dv) + (g_ofst-g_p2dv))
+    size = ((1 << b_p2dv) + (b & ((1<<b_p2dv)-1))) << ((b >> b_p2dv) + (b_ofst-b_p2dv))
 
-    # calculation of g from size
+    # calculation of b from size
     size_log2 = math.floor(math.log2(size))
-    g_calc = ((size >> size_log2 - g_p2dv) ^ (1<<g_p2dv)) + ((size_log2-g_ofst) << g_p2dv)
+    g_calc = ((size >> size_log2 - b_p2dv) ^ (1<<b_p2dv)) + ((size_log2-b_ofst) << b_p2dv)
 
     # check that they match
-    assert g == g_calc
+    assert b == g_calc
 
-    print("{1:>3}: {0:>8} {0:>20b} | ".format(size, g + word_bins_count + double_bins_count), end='\n')
+    print("{1:>3}: {0:>8} {0:>20b} | ".format(size, b + word_bins_count + double_bins_count), end='\n')

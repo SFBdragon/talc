@@ -21,7 +21,7 @@
 
 # Modified by Shaun Beautement
 # - extended sample count to 12
-# - made Talloc the baseline for comparison
+# - made Talc the baseline for comparison
 
 import matplotlib.pyplot as plt
 import glob
@@ -58,14 +58,14 @@ def plot_benchmark(filename):
     
     full_diff_str = ''
     
-    k1 = 'talloc'
+    k1 = 'talc'
     for k2 in list(data.keys())[1:]:
         v1 = data[k1]
         v2 = data[k2]
         diff = round(difference_average(v1, v2), 2)    
         full_diff_str += f'{k1} - {k2}: {diff}%\n'
             
-    plt.figtext(0.25, 0.76, full_diff_str, fontsize=10)
+    plt.figtext(0.3, 0.76, full_diff_str, fontsize=10)
     plt.show()
 
 def percentage_difference(a,b):

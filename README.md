@@ -1,40 +1,39 @@
-# Talloc
-_The TauOS Allocator_
+# Talc
 
-![License](https://img.shields.io/crates/l/talloc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talloc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talloc?style=flat-square)
+![License](https://img.shields.io/crates/l/talc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)
 
 
-Talloc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps.
+Talc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps.
 
-Using Talloc as a simple arena allocator is easy, but practical concerns in `no_std` environments are facilitated too, such as custom OOM handling, as well as powerful features like extending and reducing the allocation arena dynamically.
+Using Talc as a simple arena allocator is easy, but practical concerns in `no_std` environments are facilitated too, such as custom OOM handling, as well as powerful features like extending and reducing the allocation arena dynamically.
 
 ## Usage
 
 Use it as a global allocator as follows:
 ```rust ignore
-use talloc::*;
+use talc::*;
 
 #[global_allocator]
-static ALLOCATOR: Tallock = Talloc::new().spin_lock();
+static ALLOCATOR: Talck = Talc::new().spin_lock();
 static mut ARENA: [u8; 1000] = [0; 1000];
 
 fn main() {
     // initialize it later...
-    unsafe { ALLOCATOR.0.lock().init(ARENA.as_mut_slice().into()); }
+    unsafe { ALLOCATOR.talc().init(ARENA.as_mut_slice().into()); }
 }
 ```
 
 Use it as an arena allocator via the `Allocator` API as follows:
 ```rust ignore
-use talloc::*;
+use talc::*;
 
 fn main () {
     let mut arena = Box::leak(vec![0u8; 10000].into_boxed_slice());
     
-    let tallock = Talloc::new().spin_lock();
-    unsafe { tallock.0.lock().init(arena.into()); }
+    let talck = Talc::new().spin_lock();
+    unsafe { talck.talc().init(arena.into()); }
 
-    let allocator = tallock.allocator_api_ref();
+    let allocator = talck.allocator_api_ref();
     
     allocator.allocate(..);
 }
@@ -60,13 +59,13 @@ The original benchmarks have been modified (e.g. replacing `rand` with `fastrand
 
 ![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
 
-Talloc outperforms the alternatives. 
+Talc outperforms the alternatives. 
 
 #### Heap Exhaustion Benchmark Results
 
 ![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
 
-Talloc falls slightly behind if the time penalization is set right.
+Talc falls slightly behind if the time penalization is set right.
 
 Note that:
 - no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
@@ -101,7 +100,7 @@ RESULTS OF BENCHMARK: Galloc
 Pre-Fail Allocations |       42  42  42   42     63     63     63    861   21714 |     691  ticks
        Deallocations |       42  63  84   84    105    231    294    693   15771 |     262  ticks
 
-RESULTS OF BENCHMARK: Talloc
+RESULTS OF BENCHMARK: Talc
  2193976 allocation attempts, 1545626 successful allocations,   24585 pre-fail allocations, 1534743 deallocations
             CATEGORY | OCTILE 0   1   2    3    4    5    6    7      8 | AVERAGE
 ---------------------|--------------------------------------------------|---------
@@ -110,7 +109,7 @@ Pre-Fail Allocations |       42  63  63   84   84   84  105  126   3927 |     10
        Deallocations |       42  84  84  105  105  147  252  336  17115 |     187  ticks
 ```
 
-Talloc performs the best, with only Galloc coming close when not under heap pressure. Galloc often allocates slightly faster than Talloc but otherwise takes much longer, whereas Talloc's performance is much more stable. (Galloc uses dedicated bins covering a smaller range of allocations, while Talloc's binning makes a broader range of allocations quick).
+Talc performs the best, with only Galloc coming close when not under heap pressure. Galloc often allocates slightly faster than Talc but otherwise takes much longer, whereas Talc's performance is much more stable. (Galloc uses dedicated bins covering a smaller range of allocations, while Talc's binning makes a broader range of allocations quick).
 
 Note that:
 - no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
@@ -122,7 +121,7 @@ Note that:
 ## Algorithms
 This is a dlmalloc-style implementation with boundary tagging and bucketing aimed at general-purpose use cases.
 
-The main differences compared to Galloc is that Talloc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
+The main differences compared to Galloc is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations.
 
@@ -132,8 +131,8 @@ Test coverage on most of the helper types and some sanity checking on the alloca
 Other than that, lots of fuzzing of the allocator. See `/fuzz/fuzz_targets/fuzz_arena.rs`
 
 ## Features
-* `spin` (default): Provides the `Tallock` type (a spin mutex wrapper) that implements `GlobalAlloc`.
-* `allocator` (default): Provides an `Allocator` trait implementation via `Tallock`.
+* `spin` (default): Provides the `Talck` type (a spin mutex wrapper) that implements `GlobalAlloc`.
+* `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
 
 ## General Usage
 
@@ -146,11 +145,11 @@ Here is the list of methods:
     * `get_allocatable_span` - returns the current memory region in which allocations could occur
     * `get_allocated_span` - returns the minimum span containing all allocated memory
 * Management:
-    * `mov` - safely move an initialized Talloc to the specified destination
+    * `mov` - safely move an initialized Talc to the specified destination
     * `init` - initialize or re-initialize the arena (forgets all previous allocations, if any)
     * `extend` - initialize or extend the arena region
     * `truncate` - reduce the extent of the arena region
-    * `spin_lock` - wraps the Talloc in a Tallock, which supports the `GlobalAlloc` and `Allocator` APIs
+    * `spin_lock` - wraps the Talc in a talc, which supports the `GlobalAlloc` and `Allocator` APIs
 * Allocation:
     * `malloc`
     * `free`
@@ -163,14 +162,14 @@ See their docs for more info.
 
 ## Advanced Usage
 
-Instead of using `Talloc::new`, use `Talloc::with_oom_handler` and pass in a function pointer. This function will now be called upon OOM. This can be useful for a number of reasons, but one possiblity is dynamically extending the arena as required.
+Instead of using `Talc::new`, use `Talc::with_oom_handler` and pass in a function pointer. This function will now be called upon OOM. This can be useful for a number of reasons, but one possiblity is dynamically extending the arena as required.
 
 ```rust
 #![feature(allocator_api)]
-use talloc::*;
+use talc::*;
 use core::alloc::Layout;
 
-fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
+fn oom_handler(talc: &mut Talc, layout: Layout) -> Result<(), AllocError> {
     // alloc doesn't have enough memory, and we just got called! we must free up some memory
     // we'll go through an example of how to handle this situation
 
@@ -185,7 +184,7 @@ fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
     // some limit for the sake of example
     const ARENA_TOP_LIMIT: usize = 0x80000000;
 
-    let old_arena: Span = talloc.get_arena();
+    let old_arena: Span = talc.get_arena();
 
     // we're going to extend the arena upward, doubling its size
     // but we'll be sure not to extend past the limit
@@ -198,7 +197,7 @@ fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
 
     unsafe {
         // we're assuming the new memory up to ARENA_TOP_LIMIT is allocatable
-        talloc.extend(new_arena);
+        talc.extend(new_arena);
     };
 
     Ok(())
@@ -207,7 +206,7 @@ fn oom_handler(talloc: &mut Talloc, layout: Layout) -> Result<(), AllocError> {
 
 ## Caveat for consideration - multithreaded performance
 
-I don't know why, but Talloc gets hit harder by extreme multithreaded contention than Galloc does. While this is not so relevant to most use cases, I'd like to resolve this issue if possible. If anyone has some tips for alleviating this issue, please open an issue!
+I don't know why, but Talc gets hit harder by extreme multithreaded contention than Galloc does. While this is not so relevant to most use cases, I'd like to resolve this issue if possible. If anyone has some tips for alleviating this issue, please open an issue!
 
 I've tried aligning the bucket array to be on seperate cache lines, but no change in result. Other than that, I don't know what to try.
 

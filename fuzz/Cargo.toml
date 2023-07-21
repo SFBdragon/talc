@@ -1,5 +1,5 @@
 [package]
-name = "talloc-fuzz"
+name = "talc-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -13,7 +13,7 @@ arbitrary = { version = "1", features = ["derive"] }
 spin = "0.9.8"
 rand = "0.8.5"
 
-[dependencies.talloc]
+[dependencies.talc]
 path = ".."
 
 # Prevent this from interfering with workspaces

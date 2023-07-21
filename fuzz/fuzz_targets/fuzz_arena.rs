@@ -6,7 +6,7 @@
 use std::alloc::{Layout, GlobalAlloc};
 use std::ptr;
 
-use talloc::*;
+use talc::*;
 
 use libfuzzer_sys::fuzz_target;
 
@@ -32,7 +32,7 @@ fuzz_target!(|data: (usize, Vec<Actions>)| {
     let arena = Box::leak(vec![0u8; arena_size % (1 << 24)].into_boxed_slice());
     arena.fill(0x11);
 
-    let allocator = Talloc::new().spin_lock();
+    let allocator = Talc::new().spin_lock();
     unsafe { allocator.0.lock().init(arena.into()); }
     
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
@@ -92,12 +92,12 @@ fuzz_target!(|data: (usize, Vec<Actions>)| {
             Truncate { low, high } => {
                 //eprintln!("TRUNCATE | low: {} high: {} old arena {}", low, high, allocator.0.lock().get_arena());
 
-                let mut talloc = allocator.0.lock();
-                let new_arena = talloc.get_arena()
+                let mut talc = allocator.0.lock();
+                let new_arena = talc.get_arena()
                     .truncate(low as usize, high as usize)
-                    .fit_over(talloc.get_allocated_span());
+                    .fit_over(talc.get_allocated_span());
 
-                talloc.truncate(new_arena);
+                talc.truncate(new_arena);
             }
         }
     }
