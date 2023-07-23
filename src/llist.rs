@@ -35,8 +35,8 @@ impl LlistNode {
         next_of_prev: *mut Option<NonNull<LlistNode>>,
         next: Option<NonNull<LlistNode>>,
     ) {
-        debug_assert!(node > 0x1000 as _);
-        debug_assert!(next_of_prev > 0x1000 as _);
+        debug_assert!(!node.is_null());
+        debug_assert!(!next_of_prev.is_null());
 
         node.write(Self { next_of_prev, next });
 
@@ -54,14 +54,13 @@ impl LlistNode {
     /// # Safety
     /// * `self` must be dereferencable and valid.
     pub unsafe fn remove(node: *mut Self) {
-        debug_assert!(node > 0x1000 as _);
+        debug_assert!(!node.is_null());
         let LlistNode { next, next_of_prev } = node.read();
 
-        debug_assert!(next_of_prev > 0x1000 as _);
+        debug_assert!(!next_of_prev.is_null());
         *next_of_prev = next;
 
         if let Some(next) = next {
-            debug_assert!(next.as_ptr() > 0x1000 as _);
             (*next.as_ptr()).next_of_prev = next_of_prev;
         }
     }
@@ -121,51 +120,55 @@ impl Iterator for IterMut {
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::{addr_of_mut, null_mut};
+    use std::ptr::null_mut;
 
     use super::*;
 
     #[test]
-    fn dostuff() {
+    fn test_llist() {
         unsafe {
-            let mut x: LlistNode = LlistNode { next: None, next_of_prev: null_mut() };
-            let mut y: LlistNode = LlistNode { next: None, next_of_prev: null_mut() };
-            let mut z: LlistNode = LlistNode { next: None, next_of_prev: null_mut() };
+            let x = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
+            let y = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
+            let z = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
 
-            LlistNode::insert(&mut y, LlistNode::next_ptr(&mut x), None);
-            LlistNode::insert(&mut z, LlistNode::next_ptr(&mut x), Some(NonNull::from(&mut y)));
+            LlistNode::insert(y, LlistNode::next_ptr(x), None);
+            LlistNode::insert(z, LlistNode::next_ptr(x), Some(NonNull::new(y).unwrap()));
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::from(&mut x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(z)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(y)));
+            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x)).unwrap());
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == z));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::from(&mut y)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(y)));
+            let mut iter = LlistNode::iter_mut(Some(NonNull::new(y).unwrap()));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::remove(&mut z);
+            LlistNode::remove(z);
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::from(&mut x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(y)));
+            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::insert(&mut z, LlistNode::next_ptr(&mut x), Some(NonNull::from(&mut y)));
+            LlistNode::insert(z, LlistNode::next_ptr(x), Some(NonNull::new(y).unwrap()));
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::from(&mut x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(z)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(y)));
+            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == z));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::remove(&mut z);
-            LlistNode::remove(&mut y);
+            LlistNode::remove(z);
+            LlistNode::remove(y);
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::from(&mut x)));
-            assert!(iter.next().is_some_and(|n| n.as_ptr() == addr_of_mut!(x)));
+            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
             assert!(iter.next().is_none());
+
+            drop(Box::from_raw(x));
+            drop(Box::from_raw(y));
+            drop(Box::from_raw(z));
         }
     }
 }

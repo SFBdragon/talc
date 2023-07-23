@@ -76,37 +76,45 @@ Note that:
 Note: pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
 
 ```c
-RESULTS OF BENCHMARK: Chunk Allocator
-   25714 allocation attempts,   25535 successful allocations,   22479 pre-fail allocations,   18067 deallocations
-            CATEGORY | OCTILE 0     1     2     3     4     5     6      7        8 | AVERAGE
----------------------|--------------------------------------------------------------|---------
-     All Allocations |       63  1176  1659  2058  2457  2940  4179  37569 18199587 |  240918  ticks
-Pre-Fail Allocations |       84  1134  1596  1953  2289  2688  3234   8400  1562757 |   15753  ticks
-       Deallocations |       42   147   231   315   420   504   588    672     1932 |     420  ticks
+RESULTS OF BENCHMARK: Talc
+ 2206572 allocation attempts, 1557742 successful allocations,   25885 pre-fail allocations, 1547084 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
+---------------------|--------------------------------------------------------------------------|---------
+     All Allocations |       42      63      63      84      84     105     105     210   32298 |     132   ticks
+Pre-Fail Allocations |       42      63      63      84      84      84     105     126    1890 |     100   ticks
+       Deallocations |       42      84      84     105     105     210     252     357   23037 |     191   ticks
 
-RESULTS OF BENCHMARK: Linked List Allocator
-  136818 allocation attempts,  106743 successful allocations,   26004 pre-fail allocations,   96369 deallocations
-            CATEGORY | OCTILE 0     1     2      3      4      5      6      7       8 | AVERAGE
----------------------|-----------------------------------------------------------------|---------
-     All Allocations |       42  4032  9261  15729  23772  33999  46977  59010  621642 |   29190  ticks
-Pre-Fail Allocations |       42   840  2121   3780   5964   8694  12243  17514  614250 |   10781  ticks
-       Deallocations |       42  3045  6615  10878  15813  21672  28602  38031  107877 |   18880  ticks
+RESULTS OF BENCHMARK: Buddy Allocator
+ 2367839 allocation attempts, 1662802 successful allocations,   20721 pre-fail allocations, 1656207 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
+---------------------|--------------------------------------------------------------------------|---------
+     All Allocations |       21      42      42      42      42      63      63      63   15246 |      51   ticks
+Pre-Fail Allocations |       21      42      42      42      42      63      63      63  317478 |      72   ticks
+       Deallocations |       42      63      63      63      63      84      84     126   15918 |      98   ticks
 
 RESULTS OF BENCHMARK: Galloc
-  282102 allocation attempts,  206544 successful allocations,   22751 pre-fail allocations,  196616 deallocations
-            CATEGORY | OCTILE 0   1   2    3      4      5      6      7       8 | AVERAGE
----------------------|-----------------------------------------------------------|---------
-     All Allocations |       42  63  63  378  12474  27027  41559  45549  100527 |   19129  ticks
-Pre-Fail Allocations |       42  42  42   42     63     63     63    861   21714 |     691  ticks
-       Deallocations |       42  63  84   84    105    231    294    693   15771 |     262  ticks
+  275165 allocation attempts,  200172 successful allocations,   25253 pre-fail allocations,  189938 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
+---------------------|--------------------------------------------------------------------------|---------
+     All Allocations |       42      63      63     378   12642   28077   42525   47355  104622 |   19699   ticks
+Pre-Fail Allocations |       42      42      42      42      63      63      63    1365   23079 |     879   ticks
+       Deallocations |       42      63      84      84     105     231     315     714   14847 |     272   ticks
 
-RESULTS OF BENCHMARK: Talc
- 2193976 allocation attempts, 1545626 successful allocations,   24585 pre-fail allocations, 1534743 deallocations
-            CATEGORY | OCTILE 0   1   2    3    4    5    6    7      8 | AVERAGE
----------------------|--------------------------------------------------|---------
-     All Allocations |       42  63  63   84   84  105  126  210  38871 |     133  ticks
-Pre-Fail Allocations |       42  63  63   84   84   84  105  126   3927 |     100  ticks
-       Deallocations |       42  84  84  105  105  147  252  336  17115 |     187  ticks
+RESULTS OF BENCHMARK: Linked List Allocator
+  136860 allocation attempts,  106338 successful allocations,   26098 pre-fail allocations,   96117 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
+---------------------|--------------------------------------------------------------------------|---------
+     All Allocations |       42    3654    9072   15603   23772   34356   47397   59451  661773 |   29312   ticks
+Pre-Fail Allocations |       42     588    1743    3402    5607    8358   11865   17115  670194 |   10440   ticks
+       Deallocations |       42    2625    6300   10626   15582   21462   28686   38304   84231 |   18772   ticks
+
+RESULTS OF BENCHMARK: Chunk Allocator
+   28105 allocation attempts,   27873 successful allocations,   24437 pre-fail allocations,   20293 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7        8 | AVERAGE
+---------------------|---------------------------------------------------------------------------|---------
+     All Allocations |       84    1197    1680    2079    2457    2982    4368   30429 21002919 |  220579   ticks
+Pre-Fail Allocations |       84    1155    1617    1974    2310    2709    3255    8631  3886974 |   12814   ticks
+       Deallocations |       42     126     231     315     399     483     567     651     1848 |     408   ticks
 ```
 
 Talc performs the best, with only Galloc coming close when not under heap pressure. Galloc often allocates slightly faster than Talc but otherwise takes much longer, whereas Talc's performance is much more stable. (Galloc uses dedicated bins covering a smaller range of allocations, while Talc's binning makes a broader range of allocations quick).
@@ -182,7 +190,7 @@ fn oom_handler(talc: &mut Talc, layout: Layout) -> Result<(), AllocError> {
     // indefinitely, causing an infinite loop
 
     // some limit for the sake of example
-    const ARENA_TOP_LIMIT: usize = 0x80000000;
+    const ARENA_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
 
     let old_arena: Span = talc.get_arena();
 

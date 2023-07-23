@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use crate::ALIGN;
+use crate::{align_down, align_up, ALIGN};
 
 /// Represents an interval of memory `[base, acme)`
 ///
@@ -14,8 +14,8 @@ use crate::ALIGN;
 /// * Empty spans are contained by all sized spans.
 #[derive(Clone, Copy)]
 pub struct Span {
-    base: usize,
-    acme: usize,
+    base: *mut u8,
+    acme: *mut u8,
 }
 
 impl Default for Span {
@@ -27,7 +27,7 @@ impl Default for Span {
 impl core::fmt::Debug for Span {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.get_base_acme() {
-            Some((base, acme)) => f.write_fmt(format_args!("{:#x}..{:#x}", base, acme)),
+            Some((base, acme)) => f.write_fmt(format_args!("{:p}..{:p}", base, acme)),
             None => f.write_str("Empty Span"),
         }
     }
@@ -36,41 +36,29 @@ impl core::fmt::Debug for Span {
 impl core::fmt::Display for Span {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.get_base_acme() {
-            Some((base, acme)) => f.write_fmt(format_args!("{:#x}..{:#x}", base, acme)),
+            Some((base, acme)) => f.write_fmt(format_args!("{:p}..{:p}", base, acme)),
             None => f.write_str("Empty Span"),
         }
     }
 }
 
-impl From<Range<usize>> for Span {
-    fn from(value: Range<usize>) -> Self {
-        Self { base: value.start, acme: value.end }
-    }
-}
-
 impl From<Range<*mut u8>> for Span {
     fn from(value: Range<*mut u8>) -> Self {
-        Self { base: value.start as usize, acme: value.end as usize }
+        Self { base: value.start, acme: value.end }
     }
 }
 
 impl From<*mut [u8]> for Span {
     #[inline]
     fn from(value: *mut [u8]) -> Self {
-        Self {
-            base: value.as_mut_ptr() as usize,
-            acme: value.as_mut_ptr().wrapping_add(value.len()) as usize,
-        }
+        Self { base: value.as_mut_ptr(), acme: value.as_mut_ptr().wrapping_add(value.len()) }
     }
 }
 
 impl From<&mut [u8]> for Span {
     #[inline]
     fn from(value: &mut [u8]) -> Self {
-        Self {
-            base: value.as_mut_ptr() as usize,
-            acme: value.as_mut_ptr().wrapping_add(value.len()) as usize,
-        }
+        Self { base: value.as_mut_ptr(), acme: value.as_mut_ptr().wrapping_add(value.len()) }
     }
 }
 
@@ -84,37 +72,37 @@ impl Eq for Span {}
 impl Span {
     /// Returns whether `base >= acme`.
     #[inline]
-    pub const fn is_empty(self) -> bool {
+    pub fn is_empty(self) -> bool {
         self.acme <= self.base
     }
 
     /// Returns whether `base < acme`.
     #[inline]
-    pub const fn is_sized(self) -> bool {
+    pub fn is_sized(self) -> bool {
         !self.is_empty()
     }
 
     /// Returns the size of the span, else zero if `base >= span`.
     #[inline]
-    pub const fn size(self) -> usize {
-        if self.is_empty() { 0 } else { self.acme - self.base }
+    pub fn size(self) -> usize {
+        if self.is_empty() { 0 } else { self.acme as usize - self.base as usize }
     }
 
     /// If `self` isn't empty, returns `(base, acme)`
     #[inline]
-    pub const fn get_base_acme(self) -> Option<(usize, usize)> {
+    pub fn get_base_acme(self) -> Option<(*mut u8, *mut u8)> {
         if self.is_empty() { None } else { Some((self.base, self.acme)) }
     }
 
     /// Create an empty span.
     #[inline]
     pub const fn empty() -> Self {
-        Self { base: 0, acme: 0 }
+        Self { base: core::ptr::null_mut(), acme: core::ptr::null_mut() }
     }
 
     /// Create a new span.
     #[inline]
-    pub const fn new(base: usize, acme: usize) -> Self {
+    pub const fn new(base: *mut u8, acme: *mut u8) -> Self {
         Self { base, acme }
     }
 
@@ -122,31 +110,28 @@ impl Span {
     /// # Panics
     /// Panics if `base + size` overflows.
     #[inline]
-    pub const fn from_base_size(base: usize, size: usize) -> Self {
-        match base.checked_add(size) {
-            Some(acme) => Self { base, acme },
-            None => panic!("base + size overflows!"),
+    pub fn from_base_size(base: *mut u8, size: usize) -> Self {
+        // we need to ensure that wrapping doesn't occur
+        // but using wrapping_add is necessary to avoid UB when doing pointer arithmetic
+        match (base as usize).overflowing_add(size).1 {
+            true => Self { base, acme: base.wrapping_add(size) },
+            false => panic!("base + size overflows!"),
         }
-    }
-
-    #[inline]
-    pub fn from_ptr_size(ptr: *mut u8, size: usize) -> Self {
-        Self::from_base_size(ptr as usize, size)
     }
 
     /// Returns `None` if `self` is empty.
     #[inline]
-    pub const fn to_ptr_range(self) -> Option<Range<*mut u8>> {
+    pub fn to_ptr_range(self) -> Option<Range<*mut u8>> {
         if self.is_empty() { None } else { Some((self.base as *mut u8)..(self.acme as *mut u8)) }
     }
 
     /// Returns `None` if `self` is empty.
     #[inline]
-    pub const fn to_slice(self) -> Option<*mut [u8]> {
+    pub fn to_slice(self) -> Option<*mut [u8]> {
         if self.is_empty() {
             None
         } else {
-            Some(core::ptr::slice_from_raw_parts_mut(self.base as *mut u8, self.acme - self.base))
+            Some(core::ptr::slice_from_raw_parts_mut(self.base, self.size()))
         }
     }
 
@@ -154,24 +139,16 @@ impl Span {
     ///
     /// Empty spans contain nothing.
     #[inline]
-    pub const fn contains(self, addr: usize) -> bool {
+    pub fn contains(self, ptr: *mut u8) -> bool {
         // if self is empty, this always evaluates to false
-        self.base <= addr && addr < self.acme
-    }
-
-    /// Returns whether `self` contains `ptr`.
-    ///
-    /// Empty spans contain nothing.
-    #[inline]
-    pub fn contains_ptr(self, ptr: *mut u8) -> bool {
-        self.contains(ptr as usize)
+        self.base <= ptr && ptr < self.acme
     }
 
     /// Returns whether `self` contains `other`.
     ///
     /// Empty spans are contained by any span, even empty ones.
     #[inline]
-    pub const fn contains_span(self, other: Span) -> bool {
+    pub fn contains_span(self, other: Span) -> bool {
         other.is_empty() || self.base <= other.base && other.acme <= self.acme
     }
 
@@ -179,7 +156,7 @@ impl Span {
     ///
     /// Empty spans don't overlap with anything.
     #[inline]
-    pub const fn overlaps(self, other: Span) -> bool {
+    pub fn overlaps(self, other: Span) -> bool {
         !self.is_empty()
             && !other.is_empty()
             && !(other.base >= self.acme || self.base >= other.acme)
@@ -187,38 +164,38 @@ impl Span {
 
     /// Aligns `base` upward and `acme` downward by `align_of::<usize>()`.
     #[inline]
-    pub const fn word_align_inward(self) -> Self {
-        if usize::MAX - self.base < ALIGN {
-            Self { base: usize::MAX & !(ALIGN - 1), acme: self.acme & !(ALIGN - 1) }
+    pub fn word_align_inward(self) -> Self {
+        if ALIGN > usize::MAX - self.base as usize {
+            Self::empty()
         } else {
-            Self { base: (self.base + (ALIGN - 1)) & !(ALIGN - 1), acme: self.acme & !(ALIGN - 1) }
+            Self { base: align_up(self.base), acme: align_down(self.acme) }
         }
     }
     /// Aligns `base` downward and `acme` upward by `align_of::<usize>()`.
     #[inline]
-    pub const fn word_align_outward(self) -> Self {
-        if self.acme > usize::MAX - (ALIGN - 1) {
+    pub fn word_align_outward(self) -> Self {
+        if ALIGN > usize::MAX - self.acme as usize {
             panic!("aligning acme upward would overflow!");
         }
 
-        Self { base: self.base & !(ALIGN - 1), acme: (self.acme + (ALIGN - 1)) & !(ALIGN - 1) }
+        Self { base: align_down(self.base), acme: align_up(self.acme) }
     }
 
     /// Raises `base` if `base` is smaller than `min`.
     #[inline]
-    pub const fn above(self, min: usize) -> Self {
+    pub fn above(self, min: *mut u8) -> Self {
         Self { base: if min > self.base { min } else { self.base }, acme: self.acme }
     }
     /// Lowers `acme` if `acme` is greater than `max`.
     #[inline]
-    pub const fn below(self, max: usize) -> Self {
+    pub fn below(self, max: *mut u8) -> Self {
         Self { base: self.base, acme: if max < self.acme { max } else { self.acme } }
     }
     /// Returns a span that `other` contains by raising `base` or lowering `acme`.
     ///
     /// If `other` is empty, returns `other`.
     #[inline]
-    pub const fn fit_within(self, other: Span) -> Self {
+    pub fn fit_within(self, other: Span) -> Self {
         if other.is_empty() {
             other
         } else {
@@ -232,7 +209,7 @@ impl Span {
     ///
     /// If `other` is empty, returns `self`, as all spans contain any empty span.
     #[inline]
-    pub const fn fit_over(self, other: Self) -> Self {
+    pub fn fit_over(self, other: Self) -> Self {
         if other.is_empty() {
             self
         } else {
@@ -250,29 +227,37 @@ impl Span {
     /// # Panics
     /// Panics if lowering `base` by `low` or raising `acme` by `high` under/overflows.
     #[inline]
-    pub const fn extend(self, low: usize, high: usize) -> Self {
+    pub fn extend(self, low: usize, high: usize) -> Self {
         if self.is_empty() {
             self
         } else {
-            assert!(self.base.checked_sub(low).is_some());
-            assert!(self.acme.checked_add(high).is_some());
+            assert!((self.base as usize).checked_sub(low).is_some());
+            assert!((self.acme as usize).checked_add(high).is_some());
 
-            Self { base: self.base - low, acme: self.acme + high }
+            Self { base: self.base.wrapping_sub(low), acme: self.acme.wrapping_add(high) }
         }
     }
 
     /// Raise `base` by `low` and lower `acme` by `high`.
     ///
     /// If `self` is empty, `self` is returned.
+    ///
+    /// If either operation would wrap around the address space, an empty span is returned.
     #[inline]
-    pub const fn truncate(self, low: usize, high: usize) -> Span {
+    pub fn truncate(self, low: usize, high: usize) -> Span {
         if self.is_empty() {
             self
         } else {
-            Self {
-                // if either boundary saturates, the span will be empty thereafter, as expected
-                base: self.base.saturating_add(low),
-                acme: self.acme.saturating_sub(high),
+            if (self.base as usize).checked_add(low).is_none()
+                || (self.acme as usize).checked_sub(high).is_none()
+            {
+                Span::empty()
+            } else {
+                Self {
+                    // if either boundary saturates, the span will be empty thereafter, as expected
+                    base: self.base.wrapping_add(low),
+                    acme: self.acme.wrapping_sub(high),
+                }
             }
         }
     }
@@ -282,30 +267,55 @@ impl Span {
 mod test {
     use super::*;
 
+    fn ptr(addr: usize) -> *mut u8 {
+        // don't ` as usize` to avoid upsetting miri too much
+        core::ptr::null_mut::<u8>().wrapping_add(addr)
+    }
+
     #[test]
     fn test_span() {
-        let span = Span::from(1234..5678);
+        let base = 1234usize;
+        let acme = 5678usize;
+
+        let bptr = ptr(base);
+        let aptr = ptr(acme);
+
+        let span = Span::from(bptr..aptr);
         assert!(!span.is_empty());
-        assert!(span.size() == 5678 - 1234);
+        assert!(span.size() == acme - base);
 
-        assert!(span.word_align_inward() == Span::new(1234 + 8 - 1234 % 8, 5678 - 5678 % 8));
-        assert!(span.word_align_outward() == Span::new(1234 - 1234 % 8, 5678 + 8 - 5678 % 8));
+        assert!(
+            span.word_align_inward()
+                == Span::new(
+                    bptr.wrapping_add(ALIGN - 1)
+                        .wrapping_sub(bptr.wrapping_add(ALIGN - 1) as usize & (ALIGN - 1)),
+                    aptr.wrapping_sub(acme & (ALIGN - 1))
+                )
+        );
+        assert!(
+            span.word_align_outward()
+                == Span::new(
+                    bptr.wrapping_sub(base & (ALIGN - 1)),
+                    aptr.wrapping_add(ALIGN - 1)
+                        .wrapping_sub(aptr.wrapping_add(ALIGN - 1) as usize & (ALIGN - 1))
+                )
+        );
 
-        assert!(span.above(2345) == Span::new(2345, 5678));
-        assert!(span.below(7890) == Span::new(1234, 5678));
-        assert!(span.below(3456) == Span::new(1234, 3456));
-        assert!(span.below(0123).is_empty());
-        assert!(span.above(7890).is_empty());
+        assert!(span.above(ptr(2345)) == Span::new(ptr(2345), aptr));
+        assert!(span.below(ptr(7890)) == Span::new(bptr, aptr));
+        assert!(span.below(ptr(3456)) == Span::new(bptr, ptr(3456)));
+        assert!(span.below(ptr(0123)).is_empty());
+        assert!(span.above(ptr(7890)).is_empty());
 
         assert!(span.fit_over(Span::empty()) == span);
         assert!(span.fit_within(Span::empty()).is_empty());
-        assert!(span.fit_within(Span::new(0, 10000)) == span);
-        assert!(span.fit_over(Span::new(0, 10000)) == Span::new(0, 10000));
-        assert!(span.fit_within(Span::new(4000, 10000)) == Span::new(4000, 5678));
-        assert!(span.fit_over(Span::new(4000, 10000)) == Span::new(1234, 10000));
+        assert!(span.fit_within(Span::new(ptr(0), ptr(10000))) == span);
+        assert!(span.fit_over(Span::new(ptr(0), ptr(10000))) == Span::new(ptr(0), ptr(10000)));
+        assert!(span.fit_within(Span::new(ptr(4000), ptr(10000))) == Span::new(ptr(4000), aptr));
+        assert!(span.fit_over(Span::new(ptr(4000), ptr(10000))) == Span::new(bptr, ptr(10000)));
 
-        assert!(span.extend(1234, 1010) == Span::new(0, 5678 + 1010));
-        assert!(span.truncate(1234, 1010) == Span::new(1234 + 1234, 5678 - 1010));
+        assert!(span.extend(1234, 1010) == Span::new(ptr(0), ptr(5678 + 1010)));
+        assert!(span.truncate(1234, 1010) == Span::new(ptr(1234 + 1234), ptr(5678 - 1010)));
         assert!(span.truncate(235623, 45235772).is_empty());
     }
 }

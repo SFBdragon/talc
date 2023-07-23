@@ -20,8 +20,9 @@ enum Actions {
     Dealloc { index: u8 },
     /// Realloc the ith allocation
     Realloc { index: u8, new_size: u16 },
-    // Extend the arena by the additional amount specifie on the low and high side
+    // Extend the arena by the additional amount specified on the low and high side
     Extend { low: u16, high: u16 },
+    // Truncate the arena by the additional amount specified on the low and high side
     Truncate { low: u16, high: u16 },
 }
 use Actions::*;

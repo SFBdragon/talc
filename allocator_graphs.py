@@ -54,7 +54,7 @@ def plot_benchmark(filename):
     test_name = filename[len(BENCHMARK_RESULTS_DIR): filename.find('.csv')]    
     plt.title(test_name)
     plt.xlabel('time (seconds)\n')
-    plt.ylabel('actions')
+    plt.ylabel('score')
     
     full_diff_str = ''
     
@@ -65,7 +65,7 @@ def plot_benchmark(filename):
         diff = round(difference_average(v1, v2), 2)    
         full_diff_str += f'{k1} - {k2}: {diff}%\n'
             
-    plt.figtext(0.3, 0.76, full_diff_str, fontsize=10)
+    plt.figtext(0.14, 0.64, full_diff_str, fontsize=10)
     plt.show()
 
 def percentage_difference(a,b):
