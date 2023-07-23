@@ -1047,8 +1047,8 @@ impl Talc {
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
     #[cfg(feature = "spin")]
-    pub const fn spin_lock(self) -> Talck<spin_crate::Mutex<()>> {
-        Talck(spin_crate::lock_api::Mutex::new(self))
+    pub const fn spin_lock<R: lock_api::RawMutex>(self) -> Talck<R> {
+        Talck(lock_api::Mutex::new(self))
     }
 
     /// Debugging function for checking various assumptions.
