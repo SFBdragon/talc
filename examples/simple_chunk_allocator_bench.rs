@@ -70,7 +70,7 @@ fn main() {
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
-    let talc: Talck<spin_crate::Mutex<()>> = Talc::new().spin_lock();
+    let talc: Talck<spin::Mutex<()>> = Talc::new().spin_lock();
     unsafe {
         talc.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into());
     }
