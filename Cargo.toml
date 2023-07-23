@@ -17,11 +17,13 @@ exclude = [
 
 [features]
 allocator = ["spin"]
+spin = ["spin_crate", "lock_api"]
 default = ["spin", "allocator"]
 
 
 [dependencies]
-spin = { version = "0.9.4", optional = true }
+lock_api = { version= "0.4", optional = true }
+spin_crate = { package = "spin", version = "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"], optional = true }
 
 [dev-dependencies]
 simple-chunk-allocator = "0.1.5"

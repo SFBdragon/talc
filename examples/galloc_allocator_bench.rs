@@ -34,7 +34,7 @@ use std::{
 };
 
 use average::Mean;
-use spin::Barrier;
+use spin_crate::Barrier;
 
 const CHUNKS_AMOUNT: usize = 1 << 23;
 const CHUNK_SIZE: usize = 64;
@@ -59,14 +59,14 @@ const MAX_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS * TIME_STEPS_AMOUNT;
 pub struct GlobalChunkAllocator<
     'a,
     const CHUNK_SIZE: usize = { simple_chunk_allocator::DEFAULT_CHUNK_SIZE },
->(spin::Mutex<simple_chunk_allocator::ChunkAllocator<'a, CHUNK_SIZE>>);
+>(spin_crate::Mutex<simple_chunk_allocator::ChunkAllocator<'a, CHUNK_SIZE>>);
 
 impl<'a, const CHUNK_SIZE: usize> GlobalChunkAllocator<'a, CHUNK_SIZE> {
     #[inline]
     pub const fn new(heap: &'a mut [u8], bitmap: &'a mut [u8]) -> Self {
         let inner_alloc =
             simple_chunk_allocator::ChunkAllocator::<CHUNK_SIZE>::new_const(heap, bitmap);
-        Self(spin::Mutex::new(inner_alloc))
+        Self(spin_crate::Mutex::new(inner_alloc))
     }
 }
 
@@ -127,7 +127,7 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALC_ALLOCATOR: talc::Talck = talc::Talc::new().spin_lock();
+static mut TALC_ALLOCATOR: talc::Talck<spin_crate::Mutex<()>> = talc::Talc::new().spin_lock();
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
