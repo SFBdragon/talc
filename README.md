@@ -51,31 +51,44 @@ This improves on Galloc (another boundary-tagging allocator), which has a minimu
 
 ## Benchmarks
 
-### galloc's benchmarks:
+### Macrobenchmarks (based on galloc's benchmarks)
 
 The original benchmarks have been modified (e.g. replacing `rand` with `fastrand`) in order to alleviate the overhead.
 
 #### Random Actions Benchmark Results
 
-![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
+The number of successful allocations, deallocations, and reallocations within the allotted time.
 
-Talc outperforms the alternatives. 
+![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
 
 #### Heap Exhaustion Benchmark Results
 
+The number of allocation when filling and flushing the heap with a penalty for each cycle.
+
 ![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
 
-Talc falls slightly behind if the time penalization is set right.
+#### Heap Efficiency Benchmark Results
+
+The average occupied capacity once filled with random allocations.
+
+```
+             ALLOCATOR | HEAP EFFICIENCY
+-----------------------|----------------
+                  talc | 99.82%
+                galloc | 99.82%
+           buddy_alloc | 59.45%
+ linked_list_allocator | 99.82%
+```
 
 Note that:
 - no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
 - alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
 
-### Allocator Microbenchmarks (based on simple_chunk_allocator's benchmark)
+### Microbenchmarks (based on simple_chunk_allocator's benchmark)
 
 Note: pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
 
-```c
+```
 RESULTS OF BENCHMARK: Talc
  2206572 allocation attempts, 1557742 successful allocations,   25885 pre-fail allocations, 1547084 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
@@ -107,17 +120,7 @@ RESULTS OF BENCHMARK: Linked List Allocator
      All Allocations |       42    3654    9072   15603   23772   34356   47397   59451  661773 |   29312   ticks
 Pre-Fail Allocations |       42     588    1743    3402    5607    8358   11865   17115  670194 |   10440   ticks
        Deallocations |       42    2625    6300   10626   15582   21462   28686   38304   84231 |   18772   ticks
-
-RESULTS OF BENCHMARK: Chunk Allocator
-   28105 allocation attempts,   27873 successful allocations,   24437 pre-fail allocations,   20293 deallocations
-            CATEGORY | OCTILE 0       1       2       3       4       5       6       7        8 | AVERAGE
----------------------|---------------------------------------------------------------------------|---------
-     All Allocations |       84    1197    1680    2079    2457    2982    4368   30429 21002919 |  220579   ticks
-Pre-Fail Allocations |       84    1155    1617    1974    2310    2709    3255    8631  3886974 |   12814   ticks
-       Deallocations |       42     126     231     315     399     483     567     651     1848 |     408   ticks
 ```
-
-Talc performs the best, with only Galloc coming close when not under heap pressure. Galloc often allocates slightly faster than Talc but otherwise takes much longer, whereas Talc's performance is much more stable. (Galloc uses dedicated bins covering a smaller range of allocations, while Talc's binning makes a broader range of allocations quick).
 
 Note that:
 - no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
@@ -129,7 +132,7 @@ Note that:
 ## Algorithms
 This is a dlmalloc-style implementation with boundary tagging and bucketing aimed at general-purpose use cases.
 
-The main differences compared to Galloc is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
+The main differences compared to Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations.
 

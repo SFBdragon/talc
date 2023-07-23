@@ -29,7 +29,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    hint::unreachable_unchecked,
     sync::Barrier,
     time::{Duration, Instant},
 };
@@ -103,10 +102,26 @@ fn main() {
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
-    let benchmarks = benchmark_list!(random_actions, heap_exhaustion, heap_efficiency);
+    let benchmarks = benchmark_list!(random_actions, heap_exhaustion);
 
     let allocators =
         allocator_list!(init_talc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
+
+    {   // heap efficiency benchmark
+        
+        println!(
+            "             ALLOCATOR | AVERAGE HEAP EFFICIENCY"
+        );
+        println!(
+            "-----------------------|------------------------"
+        );
+
+        for allocator in allocators {
+            let efficiency = heap_efficiency((allocator.init_fn)());
+
+            println!("{:>22} | {:2.2}%", allocator.name, efficiency);
+        }
+    }
 
     for benchmark in benchmarks {
         let mut csv = String::new();
@@ -242,7 +257,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
                         score += 1;
                     }
                 }
-                _ => unsafe { unreachable_unchecked() },
+                _ => unreachable!(),
             }
         }
     }
@@ -287,44 +302,33 @@ pub fn heap_exhaustion(
     score
 }
 
-pub fn heap_efficiency(
-    duration: Duration,
-    allocator: &dyn GlobalAlloc,
-    barrier: &Barrier,
-) -> usize {
+pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
     let mut v = Vec::with_capacity(10000);
     let mut used = 0;
     let mut total = HEAP_SIZE;
 
-    barrier.wait();
-    let start = Instant::now();
-
-    while start.elapsed() < duration {
-        for _ in 0..10 {
+    'trials: for _ in 0..1000 {
+        loop {
             let size = fastrand::usize(10000..=300000);
             let alignment = 8 << fastrand::u16(..).trailing_zeros() / 2;
-
+    
             match AllocationWrapper::new(size, alignment, allocator) {
                 Some(allocation) => {
                     used += allocation.layout.size();
                     v.push(allocation);
                 }
                 None => {
-                    // heap was exhausted, penalize the score by sleeping.
-                    std::thread::sleep(Duration::from_millis(3));
-
-                    // free all allocation to empty the heap.
                     v.clear();
-
+    
                     total += HEAP_SIZE;
 
-                    break;
+                    continue 'trials;
                 }
             }
         }
     }
 
-    used * 10000 / total
+    used as f64 * 100.0 / total as f64
 }
 
 struct AllocationWrapper<'a> {
