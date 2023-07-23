@@ -10,22 +10,22 @@ use core::{
 ///
 /// In order to access the `Allocator` API, call `allocator_api_ref`.
 #[derive(Debug)]
-pub struct Talck(pub spin::Mutex<Talc>);
+pub struct Talck<R: lock_api::RawMutex>(pub lock_api::Mutex<R, Talc>);
 
-impl Talck {
+impl<R: lock_api::RawMutex> Talck<R> {
     /// Get a reference that implements the `Allocator` API.
     #[cfg(feature = "allocator")]
-    pub fn allocator_api_ref(&self) -> TalckRef<'_> {
+    pub fn allocator_api_ref(&self) -> TalckRef<'_, R> {
         TalckRef(self)
     }
 
     /// Lock the mutex and access the inner `Talc`.
-    pub fn talc(&self) -> spin::MutexGuard<'_, Talc> {
+    pub fn talc(&self) -> lock_api::MutexGuard<'_, R, Talc> {
         self.0.lock()
     }
 }
 
-unsafe impl GlobalAlloc for Talck {
+unsafe impl<R: lock_api::RawMutex> GlobalAlloc for Talck<R> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.0.lock().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
     }
@@ -54,10 +54,10 @@ unsafe impl GlobalAlloc for Talck {
 
 #[cfg(feature = "allocator")]
 #[derive(Debug, Clone, Copy)]
-pub struct TalckRef<'a>(pub &'a Talck);
+pub struct TalckRef<'a, R: lock_api::RawMutex>(pub &'a Talck<R>);
 
 #[cfg(feature = "allocator")]
-unsafe impl<'a> core::alloc::Allocator for TalckRef<'a> {
+unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
         if layout.size() == 0 {
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));

@@ -127,7 +127,7 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALC_ALLOCATOR: talc::Talck = talc::Talc::new().spin_lock();
+static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>> = talc::Talc::new().spin_lock();
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =

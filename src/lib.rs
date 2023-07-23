@@ -12,16 +12,16 @@
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
 #![feature(maybe_uninit_uninit_array)]
 
-#[cfg(feature = "spin")]
+#[cfg(feature = "lock_api")]
 mod talck;
 
 mod llist;
 mod span;
 mod tag;
 
-#[cfg(feature = "spin")]
+#[cfg(feature = "lock_api")]
 pub use talck::Talck;
-#[cfg(all(feature = "spin", feature = "allocator"))]
+#[cfg(all(feature = "lock_api", feature = "allocator"))]
 pub use talck::TalckRef;
 
 use llist::LlistNode;
@@ -1046,9 +1046,9 @@ impl Talc {
     ///
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
-    #[cfg(feature = "spin")]
-    pub const fn spin_lock(self) -> Talck {
-        Talck(spin::Mutex::new(self))
+    #[cfg(feature = "lock_api")]
+    pub const fn spin_lock<R: lock_api::RawMutex>(self) -> Talck<R> {
+        Talck(lock_api::Mutex::new(self))
     }
 
     /// Debugging function for checking various assumptions.
