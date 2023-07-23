@@ -29,11 +29,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    time::{Duration, Instant}, hint::unreachable_unchecked,
+    hint::unreachable_unchecked,
     sync::Barrier,
+    time::{Duration, Instant},
 };
 
-use buddy_alloc::{NonThreadsafeAlloc, FastAllocParam, BuddyAllocParam};
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 
 const HEAP_SIZE: usize = 1 << 27;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
@@ -43,7 +44,6 @@ const TIME_STEP_MILLIS: usize = 100;
 
 const MIN_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS;
 const MAX_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS * TIME_STEPS_AMOUNT;
-
 
 struct NamedBenchmark {
     benchmark_fn: fn(Duration, &dyn GlobalAlloc, &Barrier) -> usize,
@@ -65,7 +65,7 @@ macro_rules! benchmark_list {
 
 struct NamedAllocator {
     name: &'static str,
-    init_fn: fn() -> &'static (dyn GlobalAlloc /* + Send + Sync */),
+    init_fn: fn() -> &'static (dyn GlobalAlloc),
 }
 
 macro_rules! allocator_list {
@@ -85,11 +85,12 @@ macro_rules! allocator_list {
 }
 
 static mut TALC_ALLOCATOR: talc::Talck = talc::Talc::new().spin_lock();
-static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe { 
+static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
-        FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8), 
-        BuddyAllocParam::new(HEAP.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64)
-    ) };
+        FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
+        BuddyAllocParam::new(HEAP.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
+    )
+};
 static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
@@ -102,14 +103,10 @@ fn main() {
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
-    let benchmarks = benchmark_list!(random_actions,heap_exhaustion,heap_efficiency);
+    let benchmarks = benchmark_list!(random_actions, heap_exhaustion, heap_efficiency);
 
-    let allocators = allocator_list!(
-        init_talc,
-        init_galloc,
-        init_buddy_alloc,
-        init_linked_list_allocator
-    );
+    let allocators =
+        allocator_list!(init_talc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
 
     for benchmark in benchmarks {
         let mut csv = String::new();
@@ -120,13 +117,13 @@ fn main() {
                     eprintln!("benchmarking...");
 
                     let duration = Duration::from_millis(i as u64);
-                    
+
                     (0..TRIALS_AMOUNT)
                         .map(|_| {
                             let allocator_ref = (allocator.init_fn)();
                             /* if true { */
-                                let barrier = Barrier::new(1);
-                                (benchmark.benchmark_fn)(duration, allocator_ref, &barrier)
+                            let barrier = Barrier::new(1);
+                            (benchmark.benchmark_fn)(duration, allocator_ref, &barrier)
                             /* } else {
                                 const THREADS: usize = 2;
                                 let barrier = Barrier::new(THREADS);
@@ -153,7 +150,9 @@ fn main() {
                                         as f64
                                 })
                             } */
-                        }).sum::<usize>() / TRIALS_AMOUNT
+                        })
+                        .sum::<usize>()
+                        / TRIALS_AMOUNT
                 })
                 .map(|score| score.to_string());
 
@@ -170,21 +169,21 @@ fn main() {
     }
 }
 
-fn init_talc() -> &'static (dyn GlobalAlloc /* + Send + Sync */) {
+fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         TALC_ALLOCATOR = talc::Talc::with_arena(HEAP.as_mut_slice().into()).spin_lock();
         &TALC_ALLOCATOR
     }
 }
 
-fn init_linked_list_allocator() -> &'static (dyn GlobalAlloc /* + Send + Sync */) {
+fn init_linked_list_allocator() -> &'static (dyn GlobalAlloc) {
     let mut a = LINKED_LIST_ALLOCATOR.lock();
     *a = linked_list_allocator::Heap::empty();
     unsafe { a.init(HEAP.as_mut_ptr().cast(), HEAP_SIZE) }
     &LINKED_LIST_ALLOCATOR
 }
 
-fn init_galloc() -> &'static (dyn GlobalAlloc /* + Send + Sync */) {
+fn init_galloc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         GALLOC_ALLOCATOR = good_memory_allocator::SpinLockedAllocator::empty();
     }
@@ -192,22 +191,22 @@ fn init_galloc() -> &'static (dyn GlobalAlloc /* + Send + Sync */) {
     unsafe { &GALLOC_ALLOCATOR }
 }
 
-fn init_buddy_alloc() -> &'static (dyn GlobalAlloc/*  + Send + Sync */) {
+fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         BUDDY_ALLOCATOR = NonThreadsafeAlloc::new(
-            FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8), 
-            BuddyAllocParam::new(HEAP.as_ptr().cast::<u8>().add(HEAP.len() / 8), HEAP.len() / 8 * 7, 64)
+            FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8),
+            BuddyAllocParam::new(
+                HEAP.as_ptr().cast::<u8>().add(HEAP.len() / 8),
+                HEAP.len() / 8 * 7,
+                64,
+            ),
         );
 
         &BUDDY_ALLOCATOR
     }
 }
 
-pub fn random_actions(
-    duration: Duration,
-    allocator: &dyn GlobalAlloc,
-    barrier: &Barrier,
-) -> usize {
+pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: &Barrier) -> usize {
     let mut score = 0;
     let mut v = Vec::with_capacity(10000);
 
@@ -327,7 +326,6 @@ pub fn heap_efficiency(
 
     used * 10000 / total
 }
-
 
 struct AllocationWrapper<'a> {
     ptr: *mut u8,

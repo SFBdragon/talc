@@ -27,11 +27,11 @@ SOFTWARE.
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 
-use buddy_alloc::{NonThreadsafeAlloc, FastAllocParam, BuddyAllocParam};
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
 use talc::Talc;
 
-use std::alloc::{GlobalAlloc, Allocator, Layout, AllocError};
+use std::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 use std::time::Instant;
 
 const BENCH_DURATION: f64 = 3.0;
@@ -40,7 +40,6 @@ const BENCH_DURATION: f64 = 3.0;
 const HEAP_SIZE: usize = 0x10000000;
 /// Backing memory for heap management.
 static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
-
 
 // NonThreadsafeAlloc doesn't implement Allocator: wrap it
 struct BuddyAllocator(NonThreadsafeAlloc);
@@ -61,9 +60,8 @@ unsafe impl Allocator for BuddyAllocator {
 }
 
 fn main() {
-    let linked_list_allocator = unsafe {
-        linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE)
-    };
+    let linked_list_allocator =
+        unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
     let bench_linked = benchmark_allocator(&linked_list_allocator);
 
     let mut galloc_allocator =
@@ -73,10 +71,12 @@ fn main() {
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
-    let buddy_alloc = unsafe { buddy_alloc:: NonThreadsafeAlloc::new(
-        FastAllocParam::new(HEAP_MEMORY.as_ptr(), HEAP_SIZE / 8), 
-        BuddyAllocParam::new(HEAP_MEMORY.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64)
-    ) };
+    let buddy_alloc = unsafe {
+        buddy_alloc::NonThreadsafeAlloc::new(
+            FastAllocParam::new(HEAP_MEMORY.as_ptr(), HEAP_SIZE / 8),
+            BuddyAllocParam::new(HEAP_MEMORY.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
+        )
+    };
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
     let talc = unsafe { Talc::with_arena(HEAP_MEMORY.as_mut_slice().into()).spin_lock() };

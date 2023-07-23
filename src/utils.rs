@@ -159,6 +159,18 @@ pub(crate) unsafe fn chunk_ptr_from_alloc_ptr(ptr: *mut u8) -> (*mut u8, Tag) {
     (low_ptr, tag)
 }
 
+/// Determine the required allocated chunk acme.
+#[inline]
+pub(crate) fn required_acme(alloc_base: *mut u8, size: usize, tag_ptr: *mut u8) -> *mut u8 {
+    // choose the highest between...
+    core::cmp::max(
+        // the required chunk acme due to the allocation
+        align_up(alloc_base.wrapping_add(size)),
+        // the required chunk acme due to the minimum chunk size
+        tag_ptr.wrapping_add(MIN_CHUNK_SIZE),
+    )
+}
+
 /// Pointer wrapper to a free chunk. Provides convenience methods
 /// for getting the LlistNode pointer and lower pointer to its size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -169,7 +181,7 @@ impl FreeChunk {
     const NODE_OFFSET: usize = 0;
     const SIZE_OFFSET: usize = NODE_SIZE;
 
-    pub(crate) fn ptr(self) -> *mut u8 {
+    pub(crate) fn base(self) -> *mut u8 {
         self.0
     }
 
@@ -183,18 +195,16 @@ impl FreeChunk {
 }
 
 /// An abstraction over the unknown state of the chunk above.
-pub(crate) enum HighChunk {
+pub(crate) enum AboveChunk {
     Free(FreeChunk),
-    Full(*mut Tag),
+    Allocated(*mut Tag),
 }
 
-impl HighChunk {
-    #[inline]
-    pub(crate) unsafe fn from_ptr(ptr: *mut u8) -> Self {
-        if *ptr.cast::<usize>() & Tag::ALLOCATED_FLAG != 0 {
-            Self::Full(ptr.cast())
-        } else {
-            Self::Free(FreeChunk(ptr))
-        }
+/// Distinguish the nature of the chunk above.
+pub(crate) unsafe fn identify_above(chunk_acme: *mut u8) -> AboveChunk {
+    if (*chunk_acme.cast::<Tag>()).is_allocated() {
+        AboveChunk::Allocated(chunk_acme.cast())
+    } else {
+        AboveChunk::Free(FreeChunk(chunk_acme))
     }
 }
