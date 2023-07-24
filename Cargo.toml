@@ -24,12 +24,10 @@ default = ["allocator"]
 lock_api = { version= "0.4", optional = true }
 
 [dev-dependencies]
-simple-chunk-allocator = "0.1.5"
-linked_list_allocator = { version = "0.10.3", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
-good_memory_allocator = { version = "0.1.7", features = ["spin", "allocator"] }
-average = "0.13.1"
-fastrand = "1.9.0"
-tikv-jemallocator = { version = "0.5.0", features = [] }
+fastrand = "1.9"
+linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
+good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
+buddy-alloc = "0.5"
 spin = { version = "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }
 
 [profile.release]

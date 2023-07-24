@@ -27,11 +27,11 @@ SOFTWARE.
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
-use simple_chunk_allocator::{GlobalChunkAllocator, DEFAULT_CHUNK_SIZE};
-use talc::{Talc, Talck};
+use talc::Talc;
 
-use std::alloc::{Allocator, Layout};
+use std::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 use std::time::Instant;
 
 const BENCH_DURATION: f64 = 3.0;
@@ -39,50 +39,56 @@ const BENCH_DURATION: f64 = 3.0;
 // 256 MiB
 const HEAP_SIZE: usize = 0x10000000;
 /// Backing memory for heap management.
-static mut HEAP_MEMORY: PageAlignedBytes<HEAP_SIZE> = PageAlignedBytes([0; HEAP_SIZE]);
+static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
-/// ChunkAllocator specific stuff.
-const CHUNK_COUNT: usize = HEAP_SIZE / DEFAULT_CHUNK_SIZE;
-const BITMAP_SIZE: usize = CHUNK_COUNT / 8;
-static mut HEAP_BITMAP_MEMORY: PageAlignedBytes<BITMAP_SIZE> = PageAlignedBytes([0; BITMAP_SIZE]);
+// NonThreadsafeAlloc doesn't implement Allocator: wrap it
+struct BuddyAllocator(NonThreadsafeAlloc);
 
-#[repr(align(4096))]
-struct PageAlignedBytes<const N: usize>([u8; N]);
+unsafe impl Allocator for BuddyAllocator {
+    fn allocate(&self, layout: Layout) -> Result<std::ptr::NonNull<[u8]>, AllocError> {
+        let ptr = unsafe { self.0.alloc(layout) };
+
+        match std::ptr::NonNull::new(ptr) {
+            Some(nn) => Ok(std::ptr::NonNull::slice_from_raw_parts(nn, layout.size())),
+            None => Err(AllocError),
+        }
+    }
+
+    unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: Layout) {
+        self.0.dealloc(ptr.as_ptr(), layout);
+    }
+}
 
 fn main() {
-    let chunk_allocator = unsafe {
-        GlobalChunkAllocator::<DEFAULT_CHUNK_SIZE>::new(
-            HEAP_MEMORY.0.as_mut_slice(),
-            HEAP_BITMAP_MEMORY.0.as_mut_slice(),
-        )
-    };
-    let bench_chunk = benchmark_allocator(&chunk_allocator.allocator_api_glue());
-
-    let linked_list_allocator = unsafe {
-        linked_list_allocator::LockedHeap::new(HEAP_MEMORY.0.as_mut_ptr() as _, HEAP_SIZE)
-    };
+    let linked_list_allocator =
+        unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
     let bench_linked = benchmark_allocator(&linked_list_allocator);
 
     let mut galloc_allocator =
         good_memory_allocator::SpinLockedAllocator::<DEFAULT_SMALLBINS_AMOUNT>::empty();
     unsafe {
-        galloc_allocator.init(HEAP_MEMORY.0.as_ptr() as usize, HEAP_SIZE);
+        galloc_allocator.init(HEAP_MEMORY.as_ptr() as usize, HEAP_SIZE);
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
-    let talc: Talck<spin::Mutex<()>> = Talc::new().spin_lock();
-    unsafe {
-        talc.0.lock().init(HEAP_MEMORY.0.as_mut_ptr_range().into());
-    }
+    let buddy_alloc = unsafe {
+        buddy_alloc::NonThreadsafeAlloc::new(
+            FastAllocParam::new(HEAP_MEMORY.as_ptr(), HEAP_SIZE / 8),
+            BuddyAllocParam::new(HEAP_MEMORY.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
+        )
+    };
+    let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
+
+    let talc = unsafe { Talc::with_arena(HEAP_MEMORY.as_mut_slice().into()).spin_lock() };
     let bench_talc = benchmark_allocator(&talc.allocator_api_ref());
 
-    print_bench_results("Chunk Allocator", &bench_chunk);
+    print_bench_results("Talc", &bench_talc);
     println!();
-    print_bench_results("Linked List Allocator", &bench_linked);
+    print_bench_results("Buddy Allocator", &bench_buddy);
     println!();
     print_bench_results("Galloc", &bench_galloc);
     println!();
-    print_bench_results("Talc", &bench_talc);
+    print_bench_results("Linked List Allocator", &bench_linked);
 }
 
 fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
