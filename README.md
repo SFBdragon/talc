@@ -71,7 +71,7 @@ The number of allocation when filling and flushing the heap with a penalty for e
 
 The average occupied capacity once filled with random allocations.
 
-```
+``` ignore
              ALLOCATOR | HEAP EFFICIENCY
 -----------------------|----------------
                   talc | 99.82%
@@ -88,7 +88,7 @@ Note that:
 
 Note: pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
 
-```
+``` ignore
 RESULTS OF BENCHMARK: Talc
  2206572 allocation attempts, 1557742 successful allocations,   25885 pre-fail allocations, 1547084 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE

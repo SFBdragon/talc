@@ -79,7 +79,9 @@ fn main() {
     };
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
-    let talc = unsafe { Talc::with_arena(HEAP_MEMORY.as_mut_slice().into()).spin_lock() };
+    let talc = unsafe {
+        Talc::with_arena(HEAP_MEMORY.as_mut_slice().into()).lock::<spin::Mutex<()>>() 
+    };
     let bench_talc = benchmark_allocator(&talc.allocator_api_ref());
 
     print_bench_results("Talc", &bench_talc);

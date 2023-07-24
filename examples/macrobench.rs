@@ -83,7 +83,7 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALC_ALLOCATOR: talc::Talck = talc::Talc::new().spin_lock();
+static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>> = talc::Talc::new().lock();
 static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
         FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
@@ -107,14 +107,11 @@ fn main() {
     let allocators =
         allocator_list!(init_talc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
 
-    {   // heap efficiency benchmark
-        
-        println!(
-            "             ALLOCATOR | AVERAGE HEAP EFFICIENCY"
-        );
-        println!(
-            "-----------------------|------------------------"
-        );
+    {
+        // heap efficiency benchmark
+
+        println!("             ALLOCATOR | AVERAGE HEAP EFFICIENCY");
+        println!("-----------------------|------------------------");
 
         for allocator in allocators {
             let efficiency = heap_efficiency((allocator.init_fn)());
@@ -186,7 +183,7 @@ fn main() {
 
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
-        TALC_ALLOCATOR = talc::Talc::with_arena(HEAP.as_mut_slice().into()).spin_lock();
+        TALC_ALLOCATOR = talc::Talc::with_arena(HEAP.as_mut_slice().into()).lock();
         &TALC_ALLOCATOR
     }
 }
@@ -311,7 +308,7 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
         loop {
             let size = fastrand::usize(10000..=300000);
             let alignment = 8 << fastrand::u16(..).trailing_zeros() / 2;
-    
+
             match AllocationWrapper::new(size, alignment, allocator) {
                 Some(allocation) => {
                     used += allocation.layout.size();
@@ -319,7 +316,7 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
                 }
                 None => {
                     v.clear();
-    
+
                     total += HEAP_SIZE;
 
                     continue 'trials;

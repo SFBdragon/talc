@@ -20,6 +20,7 @@ mod span;
 mod tag;
 mod utils;
 
+pub use span::Span;
 #[cfg(feature = "lock_api")]
 pub use talck::Talck;
 #[cfg(all(feature = "lock_api", feature = "allocator"))]
@@ -700,8 +701,7 @@ impl Talc {
     /// A recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talc::{Span, Talc};
-    /// # let mut talck = Talc::new().spin_lock();
-    /// let mut talc = talck.talc();
+    /// # let mut talc = Talc::new();
     /// // compute the new arena as an extention of the old arena
     /// // for the sake of example we avoid the null page too
     /// let new_arena = talc.get_arena().extend(1234, 5678).above(0x1000 as *mut u8);
@@ -781,10 +781,10 @@ impl Talc {
     /// The recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talc::{Span, Talc};
-    /// # let mut talck = Talc::new().spin_lock();
-    /// // lock the allocator otherwise a race condition may occur
+    /// # let mut talc = Talc::new();
+    /// // note: lock the allocator otherwise a race condition may occur
     /// // in between get_allocated_span and truncate
-    /// let mut talc = talck.talc();
+    /// 
     /// // compute the new arena as a reduction of the old arena
     /// let new_arena = talc.get_arena().truncate(1234, 5678).fit_over(talc.get_allocated_span());
     /// // alternatively...
@@ -906,7 +906,7 @@ impl Talc {
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
     #[cfg(feature = "lock_api")]
-    pub const fn spin_lock<R: lock_api::RawMutex>(self) -> Talck<R> {
+    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R> {
         Talck(lock_api::Mutex::new(self))
     }
 
