@@ -1,16 +1,13 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(test), no_std)]
-#![feature(ptr_sub_ptr)]
-#![feature(pointer_is_aligned)]
 #![feature(offset_of)]
+#![feature(pointer_is_aligned)]
 #![feature(alloc_layout_extra)]
 #![feature(slice_ptr_get)]
-#![feature(core_intrinsics)]
-#![feature(const_mut_refs)]
 #![feature(slice_ptr_len)]
+#![feature(const_mut_refs)]
 #![feature(const_slice_from_raw_parts_mut)]
+#![cfg_attr(not(test), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
-#![feature(maybe_uninit_uninit_array)]
 
 #[cfg(feature = "lock_api")]
 mod talck;
@@ -25,7 +22,6 @@ pub use span::Span;
 pub use talck::Talck;
 #[cfg(all(feature = "lock_api", feature = "allocator"))]
 pub use talck::TalckRef;
-pub use utils::AllocError;
 
 use llist::LlistNode;
 use tag::Tag;
@@ -33,7 +29,6 @@ use utils::*;
 
 use core::{
     alloc::Layout,
-    intrinsics::likely,
     ptr::{null_mut, NonNull},
 };
 
@@ -62,16 +57,16 @@ const BIN_COUNT: usize = usize::BITS as usize * 2;
 
 type Bin = Option<NonNull<LlistNode>>;
 
-type OomHandler = fn(&mut Talc, Layout) -> Result<(), AllocError>;
+type OomHandler = fn(&mut Talc, Layout) -> Result<(), ()>;
 
-pub fn alloc_error(_: &mut Talc, _: Layout) -> Result<(), AllocError> {
-    Err(AllocError)
+pub fn alloc_error(_: &mut Talc, _: Layout) -> Result<(), ()> {
+    Err(())
 }
 
 /// The Talc Allocator!
 ///
-/// Call `spin_lock` on the struct before initialization to get
-/// a `Talck` which supports the `GlobalAlloc` and `Allocator` traits.
+/// Call [`lock`](Talc::lock) on the struct before initialization to get
+/// a [`Talck`] which supports the `GlobalAlloc` and `Allocator` traits.
 pub struct Talc {
     oom_handler: OomHandler,
 
@@ -161,7 +156,7 @@ impl Talc {
     unsafe fn register(&mut self, base: *mut u8, acme: *mut u8) {
         debug_assert!(is_chunk_size(base, acme));
 
-        let size = acme.sub_ptr(base);
+        let size = acme as usize - base as usize;
 
         let bin = bin_of_size(size);
         let free_chunk = FreeChunk(base);
@@ -194,6 +189,8 @@ impl Talc {
     }
 
     /// Ensures the above chunk's `is_below_free` or the `is_top_free` flag is cleared.
+    /// 
+    /// Assumes an allocated chunk's base is at `chunk_acme`.
     #[inline]
     unsafe fn clear_below_free(&mut self, chunk_acme: *mut u8) {
         if chunk_acme != self.allocatable_acme {
@@ -204,10 +201,29 @@ impl Talc {
         }
     }
 
+    /// Like `clear_below_acme` but doesn't assume the above chunk is allocated,
+    /// in which case it is deregistered and `chunk_acme` is raised to cover it.
+    #[inline]
+    unsafe fn try_recombine_above(&mut self, chunk_acme: &mut *mut u8) {
+        if *chunk_acme != self.allocatable_acme {
+            match identify_above(*chunk_acme) {
+                AboveChunk::Allocated(above_tag_ptr) => Tag::set_below_free(above_tag_ptr),
+                AboveChunk::Free(above) => {
+                    let above_size = *above.size_ptr();
+                    *chunk_acme = above.base().add(above_size);
+                    self.deregister(above.node_ptr(), bin_of_size(above_size));
+                }
+            }
+        } else {
+            debug_assert!(!self.is_top_free);
+            self.is_top_free = true;
+        }
+    }
+
     /// Allocate a contiguous region of memory according to `layout`, if possible.
     /// # Safety
     /// `layout.size()` must be nonzero.
-    pub unsafe fn malloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
+    pub unsafe fn malloc(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
         debug_assert!(layout.size() != 0);
 
         // no checks for initialization are performed, as it would be overhead.
@@ -251,7 +267,7 @@ impl Talc {
             tag_ptr.cast::<Tag>().write(Tag::new(chunk_acme, is_below_free));
         }
 
-        self.scan_for_errors();
+        scan_for_errors(self);
 
         Ok(NonNull::new_unchecked(alloc_base))
     }
@@ -329,7 +345,7 @@ impl Talc {
             } else {
                 None
             }
-        } else if likely(bin < BIN_COUNT) {
+        } else if bin < BIN_COUNT {
             // similar process to the above, but the low flags are irrelevant
             let shifted_avails = self.availability_high >> (bin - 64);
 
@@ -347,41 +363,27 @@ impl Talc {
     /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn free(&mut self, ptr: NonNull<u8>, _: Layout) {
-        let (mut chunk_ptr, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
+        let (mut chunk_base, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
         let mut chunk_acme = tag.acme_ptr();
 
         debug_assert!(tag.is_allocated());
-        debug_assert!(is_chunk_size(chunk_ptr, chunk_acme));
+        debug_assert!(is_chunk_size(chunk_base, chunk_acme));
 
-        if chunk_acme != self.allocatable_acme {
-            match identify_above(chunk_acme) {
-                AboveChunk::Allocated(above_tag_ptr) => Tag::set_below_free(above_tag_ptr),
+        self.try_recombine_above(&mut chunk_acme);
 
-                // if free, combine the freed and above chunks
-                AboveChunk::Free(above_chunk) => {
-                    let above_chunk_size = *above_chunk.size_ptr();
-                    self.deregister(above_chunk.node_ptr(), bin_of_size(above_chunk_size));
-                    chunk_acme = chunk_acme.add(above_chunk_size);
-                }
-            }
-        } else {
-            debug_assert!(!self.is_top_free);
-            self.is_top_free = true;
-        }
-
+        // try recombine below
         if tag.is_below_free() {
-            // the chunk below is free; recombine
-            // grab the size off the top of the block first, then remove at the base
-            let low_chunk_size = *chunk_ptr.cast::<usize>().sub(1);
-            chunk_ptr = chunk_ptr.sub(low_chunk_size);
+            // grab the size off the top of the free chunk
+            let low_chunk_size = *chunk_base.cast::<usize>().sub(1);
+            chunk_base = chunk_base.sub(low_chunk_size);
 
-            self.deregister(FreeChunk(chunk_ptr).node_ptr(), bin_of_size(low_chunk_size));
+            self.deregister(FreeChunk(chunk_base).node_ptr(), bin_of_size(low_chunk_size));
         }
 
         // add the full recombined free chunk back into the books
-        self.register(chunk_ptr, chunk_acme);
+        self.register(chunk_base, chunk_acme);
 
-        self.scan_for_errors();
+        scan_for_errors(self);
     }
 
     /// Grow a previously allocated/reallocated region of memory to `new_size`.
@@ -393,22 +395,16 @@ impl Talc {
         ptr: NonNull<u8>,
         layout: Layout,
         new_size: usize,
-    ) -> Result<NonNull<u8>, AllocError> {
+    ) -> Result<NonNull<u8>, ()> {
         debug_assert!(new_size >= layout.size());
 
-        let (chunk_ptr, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
+        let (chunk_base, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
         let chunk_acme = tag.acme_ptr();
 
         debug_assert!(tag.is_allocated());
-        debug_assert!(is_chunk_size(chunk_ptr, chunk_acme));
+        debug_assert!(is_chunk_size(chunk_base, chunk_acme));
 
-        // choose the highest between...
-        let new_req_acme = core::cmp::max(
-            // the required chunk acme due to the allocation
-            align_up(ptr.as_ptr().add(new_size)),
-            // the required chunk acme due to the minimum chunk size
-            chunk_ptr.add(MIN_CHUNK_SIZE),
-        );
+        let new_req_acme = required_acme(ptr.as_ptr(), new_size, chunk_base);
 
         // short-circuit if the chunk is already large enough
         if new_req_acme <= chunk_acme {
@@ -431,14 +427,14 @@ impl Talc {
                     if is_chunk_size(new_req_acme, above_acme) {
                         self.register(new_req_acme, above_acme);
 
-                        Tag::set_acme(chunk_ptr.cast(), new_req_acme);
+                        Tag::set_acme(chunk_base.cast(), new_req_acme);
                     } else {
                         self.clear_below_free(above_acme);
 
-                        Tag::set_acme(chunk_ptr.cast(), above_acme);
+                        Tag::set_acme(chunk_base.cast(), above_acme);
                     }
 
-                    self.scan_for_errors();
+                    scan_for_errors(self);
                     return Ok(ptr);
                 }
             }
@@ -446,12 +442,12 @@ impl Talc {
 
         // grow in-place failed; reallocate the slow way
 
-        self.scan_for_errors();
+        scan_for_errors(self);
         let allocation =
             self.malloc(Layout::from_size_align_unchecked(new_size, layout.align()))?;
         allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), layout.size());
         self.free(ptr, layout);
-        self.scan_for_errors();
+        scan_for_errors(self);
         Ok(allocation)
     }
 
@@ -474,37 +470,19 @@ impl Talc {
         debug_assert!(tag.is_allocated());
         debug_assert!(is_chunk_size(chunk_ptr, chunk_acme));
 
-        // choose the highest between...
-        let new_req_acme = core::cmp::max(
-            // the required chunk acme due to the allocation
-            align_up(ptr.as_ptr().add(layout.size())),
-            // the required chunk acme due to the minimum chunk size
-            chunk_ptr.add(MIN_CHUNK_SIZE),
-        );
+        let new_req_acme = required_acme(ptr.as_ptr(), new_size, chunk_ptr);
 
         // if the remainder between the new required size and the originally allocated
         // size is large enough, free the remainder, otherwise leave it
         if is_chunk_size(new_req_acme, chunk_acme) {
-            if chunk_acme != self.allocatable_acme {
-                match identify_above(chunk_acme) {
-                    AboveChunk::Allocated(above_tag_ptr) => Tag::set_below_free(above_tag_ptr),
-                    AboveChunk::Free(above) => {
-                        let above_size = *above.size_ptr();
-                        chunk_acme = above.base().add(above_size);
-                        self.deregister(above.node_ptr(), bin_of_size(above_size));
-                    }
-                }
-            } else {
-                debug_assert!(!self.is_top_free);
-                self.is_top_free = true;
-            }
+            self.try_recombine_above(&mut chunk_acme);
 
             self.register(new_req_acme, chunk_acme);
 
             Tag::set_acme(chunk_ptr.cast(), new_req_acme);
         }
 
-        self.scan_for_errors();
+        scan_for_errors(self);
     }
 
     pub const fn new() -> Self {
@@ -539,7 +517,7 @@ impl Talc {
 
     /// Contruct and initialize a `Talc` with the given arena.
     /// # Safety
-    /// See [`Talc::init`] for safety requirements.
+    /// See [`init`](Talc::init) for safety requirements.
     pub unsafe fn with_arena(arena: Span) -> Self {
         let mut talc = Self::new();
         talc.init(arena);
@@ -548,7 +526,7 @@ impl Talc {
 
     /// Contruct and initialize a `Talc` with the given arena and OOM handler function.
     /// # Safety
-    /// See [`Talc::init`] for safety requirements.
+    /// See [`init`](Talc::init) for safety requirements.
     pub unsafe fn with_arena_and_oom_handler(arena: Span, oom_handler: OomHandler) -> Self {
         let mut talc = Self::with_oom_handler(oom_handler);
         talc.init(arena);
@@ -671,7 +649,7 @@ impl Talc {
                         self.is_top_free = false;
                     }
 
-                    self.scan_for_errors();
+                    scan_for_errors(self);
 
                     return;
                 }
@@ -684,7 +662,7 @@ impl Talc {
         self.allocatable_acme = null_mut();
         self.is_top_free = false;
 
-        self.scan_for_errors();
+        scan_for_errors(self);
     }
 
     /// Increase the extent of the arena.
@@ -743,7 +721,7 @@ impl Talc {
 
             self.deregister(top_chunk.node_ptr(), bin_of_size(top_size));
             self.register(top_chunk.base(), self.allocatable_acme);
-        } else if self.allocatable_acme.sub_ptr(old_alloc_acme) > MIN_CHUNK_SIZE {
+        } else if is_chunk_size(old_alloc_acme, self.allocatable_acme) {
             self.register(old_alloc_acme, self.allocatable_acme);
 
             self.is_top_free = true;
@@ -751,15 +729,14 @@ impl Talc {
             self.allocatable_acme = old_alloc_acme;
         }
 
-        // if the lowest chunk is allocated, add free chunk below if possible
-        // else extend the free chunk that's there
+        // extend the bottom chunk if it's free, else add free chunk below if possible
         if !(*old_alloc_base.cast::<Tag>()).is_allocated() {
             let bottom_chunk = FreeChunk(old_alloc_base);
             let bottom_size = *bottom_chunk.size_ptr();
 
             self.deregister(bottom_chunk.node_ptr(), bin_of_size(bottom_size));
             self.register(self.allocatable_base, bottom_chunk.base().add(bottom_size));
-        } else if old_alloc_base.sub_ptr(self.allocatable_base) > MIN_CHUNK_SIZE {
+        } else if is_chunk_size(self.allocatable_base, old_alloc_base) {
             self.register(self.allocatable_base, old_alloc_base);
 
             Tag::set_below_free(old_alloc_base.cast());
@@ -767,7 +744,7 @@ impl Talc {
             self.allocatable_base = old_alloc_base;
         }
 
-        self.scan_for_errors();
+        scan_for_errors(self);
     }
 
     /// Reduce the extent of the arena.
@@ -784,7 +761,7 @@ impl Talc {
     /// # let mut talc = Talc::new();
     /// // note: lock the allocator otherwise a race condition may occur
     /// // in between get_allocated_span and truncate
-    /// 
+    ///
     /// // compute the new arena as a reduction of the old arena
     /// let new_arena = talc.get_arena().truncate(1234, 5678).fit_over(talc.get_allocated_span());
     /// // alternatively...
@@ -807,6 +784,7 @@ impl Talc {
         // if the old allocatable arena is uninitialized, just reinit
         if self.allocatable_base == null_mut() || self.allocatable_acme == null_mut() {
             unsafe {
+                // SAFETY: new_arena is smaller than the current arena
                 self.init(new_arena);
             }
             return;
@@ -824,6 +802,7 @@ impl Talc {
             }
             _ => {
                 unsafe {
+                    // SAFETY: new_arena is smaller than the current arena
                     self.init(new_arena);
                 }
                 return;
@@ -862,135 +841,58 @@ impl Talc {
 
         // check for free memory at the bottom of the arena
         if new_alloc_base > self.allocatable_base {
-            let base_free_chunk = FreeChunk(self.allocatable_base);
-            let base_free_size = unsafe { *base_free_chunk.size_ptr() };
-            let base_free_chunk_acme = base_free_chunk.base().wrapping_add(base_free_size);
+            let bottom_chunk = FreeChunk(self.allocatable_base);
+            let bottom_chunk_size = unsafe { *bottom_chunk.size_ptr() };
+            let bottom_acme = bottom_chunk.base().wrapping_add(bottom_chunk_size);
 
             unsafe {
-                self.deregister(base_free_chunk.node_ptr(), bin_of_size(base_free_size));
+                self.deregister(bottom_chunk.node_ptr(), bin_of_size(bottom_chunk_size));
             }
 
-            if is_chunk_size(new_alloc_base, base_free_chunk_acme) {
+            if is_chunk_size(new_alloc_base, bottom_acme) {
                 self.allocatable_base = new_alloc_base;
 
                 unsafe {
-                    self.register(new_alloc_base, base_free_chunk_acme);
+                    self.register(new_alloc_base, bottom_acme);
                 }
             } else {
-                self.allocatable_base = base_free_chunk_acme;
+                self.allocatable_base = bottom_acme;
 
                 unsafe {
-                    debug_assert!(base_free_chunk_acme != self.allocatable_acme);
-                    Tag::clear_below_free(base_free_chunk_acme.cast());
+                    Tag::clear_below_free(bottom_acme.cast());
                 }
             }
         }
 
-        self.scan_for_errors();
+        scan_for_errors(self);
     }
 
-    /// Deprecated.
-    ///
-    /// Used to be a way to move `Talc` safely. Now it's always safe to move `Talc`.
-    ///
-    /// This'll be removed in the next major version bump.
-    // TODO REMOVE
-    #[deprecated(since = "v1.0.0", note = "No longer unsafe to move Talc struct.")]
-    pub fn mov(self, dest: &mut core::mem::MaybeUninit<Self>) -> &mut Self {
-        let new_talc_ref = dest.write(self);
-        new_talc_ref
-    }
-
-    /// Wrap in a spin mutex-locked wrapper struct.
+    /// Wrap in `Talck`, a mutex-locked wrapper struct using [`lock_api`].
     ///
     /// This implements the `GlobalAlloc` trait and provides
     /// access to the `Allocator` API.
+    ///
+    /// # Examples
+    /// ```
+    /// # use talc::*;
+    /// # use core::alloc::{GlobalAlloc, Layout};
+    /// use spin::Mutex;
+    /// let talc = Talc::new();
+    /// let talck = talc.lock::<Mutex<()>>();
+    ///
+    /// unsafe {
+    ///     talck.alloc(Layout::from_size_align_unchecked(32, 4));
+    /// }
+    /// ```
     #[cfg(feature = "lock_api")]
     pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R> {
         Talck(lock_api::Mutex::new(self))
-    }
-
-    /// Debugging function for checking various assumptions.
-    fn scan_for_errors(&mut self) {
-        #[cfg(debug_assertions)]
-        {
-            assert!(self.allocatable_acme >= self.allocatable_base);
-            let alloc_span = Span::new(self.allocatable_base as _, self.allocatable_acme as _);
-            assert!(self.arena.contains_span(alloc_span));
-
-            //let mut vec = Vec::<(*mut u8, *mut u8)>::new();
-
-            if self.bins.as_mut_ptr() != null_mut() {
-                assert!(self.allocatable_base != null_mut());
-                assert!(self.allocatable_acme != null_mut());
-
-                for b in 0..BIN_COUNT {
-                    let mut any = false;
-                    unsafe {
-                        for node in LlistNode::iter_mut(*self.get_bin_ptr(b)) {
-                            any = true;
-                            if b < 64 {
-                                assert!(self.availability_low & 1 << b != 0);
-                            } else {
-                                assert!(self.availability_high & 1 << (b - 64) != 0);
-                            }
-
-                            let free_chunk = FreeChunk(node.as_ptr().cast());
-                            let low_size = *free_chunk.size_ptr();
-                            let high_size =
-                                *free_chunk.base().add(low_size - TAG_SIZE).cast::<usize>();
-                            assert!(low_size == high_size);
-                            assert!(free_chunk.base().add(low_size) <= self.allocatable_acme);
-
-                            if free_chunk.base().add(low_size) < self.allocatable_acme {
-                                let upper_tag = *free_chunk.base().add(low_size).cast::<Tag>();
-                                assert!(upper_tag.is_allocated());
-                                assert!(upper_tag.is_below_free());
-                            } else {
-                                assert!(self.is_top_free);
-                            }
-
-                            /* let low_ptr = free_chunk.ptr();
-                            let high_ptr = low_ptr.add(low_size);
-
-                            for &(other_low, other_high) in &vec {
-                                assert!(other_high <= low_ptr || high_ptr <= other_low);
-                            }
-                            vec.push((low_ptr, high_ptr)); */
-                        }
-                    }
-
-                    if !any {
-                        if b < 64 {
-                            assert!(self.availability_low & 1 << b == 0);
-                        } else {
-                            assert!(self.availability_high & 1 << (b - 64) == 0);
-                        }
-                    }
-                }
-            } else {
-                assert!(self.allocatable_base == null_mut());
-                assert!(self.allocatable_acme == null_mut());
-            }
-
-            /* vec.sort_unstable_by(|&(x, _), &(y, _)| x.cmp(&y));
-            eprintln!();
-            for (low_ptr, high_ptr) in vec {
-                eprintln!("{:p}..{:p} - {:x}", low_ptr, high_ptr, unsafe { high_ptr.sub_ptr(low_ptr) });
-            }
-            eprintln!("arena: {}", self.arena);
-            eprintln!("alloc_base: {:p}", self.alloc_base);
-            eprintln!("alloc_acme: {:p}", self.alloc_acme);
-            eprintln!(); */
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use core::ptr::null_mut;
-    use std;
 
     use super::*;
 
@@ -1025,13 +927,9 @@ mod tests {
     fn talc_test() {
         const ARENA_SIZE: usize = 10000000;
 
-        let arena = vec![0u8; ARENA_SIZE].into_boxed_slice();
-        let arena = Box::leak(arena);
+        let arena = Box::leak(vec![0u8; ARENA_SIZE].into_boxed_slice()) as *mut [_];
 
-        let mut talc = Talc::new();
-        unsafe {
-            talc.init(arena.into());
-        }
+        let mut talc = unsafe { Talc::with_arena(arena.into()) };
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
 
@@ -1043,7 +941,6 @@ mod tests {
 
         let mut x = vec![NonNull::dangling(); 100];
 
-        let t1 = std::time::Instant::now();
         for _ in 0..1 {
             for i in 0..100 {
                 let allocation = unsafe { talc.malloc(layout) };
@@ -1065,11 +962,71 @@ mod tests {
                 }
             }
         }
-        let t2 = std::time::Instant::now();
-        println!("duration: {:?}", (t2 - t1) / (1000 * 2000));
 
         unsafe {
             talc.free(a.unwrap(), layout);
+        }
+
+        unsafe {
+            drop(Box::from_raw(arena));
+        }
+    }
+
+    #[test]
+    fn init_truncate_test() {
+        let mut tiny_arena = [0u64; 100];
+        let tiny_arena_span: Span = Span::from(&mut tiny_arena);
+        let arena = Box::leak(vec![0u8; 1000000].into_boxed_slice());
+        let arena_span = Span::from(arena as *mut _);
+
+        let mut talc = Talc::new();
+
+        talc.truncate(Span::empty());
+        assert!(talc.get_arena().is_empty());
+        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
+        assert!(!talc.is_top_free);
+        assert!(talc.bins.len() == 0 && talc.bins.as_mut_ptr().is_null());
+        assert!(talc.availability_low == 0 && talc.availability_high == 0);
+
+        unsafe {
+            talc.init(tiny_arena_span);
+        }
+
+        assert!(talc.get_arena() == tiny_arena_span);
+        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
+        assert!(!talc.is_top_free);
+        assert!(talc.bins.len() == 0 && talc.bins.as_mut_ptr().is_null());
+        assert!(talc.availability_low == 0 && talc.availability_high == 0);
+
+        talc.truncate(talc.get_arena().truncate(50, 50).fit_over(talc.get_allocated_span()));
+
+        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
+        assert!(!talc.is_top_free);
+        assert!(talc.bins.len() == 0 && talc.bins.as_mut_ptr().is_null());
+        assert!(talc.availability_low == 0 && talc.availability_high == 0);
+
+        unsafe {
+            talc.init(arena_span);
+        }
+
+        assert!(talc.get_arena() == arena_span);
+        assert!(talc.is_top_free);
+        assert!(talc.bins.len() == BIN_COUNT);
+
+        talc.truncate(talc.get_arena().truncate(500, 500).fit_over(talc.get_allocated_span()));
+
+        let allocation = unsafe {
+            let allocation = talc.malloc(Layout::new::<Talc>()).unwrap();
+            allocation.as_ptr().write_bytes(0, Layout::new::<Talc>().size());
+            allocation
+        };
+
+        talc.truncate(
+            talc.get_arena().truncate(100000, 100000).fit_over(talc.get_allocated_span()),
+        );
+
+        unsafe {
+            talc.free(allocation, Layout::new::<Talc>());
         }
 
         unsafe {

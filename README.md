@@ -2,6 +2,7 @@
 
 ![License](https://img.shields.io/crates/l/talc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)
 
+(Read the docs on crates.io, these are under construction for v2, sorry for the inconvenience, I'll be switching to using a dev branch thereafter)
 
 Talc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps.
 
@@ -10,37 +11,52 @@ Using Talc as a simple arena allocator is easy, but practical concerns in `no_st
 ## Usage
 
 Use it as a global allocator as follows:
-```rust ignore
+```rust
+// todo fixme
+#![no_std]
+
 use talc::*;
+use core::alloc::{GlobalAlloc, Layout};
 
 #[global_allocator]
-static ALLOCATOR: Talck = Talc::new().spin_lock();
-static mut ARENA: [u8; 1000] = [0; 1000];
+static ALLOCATOR: Talck<spin::Mutex<()>> = Talc::new().lock();
+static mut ARENA: [u8; 10000] = [0; 10000];
 
 fn main() {
     // initialize it later...
-    unsafe { ALLOCATOR.talc().init(ARENA.as_mut_slice().into()); }
+    unsafe { ALLOCATOR.talc().init(ARENA.as_mut().into()); }
+
+    let allocation = unsafe {
+        ALLOCATOR.alloc(Layout::new::<[u32; 16]>())
+    };
 }
 ```
 
 Use it as an arena allocator via the `Allocator` API as follows:
-```rust ignore
+```rust
+#![feature(allocator_api)]
 use talc::*;
+use core::alloc::{Allocator, Layout};
 
 fn main () {
     let mut arena = Box::leak(vec![0u8; 10000].into_boxed_slice());
     
-    let talck = Talc::new().spin_lock();
-    unsafe { talck.talc().init(arena.into()); }
+    let talck = unsafe {
+        Talc::with_arena(arena.into()).lock::<spin::Mutex<()>>()
+    };
 
     let allocator = talck.allocator_api_ref();
     
-    allocator.allocate(..);
+    allocator.allocate(Layout::new::<[u32; 16]>());
+
+    unsafe {
+        drop(Box::from_raw(arena));
+    }
 }
 ```
 
 ## Performance
-O(n) worst case allocations. In practice, it's usually very fast, compared to other allocators. See the benchmarks below.
+O(n) worst case allocations. In practice, it's usually fast. See the benchmarks below.
 
 Deallocation is always O(1), reallocation is usually O(1) unless in-place allocation fails.
 
@@ -137,12 +153,12 @@ The main differences compared to Galloc, using a similar algorithm, is that Talc
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations.
 
 ## Testing
-Test coverage on most of the helper types and some sanity checking on the allocation.
+Test coverage on most of the helper types and Talc functions.
 
 Other than that, lots of fuzzing of the allocator. See `/fuzz/fuzz_targets/fuzz_arena.rs`
 
 ## Features
-* `spin` (default): Provides the `Talck` type (a spin mutex wrapper) that implements `GlobalAlloc`.
+* `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
 * `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
 
 ## General Usage
@@ -150,17 +166,18 @@ Other than that, lots of fuzzing of the allocator. See `/fuzz/fuzz_targets/fuzz_
 Here is the list of methods:
 * Constructors:
     * `new`
+    * `with_arena`
     * `with_oom_handler`
+    * `with_arena_and_oom_handler`
 * Information:
     * `get_arena` - returns the current arena memory region
     * `get_allocatable_span` - returns the current memory region in which allocations could occur
     * `get_allocated_span` - returns the minimum span containing all allocated memory
 * Management:
-    * `mov` - safely move an initialized Talc to the specified destination
     * `init` - initialize or re-initialize the arena (forgets all previous allocations, if any)
-    * `extend` - initialize or extend the arena region
-    * `truncate` - reduce the extent of the arena region
-    * `spin_lock` - wraps the Talc in a talc, which supports the `GlobalAlloc` and `Allocator` APIs
+    * `extend` - initialize or extend the arena
+    * `truncate` - reduce the extent of the arena
+    * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
 * Allocation:
     * `malloc`
     * `free`
@@ -173,7 +190,7 @@ See their docs for more info.
 
 ## Advanced Usage
 
-Instead of using `Talc::new`, use `Talc::with_oom_handler` and pass in a function pointer. This function will now be called upon OOM. This can be useful for a number of reasons, but one possiblity is dynamically extending the arena as required.
+Use `Talc::with_oom_handler` and pass in a function pointer. This function will now be called upon OOM. This can be useful for a number of reasons, but one possiblity is dynamically extending the arena as required.
 
 ```rust
 #![feature(allocator_api)]

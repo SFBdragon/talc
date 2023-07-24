@@ -4,22 +4,6 @@
 
 use crate::*;
 
-// desciptive error for failures
-// borrow allocator_api's if available, else define our own
-#[cfg(feature = "allocator")]
-pub use core::alloc::AllocError;
-
-#[cfg(not(feature = "allocator"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AllocError;
-
-#[cfg(not(feature = "allocator"))]
-impl core::fmt::Display for AllocError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("memory allocation failed")
-    }
-}
-
 /// `size` should be larger or equal to MIN_CHUNK_SIZE
 #[inline]
 pub(crate) unsafe fn bin_of_size(size: usize) -> usize {
@@ -143,9 +127,9 @@ pub(crate) unsafe fn chunk_ptr_from_alloc_ptr(ptr: *mut u8) -> (*mut u8, Tag) {
         ptr: *mut Tag,
     }
 
-    let mut low_ptr = ptr.wrapping_sub(TAG_SIZE + ptr as usize % ALIGN);
+    let mut low_ptr = ptr.sub(TAG_SIZE + ptr as usize % ALIGN);
 
-    let data = *low_ptr.cast::<PreAllocationData>();
+    let data = low_ptr.cast::<PreAllocationData>().read();
 
     // if the chunk_ptr doesn't point to an allocated tag
     // it points to a pointer to the actual tag
@@ -206,5 +190,85 @@ pub(crate) unsafe fn identify_above(chunk_acme: *mut u8) -> AboveChunk {
         AboveChunk::Allocated(chunk_acme.cast())
     } else {
         AboveChunk::Free(FreeChunk(chunk_acme))
+    }
+}
+
+/// Debugging function for checking various assumptions.
+pub(crate) fn scan_for_errors(talc: &mut Talc) {
+    #[cfg(debug_assertions)]
+    {
+        assert!(talc.allocatable_acme >= talc.allocatable_base);
+        let alloc_span = Span::new(talc.allocatable_base as _, talc.allocatable_acme as _);
+        assert!(talc.arena.contains_span(alloc_span));
+
+        #[cfg(test)]
+        let mut vec = Vec::<(*mut u8, *mut u8)>::new();
+
+        if talc.bins.as_mut_ptr() != null_mut() {
+            assert!(talc.allocatable_base != null_mut());
+            assert!(talc.allocatable_acme != null_mut());
+
+            for b in 0..BIN_COUNT {
+                let mut any = false;
+                unsafe {
+                    for node in LlistNode::iter_mut(*talc.get_bin_ptr(b)) {
+                        any = true;
+                        if b < 64 {
+                            assert!(talc.availability_low & 1 << b != 0);
+                        } else {
+                            assert!(talc.availability_high & 1 << (b - 64) != 0);
+                        }
+
+                        let free_chunk = FreeChunk(node.as_ptr().cast());
+                        let low_size = *free_chunk.size_ptr();
+                        let high_size =
+                            *free_chunk.base().add(low_size - TAG_SIZE).cast::<usize>();
+                        assert!(low_size == high_size);
+                        assert!(free_chunk.base().add(low_size) <= talc.allocatable_acme);
+
+                        if free_chunk.base().add(low_size) < talc.allocatable_acme {
+                            let upper_tag = *free_chunk.base().add(low_size).cast::<Tag>();
+                            assert!(upper_tag.is_allocated());
+                            assert!(upper_tag.is_below_free());
+                        } else {
+                            assert!(talc.is_top_free);
+                        }
+
+
+                        #[cfg(test)]
+                        {
+                            let low_ptr = free_chunk.base();
+                            let high_ptr = low_ptr.add(low_size);
+        
+                            for &(other_low, other_high) in &vec {
+                                assert!(other_high <= low_ptr || high_ptr <= other_low);
+                            }
+                            vec.push((low_ptr, high_ptr));
+                        }
+                    }
+                }
+
+                if !any {
+                    if b < 64 {
+                        assert!(talc.availability_low & 1 << b == 0);
+                    } else {
+                        assert!(talc.availability_high & 1 << (b - 64) == 0);
+                    }
+                }
+            }
+        } else {
+            assert!(talc.allocatable_base == null_mut());
+            assert!(talc.allocatable_acme == null_mut());
+        }
+
+        /* vec.sort_unstable_by(|&(x, _), &(y, _)| x.cmp(&y));
+        eprintln!();
+        for (low_ptr, high_ptr) in vec {
+            eprintln!("{:p}..{:p} - {:x}", low_ptr, high_ptr, unsafe { high_ptr.sub_ptr(low_ptr) });
+        }
+        eprintln!("arena: {}", self.arena);
+        eprintln!("alloc_base: {:p}", self.alloc_base);
+        eprintln!("alloc_acme: {:p}", self.alloc_acme);
+        eprintln!(); */
     }
 }

@@ -1,7 +1,7 @@
 use crate::Talc;
 
 use core::{
-    alloc::{GlobalAlloc, Layout},
+    alloc::{GlobalAlloc, Layout, AllocError},
     cmp::Ordering,
     ptr::{self, NonNull},
 };
@@ -65,6 +65,7 @@ unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R
 
         unsafe { self.0.0.lock().malloc(layout) }
             .map(|nn| NonNull::slice_from_raw_parts(nn, layout.size()))
+            .map_err(|_| AllocError)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
@@ -85,8 +86,8 @@ unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R
             return self.allocate(new_layout);
         }
 
-        if core::intrinsics::unlikely(!ptr.as_ptr().is_aligned_to(new_layout.align())) {
-            let allocation = self.0.0.lock().malloc(new_layout)?;
+        if !ptr.as_ptr().is_aligned_to(new_layout.align()) {
+            let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
             self.0.0.lock().free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
@@ -97,6 +98,7 @@ unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R
             .lock()
             .grow(ptr, old_layout, new_layout.size())
             .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
+            .map_err(|_| AllocError)
     }
 
     unsafe fn grow_zeroed(
@@ -133,8 +135,8 @@ unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R
             return Ok(NonNull::slice_from_raw_parts(new_layout.dangling(), 0));
         }
 
-        if core::intrinsics::unlikely(!ptr.as_ptr().is_aligned_to(new_layout.align())) {
-            let allocation = self.0.0.lock().malloc(new_layout)?;
+        if !ptr.as_ptr().is_aligned_to(new_layout.align()) {
+            let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
             self.0.0.lock().free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));

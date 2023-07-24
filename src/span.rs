@@ -42,23 +42,43 @@ impl core::fmt::Display for Span {
     }
 }
 
-impl From<Range<*mut u8>> for Span {
-    fn from(value: Range<*mut u8>) -> Self {
-        Self { base: value.start, acme: value.end }
+impl<T> From<Range<*mut T>> for Span {
+    fn from(value: Range<*mut T>) -> Self {
+        Self { base: value.start.cast(), acme: value.end.cast() }
     }
 }
 
-impl From<*mut [u8]> for Span {
-    #[inline]
-    fn from(value: *mut [u8]) -> Self {
-        Self { base: value.as_mut_ptr(), acme: value.as_mut_ptr().wrapping_add(value.len()) }
+impl<T> From<&mut [T]> for Span {
+    fn from(value: &mut [T]) -> Self {
+        Self::from(value as *mut [T])
     }
 }
 
-impl From<&mut [u8]> for Span {
-    #[inline]
-    fn from(value: &mut [u8]) -> Self {
-        Self { base: value.as_mut_ptr(), acme: value.as_mut_ptr().wrapping_add(value.len()) }
+impl<T, const N: usize> From<&mut [T; N]> for Span {
+    fn from(value: &mut [T; N]) -> Self {
+        Self::from(value as *mut [T; N])
+    }
+}
+
+impl<T> From<*mut [T]> for Span {
+    fn from(value: *mut [T]) -> Self {
+        Self {
+            base: value.as_mut_ptr().cast(),
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { value.as_mut_ptr().add(value.len()).cast() },
+        }
+    }
+}
+
+impl<T, const N: usize> From<*mut [T; N]> for Span {
+    fn from(value: *mut [T; N]) -> Self {
+        Self {
+            base: value as *mut T as *mut u8,
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { (value as *mut T).add(N).cast() },
+        }
     }
 }
 

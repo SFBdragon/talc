@@ -33,8 +33,7 @@ fuzz_target!(|data: (usize, Vec<Actions>)| {
     let arena = Box::leak(vec![0u8; arena_size % (1 << 24)].into_boxed_slice());
     arena.fill(0x11);
 
-    let allocator = Talc::new().lock::<spin::Mutex<()>>();
-    unsafe { allocator.0.lock().init(arena.into()); }
+    let allocator = unsafe { Talc::with_arena(arena.into()).lock::<spin::Mutex<()>>() };
     
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
 
