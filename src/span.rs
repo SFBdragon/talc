@@ -18,6 +18,8 @@ pub struct Span {
     acme: *mut u8,
 }
 
+unsafe impl Send for Span {}
+
 impl Default for Span {
     fn default() -> Self {
         Self::empty()
@@ -62,23 +64,13 @@ impl<T, const N: usize> From<&mut [T; N]> for Span {
 
 impl<T> From<*mut [T]> for Span {
     fn from(value: *mut [T]) -> Self {
-        Self {
-            base: value.as_mut_ptr().cast(),
-            // SAFETY: pointing directly after an object is considered
-            // within the same object
-            acme: unsafe { value.as_mut_ptr().add(value.len()).cast() },
-        }
+        Self::from_slice(value)
     }
 }
 
 impl<T, const N: usize> From<*mut [T; N]> for Span {
     fn from(value: *mut [T; N]) -> Self {
-        Self {
-            base: value as *mut T as *mut u8,
-            // SAFETY: pointing directly after an object is considered
-            // within the same object
-            acme: unsafe { (value as *mut T).add(N).cast() },
-        }
+        Self::from_array(value)
     }
 }
 
@@ -126,23 +118,38 @@ impl Span {
         Self { base, acme }
     }
 
-    /// Creates a `Span` given a `base` and a `size`.
-    /// # Panics
-    /// Panics if `base + size` overflows.
+    /// Creates a [`Span`] given a `base` and a `size`.
+    ///
+    /// If `base + size` overflows, the result is empty.
     #[inline]
-    pub fn from_base_size(base: *mut u8, size: usize) -> Self {
-        // we need to ensure that wrapping doesn't occur
-        // but using wrapping_add is necessary to avoid UB when doing pointer arithmetic
-        match (base as usize).overflowing_add(size).1 {
-            true => Self { base, acme: base.wrapping_add(size) },
-            false => panic!("base + size overflows!"),
+    pub const fn from_base_size(base: *mut u8, size: usize) -> Self {
+        Self { base, acme: base.wrapping_add(size) }
+    }
+
+    #[inline]
+    pub const fn from_slice<T>(slice: *mut [T]) -> Self {
+        Self {
+            base: slice.as_mut_ptr().cast(),
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { slice.as_mut_ptr().add(slice.len()).cast() },
+        }
+    }
+
+    #[inline]
+    pub const fn from_array<T, const N: usize>(array: *mut [T; N]) -> Self {
+        Self {
+            base: array as *mut T as *mut u8,
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { (array as *mut T).add(N).cast() },
         }
     }
 
     /// Returns `None` if `self` is empty.
     #[inline]
     pub fn to_ptr_range(self) -> Option<Range<*mut u8>> {
-        if self.is_empty() { None } else { Some((self.base as *mut u8)..(self.acme as *mut u8)) }
+        if self.is_empty() { None } else { Some(self.base..self.acme) }
     }
 
     /// Returns `None` if `self` is empty.

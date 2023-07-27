@@ -5,6 +5,7 @@
 #![feature(slice_ptr_get)]
 #![feature(slice_ptr_len)]
 #![feature(const_mut_refs)]
+#![feature(const_slice_ptr_len)]
 #![feature(const_slice_from_raw_parts_mut)]
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
@@ -13,10 +14,12 @@
 mod talck;
 
 mod llist;
+mod oom_handler;
 mod span;
 mod tag;
 mod utils;
 
+pub use oom_handler::{ErrOnOom, InitOnOom, OomHandler};
 pub use span::Span;
 #[cfg(feature = "lock_api")]
 pub use talck::Talck;
@@ -57,18 +60,14 @@ const BIN_COUNT: usize = usize::BITS as usize * 2;
 
 type Bin = Option<NonNull<LlistNode>>;
 
-type OomHandler = fn(&mut Talc, Layout) -> Result<(), ()>;
-
-pub fn alloc_error(_: &mut Talc, _: Layout) -> Result<(), ()> {
-    Err(())
-}
-
 /// The Talc Allocator!
 ///
-/// Call [`lock`](Talc::lock) on the struct before initialization to get
-/// a [`Talck`] which supports the `GlobalAlloc` and `Allocator` traits.
-pub struct Talc {
-    oom_handler: OomHandler,
+/// Initialize with `new`, `with_arena`, `with_oom_handler` or `with_arena_and_oom_handler`.
+///
+/// Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
+/// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
+pub struct Talc<O: OomHandler> {
+    pub oom_handler: O,
 
     arena: Span,
 
@@ -86,9 +85,9 @@ pub struct Talc {
     bins: *mut [Bin],
 }
 
-unsafe impl Send for Talc {}
+unsafe impl<O: Send + OomHandler> Send for Talc<O> {}
 
-impl core::fmt::Debug for Talc {
+impl<O: OomHandler> core::fmt::Debug for Talc<O> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Talc")
             .field("arena", &self.arena)
@@ -101,7 +100,7 @@ impl core::fmt::Debug for Talc {
     }
 }
 
-impl Talc {
+impl<O: OomHandler> Talc<O> {
     const fn required_chunk_size(size: usize) -> usize {
         if size <= MIN_CHUNK_SIZE - TAG_SIZE {
             MIN_CHUNK_SIZE
@@ -189,7 +188,7 @@ impl Talc {
     }
 
     /// Ensures the above chunk's `is_below_free` or the `is_top_free` flag is cleared.
-    /// 
+    ///
     /// Assumes an allocated chunk's base is at `chunk_acme`.
     #[inline]
     unsafe fn clear_below_free(&mut self, chunk_acme: *mut u8) {
@@ -232,7 +231,8 @@ impl Talc {
         let (chunk_base, chunk_acme, alloc_base) = loop {
             match self.get_sufficient_chunk(layout) {
                 Some(payload) => break payload,
-                None => (self.oom_handler)(self, layout)?,
+                // todo change OomHandler trait or figure out handling of outside allocations
+                None => _ = O::handle_oom(self, layout)?,
             }
         };
 
@@ -485,22 +485,7 @@ impl Talc {
         scan_for_errors(self);
     }
 
-    pub const fn new() -> Self {
-        Self {
-            oom_handler: alloc_error,
-
-            arena: Span::empty(),
-            allocatable_base: core::ptr::null_mut(),
-            allocatable_acme: core::ptr::null_mut(),
-            is_top_free: true,
-
-            availability_low: 0,
-            availability_high: 0,
-            bins: core::ptr::slice_from_raw_parts_mut(null_mut(), 0),
-        }
-    }
-
-    pub const fn with_oom_handler(oom_handler: OomHandler) -> Self {
+    pub const fn new(oom_handler: O) -> Self {
         Self {
             oom_handler,
 
@@ -515,20 +500,11 @@ impl Talc {
         }
     }
 
-    /// Contruct and initialize a `Talc` with the given arena.
-    /// # Safety
-    /// See [`init`](Talc::init) for safety requirements.
-    pub unsafe fn with_arena(arena: Span) -> Self {
-        let mut talc = Self::new();
-        talc.init(arena);
-        talc
-    }
-
     /// Contruct and initialize a `Talc` with the given arena and OOM handler function.
     /// # Safety
     /// See [`init`](Talc::init) for safety requirements.
-    pub unsafe fn with_arena_and_oom_handler(arena: Span, oom_handler: OomHandler) -> Self {
-        let mut talc = Self::with_oom_handler(oom_handler);
+    pub unsafe fn with_arena(oom_handler: O, arena: Span) -> Self {
+        let mut talc = Self::new(oom_handler);
         talc.init(arena);
         talc
     }
@@ -678,8 +654,8 @@ impl Talc {
     ///
     /// A recommended pattern for satisfying these criteria is:
     /// ```rust
-    /// # use talc::{Span, Talc};
-    /// # let mut talc = Talc::new();
+    /// # use talc::*;
+    /// # let mut talc = Talc::new(ErrOnOom);
     /// // compute the new arena as an extention of the old arena
     /// // for the sake of example we avoid the null page too
     /// let new_arena = talc.get_arena().extend(1234, 5678).above(0x1000 as *mut u8);
@@ -757,8 +733,8 @@ impl Talc {
     ///
     /// The recommended pattern for satisfying these criteria is:
     /// ```rust
-    /// # use talc::{Span, Talc};
-    /// # let mut talc = Talc::new();
+    /// # use talc::*;
+    /// # let mut talc = Talc::new(ErrOnOom);
     /// // note: lock the allocator otherwise a race condition may occur
     /// // in between get_allocated_span and truncate
     ///
@@ -869,15 +845,15 @@ impl Talc {
 
     /// Wrap in `Talck`, a mutex-locked wrapper struct using [`lock_api`].
     ///
-    /// This implements the `GlobalAlloc` trait and provides
-    /// access to the `Allocator` API.
+    /// This implements the [`GlobalAlloc`](core::alloc::GlobalAlloc) trait and provides
+    /// access to the [`Allocator`](core::alloc::Allocator) API.
     ///
     /// # Examples
     /// ```
     /// # use talc::*;
     /// # use core::alloc::{GlobalAlloc, Layout};
     /// use spin::Mutex;
-    /// let talc = Talc::new();
+    /// let talc = Talc::new(ErrOnOom);
     /// let talck = talc.lock::<Mutex<()>>();
     ///
     /// unsafe {
@@ -885,7 +861,7 @@ impl Talc {
     /// }
     /// ```
     #[cfg(feature = "lock_api")]
-    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R> {
+    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O> {
         Talck(lock_api::Mutex::new(self))
     }
 }
@@ -929,7 +905,7 @@ mod tests {
 
         let arena = Box::leak(vec![0u8; ARENA_SIZE].into_boxed_slice()) as *mut [_];
 
-        let mut talc = unsafe { Talc::with_arena(arena.into()) };
+        let mut talc = unsafe { Talc::with_arena(ErrOnOom, arena.into()) };
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
 
@@ -979,7 +955,7 @@ mod tests {
         let arena = Box::leak(vec![0u8; 1000000].into_boxed_slice());
         let arena_span = Span::from(arena as *mut _);
 
-        let mut talc = Talc::new();
+        let mut talc = Talc::new(ErrOnOom);
 
         talc.truncate(Span::empty());
         assert!(talc.get_arena().is_empty());
@@ -1016,8 +992,8 @@ mod tests {
         talc.truncate(talc.get_arena().truncate(500, 500).fit_over(talc.get_allocated_span()));
 
         let allocation = unsafe {
-            let allocation = talc.malloc(Layout::new::<Talc>()).unwrap();
-            allocation.as_ptr().write_bytes(0, Layout::new::<Talc>().size());
+            let allocation = talc.malloc(Layout::new::<u128>()).unwrap();
+            allocation.as_ptr().write_bytes(0, Layout::new::<u128>().size());
             allocation
         };
 
@@ -1026,7 +1002,7 @@ mod tests {
         );
 
         unsafe {
-            talc.free(allocation, Layout::new::<Talc>());
+            talc.free(allocation, Layout::new::<u128>());
         }
 
         unsafe {

@@ -29,7 +29,7 @@ SOFTWARE.
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT;
-use talc::Talc;
+use talc::{ErrOnOom, Talc};
 
 use std::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 use std::time::Instant;
@@ -78,9 +78,9 @@ fn main() {
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
     let talc = unsafe {
-        Talc::with_arena(HEAP_MEMORY.as_mut_slice().into()).lock::<spin::Mutex<()>>()
+        Talc::with_arena(ErrOnOom, HEAP_MEMORY.as_mut_slice().into()).lock::<spin::Mutex<()>>()
     };
-    let bench_talc = benchmark_allocator(&talc.allocator_api_ref());
+    let bench_talc = benchmark_allocator(&talc.allocator());
 
     print_bench_results("Talc", &bench_talc);
     println!();
@@ -93,16 +93,23 @@ fn main() {
 
 fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
     let now_fn = || unsafe {
-        if cfg!(target_arch = "x86_64") {
+        #[cfg(target_arch = "x86_64")]
+        {
             let mut x = 0u32;
-            std::arch::x86_64::__rdtscp(&mut x)
-        } else if cfg!(target_arch = "aarch64") {
+            return std::arch::x86_64::__rdtscp(&mut x);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
             let cntvct_el0: u64;
             std::arch::asm!("msr {0}, CNTVCT_EL0", out(reg) cntvct_el0, options(nomem, nostack));
-            cntvct_el0
-        } else {
-            panic!("Hardware-based counter is not implemented for this architecture. Supported: x86_64, aarch64");
+            return cntvct_el0;
         }
+
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        compile_error!(
+            "Hardware-based counter is not implemented for this architecture. Supported: x86_64, aarch64"
+        );
     };
 
     let mut active_allocations = Vec::new();

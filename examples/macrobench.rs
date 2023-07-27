@@ -34,6 +34,7 @@ use std::{
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+use talc::ErrOnOom;
 
 const HEAP_SIZE: usize = 1 << 27;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
@@ -83,7 +84,8 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>> = talc::Talc::new().lock();
+static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>, ErrOnOom> =
+    talc::Talc::new(ErrOnOom).lock();
 static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
         FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
@@ -183,7 +185,7 @@ fn main() {
 
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
-        TALC_ALLOCATOR = talc::Talc::with_arena(HEAP.as_mut_slice().into()).lock();
+        TALC_ALLOCATOR = talc::Talc::with_arena(ErrOnOom, HEAP.as_mut_slice().into()).lock();
         &TALC_ALLOCATOR
     }
 }

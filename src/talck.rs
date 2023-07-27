@@ -1,31 +1,38 @@
-use crate::Talc;
+use crate::{OomHandler, Talc};
 
 use core::{
-    alloc::{GlobalAlloc, Layout, AllocError},
+    alloc::{AllocError, GlobalAlloc, Layout},
     cmp::Ordering,
     ptr::{self, NonNull},
 };
 
-/// Talc spin lock: wrapper struct containing a mutex-locked `Talc`.
+/// Talc lock: wrapper struct containing a mutex-locked [`Talc`].
 ///
-/// In order to access the `Allocator` API, call `allocator_api_ref`.
+/// In order to access the [`Allocator`](core::alloc::Allocator) API, call [`Talck::allocator`].
+///
+/// # Example
+/// ```rust
+/// # use talc::*;
+/// let talc = Talc::new(ErrOnOom);
+/// let talck = talc.lock::<spin::Mutex<()>>();
+/// ```
 #[derive(Debug)]
-pub struct Talck<R: lock_api::RawMutex>(pub lock_api::Mutex<R, Talc>);
+pub struct Talck<R: lock_api::RawMutex, O: OomHandler>(pub lock_api::Mutex<R, Talc<O>>);
 
-impl<R: lock_api::RawMutex> Talck<R> {
-    /// Get a reference that implements the `Allocator` API.
+impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
+    /// Get a reference that implements the [`Allocator`](core::alloc::Allocator) API.
     #[cfg(feature = "allocator")]
-    pub fn allocator_api_ref(&self) -> TalckRef<'_, R> {
+    pub fn allocator(&self) -> TalckRef<'_, R, O> {
         TalckRef(self)
     }
 
     /// Lock the mutex and access the inner `Talc`.
-    pub fn talc(&self) -> lock_api::MutexGuard<'_, R, Talc> {
+    pub fn talc(&self) -> lock_api::MutexGuard<'_, R, Talc<O>> {
         self.0.lock()
     }
 }
 
-unsafe impl<R: lock_api::RawMutex> GlobalAlloc for Talck<R> {
+unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.0.lock().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
     }
@@ -54,10 +61,12 @@ unsafe impl<R: lock_api::RawMutex> GlobalAlloc for Talck<R> {
 
 #[cfg(feature = "allocator")]
 #[derive(Debug, Clone, Copy)]
-pub struct TalckRef<'a, R: lock_api::RawMutex>(pub &'a Talck<R>);
+pub struct TalckRef<'a, R: lock_api::RawMutex, O: OomHandler>(pub &'a Talck<R, O>);
 
 #[cfg(feature = "allocator")]
-unsafe impl<'a, R: lock_api::RawMutex> core::alloc::Allocator for TalckRef<'a, R> {
+unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
+    for TalckRef<'a, R, O>
+{
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
         if layout.size() == 0 {
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
