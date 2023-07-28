@@ -86,13 +86,12 @@ The number of allocation when filling and flushing the heap with a penalty for e
 
 ![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
 
-Note that:
-- no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
+Notes:
 - alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
 
 ### Microbenchmarks (based on simple_chunk_allocator's benchmark)
 
-Note: pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
+Pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
@@ -128,11 +127,9 @@ Pre-Fail Allocations |       42    1575    3864    7476   12369   19383   31857 
        Deallocations |       42    1995    6993   15183   27825   47124   75537  114135  214305 |   46387   ticks
 ```
 
-Note that:
-- no attempt is made to account for interrupts in these timings, however, the results are fairly consistent on my computer.
+Notes:
 - number of pre-fail allocations is more noise than signal due to random allocation sizes
 - alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
-
 
 
 ## Algorithm
@@ -221,3 +218,9 @@ impl OomHandler for MyOomHandler {
 }
 ```
 
+## Support Me
+This'll go towards keeping me alive, getting me through university, and allowing me to keep working on my OSS projects. 
+
+[![Paypal](/donate.png)](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ)
+
+Appreciate it! 

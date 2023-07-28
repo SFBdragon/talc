@@ -1002,6 +1002,10 @@ mod tests {
         );
 
         unsafe {
+            talc.extend(talc.get_arena().extend(10000, 10000).fit_within(arena_span));
+        }
+
+        unsafe {
             talc.free(allocation, Layout::new::<u128>());
         }
 
