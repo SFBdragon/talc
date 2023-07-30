@@ -48,6 +48,7 @@ use core::{
 // go check out bucket_of_size to see how bucketing works
 
 const WORD_SIZE: usize = core::mem::size_of::<usize>();
+const WORD_BITS: usize = usize::BITS as usize;
 const ALIGN: usize = core::mem::align_of::<usize>();
 
 const NODE_SIZE: usize = core::mem::size_of::<LlistNode>();
@@ -125,12 +126,12 @@ impl<O: OomHandler> Talc<O> {
     fn set_avails(&mut self, b: usize) {
         debug_assert!(b < BIN_COUNT);
 
-        if b < 64 {
+        if b < WORD_BITS {
             debug_assert!(self.availability_low & 1 << b == 0);
             self.availability_low ^= 1 << b;
         } else {
-            debug_assert!(self.availability_high & 1 << (b - 64) == 0);
-            self.availability_high ^= 1 << (b - 64);
+            debug_assert!(self.availability_high & 1 << (b - WORD_BITS) == 0);
+            self.availability_high ^= 1 << (b - WORD_BITS);
         }
     }
     /// Clears the availability flag for bin `b`.
@@ -141,12 +142,12 @@ impl<O: OomHandler> Talc<O> {
         debug_assert!(b < BIN_COUNT);
 
         // if head is the last node
-        if b < 64 {
+        if b < WORD_BITS {
             self.availability_low ^= 1 << b;
             debug_assert!(self.availability_low & 1 << b == 0);
         } else {
-            self.availability_high ^= 1 << (b - 64);
-            debug_assert!(self.availability_high & 1 << (b - 64) == 0);
+            self.availability_high ^= 1 << (b - WORD_BITS);
+            debug_assert!(self.availability_high & 1 << (b - WORD_BITS) == 0);
         }
     }
 
@@ -341,13 +342,13 @@ impl<O: OomHandler> Talc<O> {
             if shifted_avails != 0 {
                 Some(bin + shifted_avails.trailing_zeros() as usize)
             } else if self.availability_high != 0 {
-                Some(self.availability_high.trailing_zeros() as usize + 64)
+                Some(self.availability_high.trailing_zeros() as usize + WORD_BITS)
             } else {
                 None
             }
         } else if bin < BIN_COUNT {
             // similar process to the above, but the low flags are irrelevant
-            let shifted_avails = self.availability_high >> (bin - 64);
+            let shifted_avails = self.availability_high >> (bin - WORD_BITS);
 
             if shifted_avails != 0 {
                 Some(bin + shifted_avails.trailing_zeros() as usize)
@@ -950,9 +951,12 @@ mod tests {
 
     #[test]
     fn init_truncate_test() {
-        let mut tiny_arena = [0u64; 100];
+        // not big enough to fit the metadata
+        let mut tiny_arena = [0u8; BIN_COUNT * WORD_SIZE / 2];
         let tiny_arena_span: Span = Span::from(&mut tiny_arena);
-        let arena = Box::leak(vec![0u8; 1000000].into_boxed_slice());
+
+        // big enough with plenty of extra
+        let arena = Box::leak(vec![0u8; BIN_COUNT * WORD_SIZE + 100000].into_boxed_slice());
         let arena_span = Span::from(arena as *mut _);
 
         let mut talc = Talc::new(ErrOnOom);

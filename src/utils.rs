@@ -213,10 +213,10 @@ pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
                 unsafe {
                     for node in LlistNode::iter_mut(*_talc.get_bin_ptr(b)) {
                         any = true;
-                        if b < 64 {
+                        if b < WORD_BITS {
                             assert!(_talc.availability_low & 1 << b != 0);
                         } else {
-                            assert!(_talc.availability_high & 1 << (b - 64) != 0);
+                            assert!(_talc.availability_high & 1 << (b - WORD_BITS) != 0);
                         }
 
                         let free_chunk = FreeChunk(node.as_ptr().cast());
@@ -247,10 +247,10 @@ pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
                 }
 
                 if !any {
-                    if b < 64 {
+                    if b < WORD_BITS {
                         assert!(_talc.availability_low & 1 << b == 0);
                     } else {
-                        assert!(_talc.availability_high & 1 << (b - 64) == 0);
+                        assert!(_talc.availability_high & 1 << (b - WORD_BITS) == 0);
                     }
                 }
             }

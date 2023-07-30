@@ -130,7 +130,7 @@ fn main() {
                 .map(|i| {
                     eprintln!("benchmarking...");
 
-                    let duration = Duration::from_millis(i as u64);
+                    let duration = Duration::from_millis(i as _);
 
                     (0..TRIALS_AMOUNT)
                         .map(|_| {
