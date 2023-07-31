@@ -1,6 +1,6 @@
 //! Code that doesn't have a great place elsewhere at the moment.
 //!
-//! Nothing in here should be publicly exposed.
+//! Nothing in here should be exported.
 
 use crate::*;
 
@@ -201,8 +201,8 @@ pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
         let alloc_span = Span::new(_talc.allocatable_base as _, _talc.allocatable_acme as _);
         assert!(_talc.arena.contains_span(alloc_span));
 
-        #[cfg(test)]
-        let mut vec = Vec::<(*mut u8, *mut u8)>::new();
+        #[cfg(any(test, fuzzing))]
+        let mut vec = std::vec::Vec::<(*mut u8, *mut u8)>::new();
 
         if _talc.bins.as_mut_ptr() != null_mut() {
             assert!(_talc.allocatable_base != null_mut());
@@ -233,7 +233,7 @@ pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
                             assert!(_talc.is_top_free);
                         }
 
-                        #[cfg(test)]
+                        #[cfg(any(test, fuzzing))]
                         {
                             let low_ptr = free_chunk.base();
                             let high_ptr = low_ptr.add(low_size);
@@ -258,15 +258,5 @@ pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
             assert!(_talc.allocatable_base == null_mut());
             assert!(_talc.allocatable_acme == null_mut());
         }
-
-        /* vec.sort_unstable_by(|&(x, _), &(y, _)| x.cmp(&y));
-        eprintln!();
-        for (low_ptr, high_ptr) in vec {
-            eprintln!("{:p}..{:p} - {:x}", low_ptr, high_ptr, unsafe { high_ptr.sub_ptr(low_ptr) });
-        }
-        eprintln!("arena: {}", self.arena);
-        eprintln!("alloc_base: {:p}", self.alloc_base);
-        eprintln!("alloc_acme: {:p}", self.alloc_acme);
-        eprintln!(); */
     }
 }

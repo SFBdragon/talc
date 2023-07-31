@@ -4,10 +4,9 @@
 #![feature(alloc_layout_extra)]
 #![feature(slice_ptr_get)]
 #![feature(slice_ptr_len)]
-#![feature(const_mut_refs)]
 #![feature(const_slice_ptr_len)]
 #![feature(const_slice_from_raw_parts_mut)]
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, fuzzing)), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
 
 #[cfg(feature = "lock_api")]
@@ -22,9 +21,11 @@ mod utils;
 pub use oom_handler::{ErrOnOom, InitOnOom, OomHandler};
 pub use span::Span;
 #[cfg(feature = "lock_api")]
-pub use talck::Talck;
+pub use talck::{Talck, AssumeUnlockable};
 #[cfg(all(feature = "lock_api", feature = "allocator"))]
 pub use talck::TalckRef;
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
+pub use oom_handler::WasmHandler;
 
 use llist::LlistNode;
 use tag::Tag;
@@ -62,10 +63,11 @@ const BIN_COUNT: usize = usize::BITS as usize * 2;
 type Bin = Option<NonNull<LlistNode>>;
 
 /// The Talc Allocator!
-///
-/// Initialize with `new`, `with_arena`, `with_oom_handler` or `with_arena_and_oom_handler`.
-///
-/// Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
+/// 
+/// To get started:
+/// - Construct with `new` or `with_arena` functions (use [`ErrOnOom`] to ignore OOM handling).
+/// - Initialize with `init` or `extend`.
+/// - Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
 /// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
 pub struct Talc<O: OomHandler> {
     pub oom_handler: O,
@@ -232,7 +234,6 @@ impl<O: OomHandler> Talc<O> {
         let (chunk_base, chunk_acme, alloc_base) = loop {
             match self.get_sufficient_chunk(layout) {
                 Some(payload) => break payload,
-                // todo change OomHandler trait or figure out handling of outside allocations
                 None => _ = O::handle_oom(self, layout)?,
             }
         };
@@ -364,6 +365,11 @@ impl<O: OomHandler> Talc<O> {
     /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn free(&mut self, ptr: NonNull<u8>, _: Layout) {
+
+        // todo, consider a bounds check here for alloc_base < ptr or ptr > alloc_acme
+        // and hand off to the OOM handler (OOM handler could be able to map its own
+        // allocations outside the arena, supporting operations like mmap)
+
         let (mut chunk_base, tag) = chunk_ptr_from_alloc_ptr(ptr.as_ptr());
         let mut chunk_acme = tag.acme_ptr();
 
@@ -389,8 +395,8 @@ impl<O: OomHandler> Talc<O> {
 
     /// Grow a previously allocated/reallocated region of memory to `new_size`.
     /// # Safety
-    /// `ptr` must have been previously allocated or reallocated given `old_layout`.
-    /// `new_size` must be larger or equal to `old_layout.size()`.
+    /// `ptr` must have been previously allocated or reallocated given `layout`.
+    /// `new_size` must be larger or equal to `layout.size()`.
     pub unsafe fn grow(
         &mut self,
         ptr: NonNull<u8>,
@@ -458,8 +464,8 @@ impl<O: OomHandler> Talc<O> {
     /// done in-place, maintaining the validity of the pointer.
     ///
     /// # Safety
-    /// - `ptr` must have been previously allocated or reallocated given `old_layout`.
-    /// - `new_size` must be smaller or equal to `old_layout.size()`.
+    /// - `ptr` must have been previously allocated or reallocated given `layout`.
+    /// - `new_size` must be smaller or equal to `layout.size()`.
     /// - `new_size` should be nonzero.
     pub unsafe fn shrink(&mut self, ptr: NonNull<u8>, layout: Layout, new_size: usize) {
         debug_assert!(new_size != 0);
@@ -486,6 +492,9 @@ impl<O: OomHandler> Talc<O> {
         scan_for_errors(self);
     }
 
+    /// Returns an uninitialized [`Talc`].
+    /// 
+    /// If you don't want to handle OOM, use [`ErrOnOom`].
     pub const fn new(oom_handler: O) -> Self {
         Self {
             oom_handler,
@@ -501,7 +510,9 @@ impl<O: OomHandler> Talc<O> {
         }
     }
 
-    /// Contruct and initialize a `Talc` with the given arena and OOM handler function.
+    /// Contruct and initialize a `Talc` with the given OOM handler and arena.
+    /// 
+    /// If you don't want to handle OOM, use [`ErrOnOom`].
     /// # Safety
     /// See [`init`](Talc::init) for safety requirements.
     pub unsafe fn with_arena(oom_handler: O, arena: Span) -> Self {
@@ -510,8 +521,7 @@ impl<O: OomHandler> Talc<O> {
         talc
     }
 
-    /// Returns the [`Span`] which has been granted to this
-    /// allocator as allocatable.
+    /// Returns the [`Span`] which has been granted to this allocator as allocatable.
     pub const fn get_arena(&self) -> Span {
         self.arena
     }
@@ -865,7 +875,31 @@ impl<O: OomHandler> Talc<O> {
     pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O> {
         Talck(lock_api::Mutex::new(self))
     }
+
+
+    #[cfg(feature = "lock_api")]
+    pub const unsafe fn lock_assume_single_threaded(self) -> Talck<talck::AssumeUnlockable, O> {
+        Talck(lock_api::Mutex::new(self))
+    }
 }
+
+#[cfg(target_family = "wasm")]
+pub type TalckWasm = Talck<AssumeUnlockable, WasmHandler>;
+
+#[cfg(target_family = "wasm")]
+impl TalckWasm {
+    /// Create a [`Talck`] instance that takes control of WASM memory management.
+    /// 
+    /// # Safety
+    /// The runtime evironment must be WASM.
+    /// 
+    /// These restrictions apply while the allocator is in use:
+    /// - WASM memory should not manipulated unless allocated.
+    pub const unsafe fn new_global() -> Self {
+        Talc::new(WasmHandler).lock_assume_single_threaded()
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

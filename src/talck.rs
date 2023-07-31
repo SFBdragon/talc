@@ -1,10 +1,13 @@
 use crate::{OomHandler, Talc};
 
 use core::{
-    alloc::{AllocError, GlobalAlloc, Layout},
+    alloc::{GlobalAlloc, Layout},
     cmp::Ordering,
     ptr::{self, NonNull},
 };
+
+#[cfg(feature = "allocator")]
+use core::alloc::AllocError;
 
 /// Talc lock: wrapper struct containing a mutex-locked [`Talc`].
 ///
@@ -59,6 +62,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     }
 }
 
+/// A reference to a [`Talck`] that implements the [`Allocator`](core::alloc::Allocator) trait.
 #[cfg(feature = "allocator")]
 #[derive(Debug, Clone, Copy)]
 pub struct TalckRef<'a, R: lock_api::RawMutex, O: OomHandler>(pub &'a Talck<R, O>);
@@ -155,4 +159,25 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
 
         Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }
+}
+
+/// A dummy RawMutex implementation to skip synchronization on single threaded systems.
+/// 
+/// # Safety
+/// This is very unsafe and may cause undefined behaviour if multiple threads enter
+/// a critical section syncronized by this, even without explicit unsafe code.
+pub struct AssumeUnlockable;
+
+// SAFETY: nope
+unsafe impl lock_api::RawMutex for AssumeUnlockable {
+    const INIT: AssumeUnlockable = AssumeUnlockable;
+
+    // A spinlock guard can be sent to another thread and unlocked there
+    type GuardMarker = lock_api::GuardSend;
+
+    fn lock(&self) { }
+
+    fn try_lock(&self) -> bool { true }
+
+    unsafe fn unlock(&self) { }
 }
