@@ -1,12 +1,25 @@
 # Talc
 
-![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![License](https://img.shields.io/crates/l/talc?style=flat-square) 
+![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square) ![License](https://img.shields.io/crates/l/talc?style=flat-square) 
 
-Talc is a performant and flexible `no_std`-compatible memory allocator suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps. 
+Talc is a performant and flexible `no_std`-compatible memory allocator. It's suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps. 
 
-Practical concerns in `no_std` environments are facilitated, such as custom OOM handling, as well as powerful features like extending and reducing the allocation arena dynamically.
+Practical concerns in `no_std` environments are facilitated, such as custom OOM handling, as well as powerful features like resizing the arena dynamically.
 
-## Usage
+### Table of Contents
+- [Setup](#setup)
+- [Benchmarks](#benchmarks)
+- [Performance](#performance)
+- [Memory Overhead](#memory-overhead)
+- [Algorithm](#algorithm)
+- [Testing](#testing)
+- [General Usage](#general-usage)
+- [Advanced Usage](#advanced-usage)
+- [Conditional Features](#conditional-features)
+- [Changelog](#changelog)
+- [Support Me](#support-me)
+
+## Setup
 
 Use it as an arena allocator via the `Allocator` API as follows:
 ```rust
@@ -25,7 +38,7 @@ fn main () {
 }
 ```
 
-It can be used as a global allocator as follows:
+Or as a global allocator:
 ```rust
 use talc::*;
 
@@ -44,16 +57,7 @@ fn main() {
 }
 ```
 
-
-## Performance
-O(n) worst case allocations. In practice, it's usually fast. See the benchmarks below.
-
-Deallocation is always O(1), reallocation is usually O(1) unless in-place allocation fails.
-
-## Memory Overhead
-Allocations have a overhead of one `usize` each, typically. The chunk size is at minumum `3 * usize`, so tiny allocations will have a lot of overhead.
-
-This improves on Galloc (another boundary-tagging allocator), which has a minimum chunk size of `4 * usize`.
+See [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for more details.
 
 ## Benchmarks
 
@@ -132,6 +136,16 @@ Notes:
 - alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
 
 
+## Performance
+O(n) worst case allocations. In practice, it's usually fast. See the benchmarks below.
+
+Deallocation is always O(1), reallocation is usually O(1) unless in-place allocation fails.
+
+## Memory Overhead
+Allocations have a overhead of one `usize` each, typically. The chunk size is at minumum `3 * usize`, so tiny allocations will have a lot of overhead.
+
+This improves on Galloc (another boundary-tagging allocator), which has a minimum chunk size of `4 * usize`.
+
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases.
 
@@ -143,10 +157,6 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 Tests on most of the helper types and Talc functions.
 
 Other than that, lots of fuzzing of the allocator.
-
-## Features
-* `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
-* `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
 
 ## General Usage
 
@@ -160,7 +170,7 @@ Here is the list of methods:
     * `get_allocated_span` - returns the minimum span containing all allocated memory
 * Management:
     * `init` - initialize or re-initialize the arena (forgets all previous allocations, if any)
-    * `extend` - extend the arena or initialize, if uninitialized
+    * `extend` - extend the arena (or initialize, if uninitialized)
     * `truncate` - reduce the extent of the arena
     * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
 * Allocation:
@@ -217,6 +227,35 @@ impl OomHandler for MyOomHandler {
     }
 }
 ```
+
+## Conditional Features
+* `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
+* `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
+
+## Changelog
+
+#### v2.1.0
+- Tests are now passing on 32 bit targets.
+- Documentation fixes and imrpovements for various items.
+- Fixed using `lock_api` without `allocator`.
+- Experimental WASM support has been added via `TalckWasm` on WASM targets, and can be added like so:
+```rust ignore
+#[global_allocator]
+static ALLOCATOR: talc::TalckWasm = unsafe { talc::WalckWasm::new_global };
+```
+However, using it over the default `dlmalloc` is not recommended for this release.
+
+#### v2.0.0
+- Removed dependency on `spin` and switched to using `lock_api` (thanks [Stefan Lankes](https://github.com/stlankes))
+    - You can specify the lock you want to use with `talc.lock::<spin::Mutex<()>>()` for example.
+- Removed the requirement that the `Talc` struct must not be moved, and removed the `mov` function.
+    - The arena is now used to store metadata, so extremely small arenas will result in allocation failure.
+- Made the OOM handling system use generics and traits instead of a function pointer.
+    - Use `ErrOnOom` to do what it says on the tin. `InitOnOom` is similar but inits to the given span if completely uninitialized. Implement `OomHandler` on any struct to implement your own behaviour (the OOM handler state can be accessed from `handle_oom` via `talc.oom_handler`).
+- Changed the API and internals of `Span` and other changes to pass `miri`'s Stacked Borrows checks.
+    - Span now uses pointers exclusively and carries provenance.
+- Updated the benchmarks in a number of ways, notably adding `buddy_alloc` and removing `simple_chunk_allocator`.
+
 
 ## Support Me
 This'll go towards keeping me alive, getting me through university, and allowing me to keep working on my OSS projects. 

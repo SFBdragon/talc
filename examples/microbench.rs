@@ -57,6 +57,24 @@ unsafe impl Allocator for BuddyAllocator {
     }
 }
 
+// Dlmalloc doesn't implement Allocator
+struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc>);
+
+unsafe impl Allocator for DlMallocator {
+    fn allocate(&self, layout: Layout) -> Result<std::ptr::NonNull<[u8]>, AllocError> {
+        let ptr = unsafe { self.0.lock().malloc(layout.size(), layout.align()) };
+
+        match std::ptr::NonNull::new(ptr) {
+            Some(nn) => Ok(std::ptr::NonNull::slice_from_raw_parts(nn, layout.size())),
+            None => Err(AllocError),
+        }
+    }
+
+    unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: Layout) {
+        self.0.lock().free(ptr.as_ptr(), layout.size(), layout.align());
+    }
+}
+
 fn main() {
     let linked_list_allocator =
         unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
@@ -78,13 +96,19 @@ fn main() {
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
     let talc = unsafe {
-        Talc::with_arena(ErrOnOom, HEAP_MEMORY.as_mut_slice().into()).lock::<spin::Mutex<()>>()
+        Talc::with_arena(ErrOnOom, HEAP_MEMORY.as_mut_slice().into()).lock_assume_single_threaded()
     };
     let bench_talc = benchmark_allocator(&talc.allocator());
+
+    let dlmalloc = dlmalloc::Dlmalloc::new();
+    let bench_dlmalloc = benchmark_allocator(&DlMallocator(spin::Mutex::new(dlmalloc)));
+
 
     print_bench_results("Talc", &bench_talc);
     println!();
     print_bench_results("Buddy Allocator", &bench_buddy);
+    println!();
+    print_bench_results("Dlmalloc", &bench_dlmalloc);
     println!();
     print_bench_results("Galloc", &bench_galloc);
     println!();

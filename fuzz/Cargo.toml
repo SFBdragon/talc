@@ -15,6 +15,7 @@ rand = "0.8.5"
 
 [dependencies.talc]
 path = ".."
+features = ["fuzzing"]
 
 # Prevent this from interfering with workspaces
 [workspace]
