@@ -236,12 +236,12 @@ impl OomHandler for MyOomHandler {
 
 #### v2.1.0
 - Tests are now passing on 32 bit targets.
-- Documentation fixes and imrpovements for various items.
+- Documentation fixes and improvements for various items.
 - Fixed using `lock_api` without `allocator`.
 - Experimental WASM support has been added via `TalckWasm` on WASM targets, and can be added like so:
 ```rust ignore
 #[global_allocator]
-static ALLOCATOR: talc::TalckWasm = unsafe { talc::WalckWasm::new_global };
+static ALLOCATOR: talc::TalckWasm = unsafe { talc::WalckWasm::new_global() };
 ```
 However, using it over the default `dlmalloc` is not recommended for this release.
 
