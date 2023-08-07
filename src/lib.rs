@@ -578,6 +578,7 @@ impl<O: OomHandler> Talc<O> {
     pub unsafe fn init(&mut self, arena: Span) {
         // set up the allocator with a new arena
         // we need to store the metadata in the heap
+        // by using allocation chunk metadata, it's not a special special case
         // essentially, we want to allocate the metadata by hand
 
         assert!(!arena.contains(null_mut()), "Arena covers the null address!");

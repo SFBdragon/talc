@@ -58,7 +58,7 @@ unsafe impl Allocator for BuddyAllocator {
 }
 
 // Dlmalloc doesn't implement Allocator
-struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc>);
+struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc<DlmallocArena>>);
 
 unsafe impl Allocator for DlMallocator {
     fn allocate(&self, layout: Layout) -> Result<std::ptr::NonNull<[u8]>, AllocError> {
@@ -72,6 +72,48 @@ unsafe impl Allocator for DlMallocator {
 
     unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: Layout) {
         self.0.lock().free(ptr.as_ptr(), layout.size(), layout.align());
+    }
+}
+
+// Turn DlMalloc into an arena allocator
+struct DlmallocArena(spin::Mutex<bool>);
+
+unsafe impl dlmalloc::Allocator for DlmallocArena {
+    fn alloc(&self, size: usize) -> (*mut u8, usize, u32) {
+        let mut lock = self.0.lock();
+
+        if *lock {
+            (core::ptr::null_mut(), 0, 0)
+        } else {
+            *lock = true;
+            unsafe {
+                (HEAP_MEMORY.as_mut_ptr(), HEAP_SIZE, 1)
+            }
+        }
+    }
+
+    fn remap(&self, ptr: *mut u8, oldsize: usize, newsize: usize, can_move: bool) -> *mut u8 {
+        todo!()
+    }
+
+    fn free_part(&self, ptr: *mut u8, oldsize: usize, newsize: usize) -> bool {
+        todo!()
+    }
+
+    fn free(&self, ptr: *mut u8, size: usize) -> bool {
+        true
+    }
+
+    fn can_release_part(&self, flags: u32) -> bool {
+        false
+    }
+
+    fn allocates_zeros(&self) -> bool {
+        false
+    }
+
+    fn page_size(&self) -> usize {
+        4*1024
     }
 }
 
@@ -100,7 +142,7 @@ fn main() {
     };
     let bench_talc = benchmark_allocator(&talc.allocator());
 
-    let dlmalloc = dlmalloc::Dlmalloc::new();
+    let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)));
     let bench_dlmalloc = benchmark_allocator(&DlMallocator(spin::Mutex::new(dlmalloc)));
 
 
