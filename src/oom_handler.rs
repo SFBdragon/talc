@@ -61,34 +61,48 @@ impl OomHandler for WasmHandler {
         /// WASM page size is 64KiB
         const PAGE_SIZE: usize = 1024 * 64;
 
-        // a decent growth strategy is essential, but this probably isn't ideal
-        // todo
+        // growth strategy: just try to grow enough to avoid OOM again on this allocation
         let required = (layout.size() + 8).max(layout.align() * 2);
-        let delta_pages = (/* required.max(talc.get_arena().size()) */required + (PAGE_SIZE - 1)) / PAGE_SIZE;
+        let mut delta_pages = (required + (PAGE_SIZE - 1)) / PAGE_SIZE;
         
-        // use `core::arch::wasm` instead once it doesn't 
-        // require the unstable feature wasm_simd64?
-        let prev = core::arch::wasm32::memory_grow::<0>(delta_pages);
+        let prev = 'prev: { 
+            // this performs a scan, trying to find a smaller possible
+            // growth if the previous one was unsuccessful. return
+            // any successful allocated to memory, and try again.
+            
+            // if we're about to fail because of allocation failure
+            // we may as well try as hard as we can to probe what's permissable
+            // which can be done with a log2(n)-ish algorithm
+            while delta_pages != 0 {
+                // use `core::arch::wasm` instead once it doesn't 
+                // require the unstable feature wasm_simd64?
+                let result = core::arch::wasm32::memory_grow::<0>(delta_pages);
 
-        if prev == usize::MAX {
-            // TODO probe?
-            Err(())
-        } else {
-            // taking ownership from the bottom seems to cause problems
-            // so only cover grown memory
-
-            unsafe {
-                talc.extend(Span::new(
-                    talc
-                        .get_arena()
-                        .get_base_acme()
-                        .map_or((prev * PAGE_SIZE) as _, |(base, _)| base), 
-
-                    ((prev + delta_pages) * PAGE_SIZE) as *mut u8,
-                ));
+                if result != usize::MAX {
+                    break 'prev result;
+                } else {
+                    delta_pages >>= 1;
+                    continue;
+                }
             }
 
-            Ok(())
+            return Err(());
+        };
+
+        // taking ownership from the bottom seems to cause problems
+        // so only cover grown memory
+
+        unsafe {
+            talc.extend(Span::new(
+                talc
+                    .get_arena()
+                    .get_base_acme()
+                    .map_or((prev * PAGE_SIZE) as _, |(base, _)| base), 
+
+                ((prev + delta_pages) * PAGE_SIZE) as *mut u8,
+            ));
         }
+
+        Ok(())
     }
 }

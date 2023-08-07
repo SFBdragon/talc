@@ -6,6 +6,8 @@ Talc is a performant and flexible `no_std`-compatible memory allocator. It's sui
 
 Practical concerns in `no_std` environments are facilitated, such as custom OOM handling, as well as powerful features like resizing the arena dynamically.
 
+Is your project targetting WASM? Check out [usage and comparisons here](./README_WASM.md).
+
 ### Table of Contents
 - [Setup](#setup)
 - [Benchmarks](#benchmarks)
@@ -75,14 +77,13 @@ The number of successful allocations, deallocations, and reallocations within th
 
 The average occupied capacity once filled with random allocations.
 
-``` ignore
-             ALLOCATOR | HEAP EFFICIENCY
------------------------|----------------
-                  talc | 99.82%
-                galloc | 99.82%
-           buddy_alloc | 59.45%
- linked_list_allocator | 99.82%
-```
+|              ALLOCATOR | AVERAGE HEAP EFFICIENCY |
+| -----------------------|------------------------ |
+|                   talc | 99.82%                  |
+|  linked_list_allocator | 99.82%                  |
+|               dlmalloc | 99.81%                  |
+|                 galloc | 99.81%                  |
+|            buddy_alloc | 59.45%                  |
 
 #### Heap Exhaustion Benchmark Results
 
@@ -99,36 +100,44 @@ Pre-fail allocations account for all allocations up until the first allocation f
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
- 2035430 allocation attempts, 1437720 successful allocations,   25718 pre-fail allocations, 1427160 deallocations
+ 2221032 allocation attempts, 1564703 successful allocations,   26263 pre-fail allocations, 1553755 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      42      63      84     105     105     147     273   65205 |     193   ticks
-Pre-Fail Allocations |       42      84      84     105     105     126     147     315    9030 |     291   ticks
-       Deallocations |       42     147     168     231     294     357     441     567   28308 |     348   ticks
+     All Allocations |       21      42      63      63      84      84     105     189   54327 |     123   ticks
+Pre-Fail Allocations |       42      63      63      63      84      84     105     126    1743 |      93   ticks
+       Deallocations |       21      63      84      84     105     126     231     315   21357 |     178   ticks
 
 RESULTS OF BENCHMARK: Buddy Allocator
- 2318380 allocation attempts, 1632315 successful allocations,   17755 pre-fail allocations, 1625750 deallocations
+ 2370094 allocation attempts, 1665891 successful allocations,   17228 pre-fail allocations, 1659287 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       21      42      42      42      42      63      63      63   18837 |      57   ticks
-Pre-Fail Allocations |       21      42      42      42      42      63      63     168   12621 |     256   ticks
-       Deallocations |       42      84      84      84     105     105     105     210   17472 |     133   ticks
+     All Allocations |       21      42      42      42      42      63      63      63   15519 |      52   ticks
+Pre-Fail Allocations |       21      42      42      42      42      63      63      63     756 |      75   ticks
+       Deallocations |       42      63      63      63      63      84      84     126   16107 |      94   ticks
+
+RESULTS OF BENCHMARK: Dlmalloc
+ 2176317 allocation attempts, 1531543 successful allocations,   25560 pre-fail allocations, 1520414 deallocations
+            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
+---------------------|--------------------------------------------------------------------------|---------
+     All Allocations |       42      63      84     147     168     189     210     294   19026 |     170   ticks
+Pre-Fail Allocations |       42      63     105     147     147     168     189     273   16863 |     168   ticks
+       Deallocations |       42     105     126     126     189     252     294     399   19509 |     240   ticks
 
 RESULTS OF BENCHMARK: Galloc
-  107633 allocation attempts,   85752 successful allocations,   25069 pre-fail allocations,   76048 deallocations
+  282268 allocation attempts,  207553 successful allocations,   23284 pre-fail allocations,  197680 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      84     189    1911    7602   51303  114618  162645  276843 |   54936   ticks
-Pre-Fail Allocations |       42      63      63     273    1638    1785    2058    3318   52101 |    2247   ticks
-       Deallocations |       42     147     273     336     420     483     567     798   31437 |     474   ticks
+     All Allocations |       42      63      63     294   12306   26901   41748   45906  128877 |   19106   ticks
+Pre-Fail Allocations |       42      42      42      42      63      63      63     630   21147 |     663   ticks
+       Deallocations |       42      63      84      84     147     252     378     735   18018 |     288   ticks
 
 RESULTS OF BENCHMARK: Linked List Allocator
-   60976 allocation attempts,   52372 successful allocations,   25858 pre-fail allocations,   42917 deallocations
+  137396 allocation attempts,  107083 successful allocations,   24334 pre-fail allocations,   96915 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42    3654   10626   22092   41286   71253  115773  167055  261576 |   66885   ticks
-Pre-Fail Allocations |       42    1575    3864    7476   12369   19383   31857   55839  163212 |   23543   ticks
-       Deallocations |       42    1995    6993   15183   27825   47124   75537  114135  214305 |   46387   ticks
+     All Allocations |       42    4452    9786   16296   24108   33894   45801   56763 1199415 |   28868   ticks
+Pre-Fail Allocations |       42     924    2310    4032    6216    8883   12537   18039  902979 |   11427   ticks
+       Deallocations |       42    3423    7224   11550   16485   22092   28833   37569   98679 |   19085   ticks
 ```
 
 Notes:
@@ -160,7 +169,7 @@ Other than that, lots of fuzzing of the allocator.
 
 ## General Usage
 
-Here is the list of methods:
+Here is the list of `Talc` methods:
 * Constructors:
     * `new`
     * `with_arena`
@@ -234,16 +243,18 @@ impl OomHandler for MyOomHandler {
 
 ## Changelog
 
+#### v2.2.0
+- Added `dlmalloc` to the benchmarks.
+- WASM should now be fully supported via `TalckWasm`. Let me know what breaks ;)
+    - Find more details [here](./README_WASM.md).
+
+
 #### v2.1.0
 - Tests are now passing on 32 bit targets.
 - Documentation fixes and improvements for various items.
 - Fixed using `lock_api` without `allocator`.
-- Experimental WASM support has been added via `TalckWasm` on WASM targets, and can be added like so:
-```rust ignore
-#[global_allocator]
-static ALLOCATOR: talc::TalckWasm = unsafe { talc::WalckWasm::new_global() };
-```
-However, using it over the default `dlmalloc` is not recommended for this release.
+- Experimental WASM support has been added via `TalckWasm` on WASM targets.
+
 
 #### v2.0.0
 - Removed dependency on `spin` and switched to using `lock_api` (thanks [Stefan Lankes](https://github.com/stlankes))

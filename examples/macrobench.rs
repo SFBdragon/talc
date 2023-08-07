@@ -34,7 +34,6 @@ use std::{
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
-use talc::ErrOnOom;
 
 const HEAP_SIZE: usize = 1 << 27;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
@@ -84,8 +83,8 @@ macro_rules! allocator_list {
     }
 }
 
-static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>, ErrOnOom> =
-    talc::Talc::new(ErrOnOom).lock();
+static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>, talc::ErrOnOom> =
+    talc::Talc::new(talc::ErrOnOom).lock();
 static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
         FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
@@ -96,6 +95,72 @@ static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
     linked_list_allocator::LockedHeap::empty();
+static mut DLMALLOC_ALLOCATOR: DlMallocator = 
+    DlMallocator(lock_api::Mutex::new(dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)))));
+
+struct DlMallocator(lock_api::Mutex::<talc::AssumeUnlockable, dlmalloc::Dlmalloc<DlmallocArena>>);
+
+unsafe impl GlobalAlloc for DlMallocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.0.lock().malloc(layout.size(), layout.align())
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        self.0.lock().free(ptr, layout.size(), layout.align());
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        self.0.lock().realloc(ptr, layout.size(), layout.align(), new_size)
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        self.0.lock().calloc(layout.size(), layout.align())
+    }
+}
+
+// Turn DlMalloc into an arena allocator
+struct DlmallocArena(spin::Mutex<bool>);
+
+unsafe impl dlmalloc::Allocator for DlmallocArena {
+    fn alloc(&self, _: usize) -> (*mut u8, usize, u32) {
+        let mut lock = self.0.lock();
+
+        if *lock {
+            (core::ptr::null_mut(), 0, 0)
+        } else {
+            *lock = true;
+            unsafe {
+                (HEAP.as_mut_ptr(), HEAP_SIZE, 1)
+            }
+        }
+    }
+
+    fn remap(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize, _can_move: bool) -> *mut u8 {
+        todo!()
+    }
+
+    fn free_part(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize) -> bool {
+        todo!()
+    }
+
+    fn free(&self, _ptr: *mut u8, _size: usize) -> bool {
+        true
+    }
+
+    fn can_release_part(&self, _flags: u32) -> bool {
+        false
+    }
+
+    fn allocates_zeros(&self) -> bool {
+        false
+    }
+
+    fn page_size(&self) -> usize {
+        4*1024
+    }
+}
+
+
 
 fn main() {
     const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
@@ -107,7 +172,7 @@ fn main() {
     let benchmarks = benchmark_list!(random_actions, heap_exhaustion);
 
     let allocators =
-        allocator_list!(init_talc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
+        allocator_list!(init_talc, init_dlmalloc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
 
     {
         // heap efficiency benchmark
@@ -185,7 +250,7 @@ fn main() {
 
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
-        TALC_ALLOCATOR = talc::Talc::with_arena(ErrOnOom, HEAP.as_mut_slice().into()).lock();
+        TALC_ALLOCATOR = talc::Talc::with_arena(talc::ErrOnOom, HEAP.as_mut_slice().into()).lock();
         &TALC_ALLOCATOR
     }
 }
@@ -217,6 +282,15 @@ fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
         );
 
         &BUDDY_ALLOCATOR
+    }
+}
+
+fn init_dlmalloc() -> &'static dyn GlobalAlloc {
+    unsafe {
+        DLMALLOC_ALLOCATOR = DlMallocator(lock_api::Mutex::new(
+            dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)))
+        ));
+        &DLMALLOC_ALLOCATOR
     }
 }
 

@@ -1,9 +1,17 @@
 #!/bin/bash
 
-set -euxo pipefail
+# This script calculates a weight heurisitic for WASM allocators.
 
-cd wasm-example
+# run `./wasm_size.sh` to measure talc's size
+# run `./wasm_size.sh xyz`, where xyz is lol_alloc or dlmalloc 
+#  to measure their size contribution respectively.
 
-cargo build --release --target wasm32-unknown-unknown
+cd wasm-size
 
-wc -c ./target/wasm32-unknown-unknown/release/talc_wasm_example.wasm
+if [ $# = 1 ]; then
+    cargo build --release --target wasm32-unknown-unknown --features $1
+else
+    cargo build --release --target wasm32-unknown-unknown
+fi
+
+wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
