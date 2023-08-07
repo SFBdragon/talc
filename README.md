@@ -248,11 +248,13 @@ impl OomHandler for MyOomHandler {
 - WASM should now be fully supported via `TalckWasm`. Let me know what breaks ;)
     - Find more details [here](./README_WASM.md).
 
+
 #### v2.1.0
 - Tests are now passing on 32 bit targets.
 - Documentation fixes and improvements for various items.
 - Fixed using `lock_api` without `allocator`.
 - Experimental WASM support has been added via `TalckWasm` on WASM targets.
+
 
 #### v2.0.0
 - Removed dependency on `spin` and switched to using `lock_api` (thanks [Stefan Lankes](https://github.com/stlankes))
