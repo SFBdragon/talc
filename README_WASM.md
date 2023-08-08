@@ -5,17 +5,17 @@
 If you'd like to see comparisons to other allocators in this space, consider creating a pull request or opening an issue.
 
 ## Usage
-Just set it to the global allocator in your project after `cargo add talc`:
+Set the global allocator in your project after running `cargo add talc`
 
 ```rust
-#[global_allocator] struct TALC: talc::TalckWasm = unsafe { TalckWasm::new_global() };
+#[global_allocator] struct TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 ```
 
 ## Relative WASM Binary Size
 
 Rough measurements of allocator size for relative comparison using `wasm_size.sh` and `wasm-size`.
 
-| Allocator | Size (bytes) (lower is better) |
+| Allocator | Size (bytes) - lower is better |
 | --------- | ----- |
 | lol_alloc | 20382 |
 | talc      | 23509 |
@@ -25,7 +25,7 @@ Rough measurements of allocator size for relative comparison using `wasm_size.sh
 
 Rough allocator benchmarks for comparison from [this project](https://github.com/SFBdragon/wasm-alloc-bench).
 
-| Allocator | Average Time per 100000 actions (ms) (lower is better) |
+| Allocator | Average Time per 100000 actions (ms) - lower is better |
 |-----------|--------------|
 | talc      | 14.9         |
 | dlmalloc  | 17.6         |
