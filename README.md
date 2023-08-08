@@ -2,11 +2,9 @@
 
 ![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square) ![License](https://img.shields.io/crates/l/talc?style=flat-square) 
 
-Talc is a performant and flexible `no_std`-compatible memory allocator. It's suitable for projects such as operating system kernels, or arena allocation for normal single-threaded apps. 
+Talc is a performant and flexible memory allocator, with first class support for `no_std` and WebAssembly. It's suitable for projects such as operating system kernels, website backends, or arena allocation in single-threaded contexts.
 
-Practical concerns in `no_std` environments are facilitated, such as custom OOM handling, as well as powerful features like resizing the arena dynamically.
-
-Is your project targetting WASM? Check out [usage and comparisons here](./README_WASM.md).
+Is your project targeting WASM? Check out [usage and comparisons here](./README_WASM.md).
 
 ### Table of Contents
 - [Setup](#setup)

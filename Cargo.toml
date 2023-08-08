@@ -4,14 +4,16 @@ version = "2.2.0"
 edition = "2021"
 readme = "README.md"
 authors = ["Shaun Beautement"]
-description = "A fast, consistant, and flexible `no_std`-compatible allocator."
+description = "A fast, consistant, and flexible `no_std` and WASM allocator."
 repository = "https://github.com/SFBdragon/talc"
-keywords = ["allocator", "no_std", "kernel", "memory", "heap"]
-categories = ["memory-management", "no-std", "embedded"]
+keywords = ["allocator", "no_std", "kernel", "memory", "heap", "wasm"]
+categories = ["memory-management", "no-std", "embedded", "WebAssembly"]
 license = "MIT"
 exclude = [
     "benchmark_graphs",
     "benchmark_results",
+    "wasm-size",
+    "wasm-size.sh",
 ]
 
 
@@ -26,10 +28,10 @@ lock_api = { version= "0.4", optional = true }
 
 [dev-dependencies]
 fastrand = "1.9"
+spin = { version = "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }
 linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
 good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
 buddy-alloc = "0.5"
-spin = { version = "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }
 dlmalloc = "0.2.4"
 
 [profile.release]
