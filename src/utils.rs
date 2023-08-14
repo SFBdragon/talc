@@ -114,49 +114,37 @@ pub(crate) fn align_up(ptr: *mut u8) -> *mut u8 {
 
 /// Returns whether the two pointers are greater than `MIN_CHUNK_SIZE` apart.
 pub(crate) fn is_chunk_size(base: *mut u8, acme: *mut u8) -> bool {
-    debug_assert!(acme >= base, "!(acme {:p} > ptr {:p})", acme, base);
-    acme as isize - base as isize >= MIN_CHUNK_SIZE as isize
+    debug_assert!(acme >= base, "!(acme {:p} >= base {:p})", acme, base);
+    acme as usize - base as usize >= MIN_CHUNK_SIZE
 }
 
-/// Determines the chunk pointer and retrieves the tag, given the allocated pointer.
+/// Determines the acme pointer and retrieves the tag, given the allocated pointer.
 #[inline]
-pub(crate) unsafe fn chunk_ptr_from_alloc_ptr(ptr: *mut u8) -> (*mut u8, Tag) {
+pub(crate) unsafe fn tag_from_alloc_ptr(ptr: *mut u8, size: usize) -> (*mut u8, Tag) {
     #[derive(Clone, Copy)]
-    union PreAllocationData {
+    union PostAllocData {
         tag: Tag,
         ptr: *mut Tag,
     }
 
-    let mut low_ptr = ptr.sub(TAG_SIZE + ptr as usize % ALIGN);
+    let mut post_alloc_ptr = align_up(ptr.add(size));
 
-    let data = low_ptr.cast::<PreAllocationData>().read();
+    let data = post_alloc_ptr.cast::<PostAllocData>().read();
 
-    // if the chunk_ptr doesn't point to an allocated tag
+    // if the chunk_ptr doesn't point to an allocate-flagged tag
     // it points to a pointer to the actual tag
     let tag = if !data.tag.is_allocated() {
-        low_ptr = data.ptr.cast();
+        post_alloc_ptr = data.ptr.cast();
         *data.ptr
     } else {
         data.tag
     };
 
-    (low_ptr, tag)
-}
-
-/// Determine the required allocated chunk acme.
-#[inline]
-pub(crate) fn required_acme(alloc_base: *mut u8, size: usize, tag_ptr: *mut u8) -> *mut u8 {
-    // choose the highest between...
-    core::cmp::max(
-        // the required chunk acme due to the allocation
-        align_up(alloc_base.wrapping_add(size)),
-        // the required chunk acme due to the minimum chunk size
-        tag_ptr.wrapping_add(MIN_CHUNK_SIZE),
-    )
+    (post_alloc_ptr, tag)
 }
 
 /// Pointer wrapper to a free chunk. Provides convenience methods
-/// for getting the LlistNode pointer and lower pointer to its size.
+/// for getting the LlistNode pointer and upper pointer to its size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub(crate) struct FreeChunk(pub(crate) *mut u8);
@@ -165,98 +153,139 @@ impl FreeChunk {
     const NODE_OFFSET: usize = 0;
     const SIZE_OFFSET: usize = NODE_SIZE;
 
+    #[inline]
     pub(crate) fn base(self) -> *mut u8 {
         self.0
     }
 
+    #[inline]
     pub(crate) fn node_ptr(self) -> *mut LlistNode {
-        unsafe { self.0.add(Self::NODE_OFFSET).cast() }
+        self.0.wrapping_add(Self::NODE_OFFSET).cast()
     }
 
+    #[inline]
     pub(crate) fn size_ptr(self) -> *mut usize {
-        unsafe { self.0.add(Self::SIZE_OFFSET).cast() }
+        self.0.wrapping_add(Self::SIZE_OFFSET).cast()
     }
 }
 
-/// An abstraction over the unknown state of the chunk above.
-pub(crate) enum AboveChunk {
+/// An abstraction over the unknown state of the chunk below.
+/* pub(crate) enum BelowChunk {
     Free(FreeChunk),
     Allocated(*mut Tag),
 }
 
-/// Distinguish the nature of the chunk above.
-pub(crate) unsafe fn identify_above(chunk_acme: *mut u8) -> AboveChunk {
-    if (*chunk_acme.cast::<Tag>()).is_allocated() {
-        AboveChunk::Allocated(chunk_acme.cast())
+/// Distinguish the nature of the chunk below.
+pub(crate) unsafe fn identify_below(chunk_base: *mut u8) -> BelowChunk {
+    let below_tag = chunk_base.sub(TAG_SIZE).cast::<Tag>();
+    if (*below_tag).is_allocated() {
+        BelowChunk::Allocated(below_tag)
     } else {
-        AboveChunk::Free(FreeChunk(chunk_acme))
+        BelowChunk::Free(FreeChunk(chunk_base))
     }
-}
+} */
 
+#[cfg(not(debug_assertions))]
+pub(crate) fn scan_for_errors<O: OomHandler>(_: &mut Talc<O>) {}
+
+#[cfg(debug_assertions)]
 /// Debugging function for checking various assumptions.
-pub(crate) fn scan_for_errors<O: OomHandler>(_talc: &mut Talc<O>) {
-    #[cfg(debug_assertions)]
-    {
-        assert!(_talc.allocatable_acme >= _talc.allocatable_base);
-        let alloc_span = Span::new(_talc.allocatable_base as _, _talc.allocatable_acme as _);
-        assert!(_talc.arena.contains_span(alloc_span));
+pub(crate) fn scan_for_errors<O: OomHandler>(talc: &mut Talc<O>) {
+    assert!(talc.allocatable_acme >= talc.allocatable_base);
+    let alloc_span = Span::new(talc.allocatable_base as _, talc.allocatable_acme as _);
+    assert!(talc.arena.contains_span(alloc_span));
 
-        #[cfg(any(test, fuzzing))]
-        let mut vec = std::vec::Vec::<(*mut u8, *mut u8)>::new();
+    #[cfg(any(test, fuzzing))]
+    let mut vec = std::vec::Vec::<Span>::new();
 
-        if _talc.bins.as_mut_ptr() != null_mut() {
-            assert!(_talc.allocatable_base != null_mut());
-            assert!(_talc.allocatable_acme != null_mut());
+    if talc.bins != null_mut() {
+        assert!(talc.allocatable_base != null_mut());
+        assert!(talc.allocatable_acme != null_mut());
 
-            for b in 0..BIN_COUNT {
-                let mut any = false;
-                unsafe {
-                    for node in LlistNode::iter_mut(*_talc.get_bin_ptr(b)) {
-                        any = true;
-                        if b < WORD_BITS {
-                            assert!(_talc.availability_low & 1 << b != 0);
-                        } else {
-                            assert!(_talc.availability_high & 1 << (b - WORD_BITS) != 0);
-                        }
-
-                        let free_chunk = FreeChunk(node.as_ptr().cast());
-                        let low_size = *free_chunk.size_ptr();
-                        let high_size = *free_chunk.base().add(low_size - TAG_SIZE).cast::<usize>();
-                        assert!(low_size == high_size);
-                        assert!(free_chunk.base().add(low_size) <= _talc.allocatable_acme);
-
-                        if free_chunk.base().add(low_size) < _talc.allocatable_acme {
-                            let upper_tag = *free_chunk.base().add(low_size).cast::<Tag>();
-                            assert!(upper_tag.is_allocated());
-                            assert!(upper_tag.is_below_free());
-                        } else {
-                            assert!(_talc.is_top_free);
-                        }
-
-                        #[cfg(any(test, fuzzing))]
-                        {
-                            let low_ptr = free_chunk.base();
-                            let high_ptr = low_ptr.add(low_size);
-
-                            for &(other_low, other_high) in &vec {
-                                assert!(other_high <= low_ptr || high_ptr <= other_low);
-                            }
-                            vec.push((low_ptr, high_ptr));
-                        }
-                    }
-                }
-
-                if !any {
+        for b in 0..BIN_COUNT {
+            let mut any = false;
+            unsafe {
+                for node in LlistNode::iter_mut(*talc.get_bin_ptr(b)) {
+                    any = true;
                     if b < WORD_BITS {
-                        assert!(_talc.availability_low & 1 << b == 0);
+                        assert!(talc.availability_low & 1 << b != 0);
                     } else {
-                        assert!(_talc.availability_high & 1 << (b - WORD_BITS) == 0);
+                        assert!(talc.availability_high & 1 << (b - WORD_BITS) != 0);
+                    }
+
+                    let free_chunk = FreeChunk(node.as_ptr().cast());
+                    let size = *free_chunk.size_ptr();
+                    let base_ptr = free_chunk.base();
+                    let acme_ptr = free_chunk.base().add(size);
+                    let low_size = acme_ptr.sub(WORD_SIZE).cast::<usize>().read();
+                    assert!(low_size == size);
+                    assert!(acme_ptr <= talc.allocatable_acme);
+
+                    if base_ptr > talc.allocatable_base {
+                        let lower_tag = *base_ptr.sub(TAG_SIZE).cast::<Tag>();
+                        assert!(lower_tag.is_allocated());
+                        assert!(lower_tag.is_above_free());
+                    } else {
+                        assert!(base_ptr == talc.allocatable_base);
+                        assert!(talc.is_base_free);
+                    }
+
+                    #[cfg(any(test, fuzzing))]
+                    {
+                        let span = Span::new(base_ptr, acme_ptr);
+                        //dbg!(span);
+                        for other in &vec {
+                            assert!(!span.overlaps(*other), "{} intersects {}", span, other);
+                        }
+                        vec.push(span);
                     }
                 }
             }
-        } else {
-            assert!(_talc.allocatable_base == null_mut());
-            assert!(_talc.allocatable_acme == null_mut());
+
+            if !any {
+                if b < WORD_BITS {
+                    assert!(talc.availability_low & 1 << b == 0);
+                } else {
+                    assert!(talc.availability_high & 1 << (b - WORD_BITS) == 0);
+                }
+            }
         }
+    } else {
+        assert!(talc.allocatable_base == null_mut());
+        assert!(talc.allocatable_acme == null_mut());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::ptr::null_mut;
+
+    use super::*;
+
+    #[test]
+    fn align_ptr_test() {
+        assert!(!align_up_overflows(null_mut()));
+        assert!(!align_up_overflows(null_mut::<u8>().wrapping_sub(ALIGN)));
+        assert!(align_up_overflows(null_mut::<u8>().wrapping_sub(ALIGN - 1)));
+        assert!(align_up_overflows(null_mut::<u8>().wrapping_sub(ALIGN - 2)));
+        assert!(align_up_overflows(null_mut::<u8>().wrapping_sub(ALIGN - 3)));
+
+        assert!(align_up(null_mut()) == null_mut());
+        assert!(align_down(null_mut()) == null_mut());
+
+        assert!(align_up(null_mut::<u8>().wrapping_add(1)) == null_mut::<u8>().wrapping_add(ALIGN));
+        assert!(align_up(null_mut::<u8>().wrapping_add(2)) == null_mut::<u8>().wrapping_add(ALIGN));
+        assert!(align_up(null_mut::<u8>().wrapping_add(3)) == null_mut::<u8>().wrapping_add(ALIGN));
+        assert!(
+            align_up(null_mut::<u8>().wrapping_add(ALIGN)) == null_mut::<u8>().wrapping_add(ALIGN)
+        );
+
+        assert!(align_down(null_mut::<u8>().wrapping_add(1)) == null_mut::<u8>());
+        assert!(align_down(null_mut::<u8>().wrapping_add(2)) == null_mut::<u8>());
+        assert!(align_down(null_mut::<u8>().wrapping_add(3)) == null_mut::<u8>());
+        assert!(
+            align_down(null_mut::<u8>().wrapping_add(ALIGN))
+                == null_mut::<u8>().wrapping_add(ALIGN)
+        );
     }
 }

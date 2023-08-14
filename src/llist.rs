@@ -65,25 +65,6 @@ impl LlistNode {
         }
     }
 
-    /* /// Move `self` into a new location, leaving `self` as an isolated node.
-    /// # Safety
-    /// * `dest` must be `ptr::write`-able.
-    /// * `self` must be dereferencable and valid.
-    pub unsafe fn mov(src: *mut Self, dst: *mut Self) {
-        debug_assert!(src > 0x1000 as _);
-        debug_assert!(dst > 0x1000 as _);
-
-        let src_node = src.read();
-
-        *src_node.next_of_prev = Some(NonNull::new_unchecked(dst));
-
-        if let Some(next) = src_node.next {
-            (*next.as_ptr()).next_of_prev = Self::next_ptr(dst);
-        }
-
-        dst.write(src_node);
-    } */
-
     /// Creates an iterator over the circular linked list, exclusive of
     /// the sentinel.
     /// # Safety

@@ -29,7 +29,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    sync::Barrier,
     time::{Duration, Instant},
 };
 
@@ -45,7 +44,7 @@ const MIN_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS;
 const MAX_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS * TIME_STEPS_AMOUNT;
 
 struct NamedBenchmark {
-    benchmark_fn: fn(Duration, &dyn GlobalAlloc, &Barrier) -> usize,
+    benchmark_fn: fn(Duration, &dyn GlobalAlloc) -> usize,
     name: &'static str,
 }
 
@@ -85,6 +84,8 @@ macro_rules! allocator_list {
 
 static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>, talc::ErrOnOom> =
     talc::Talc::new(talc::ErrOnOom).lock();
+static mut PREV_TALC_ALLOCATOR: prev_talc::Talck<spin::Mutex<()>, prev_talc::ErrOnOom> =
+    prev_talc::Talc::new(prev_talc::ErrOnOom).lock();
 static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
         FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
@@ -95,10 +96,11 @@ static mut GALLOC_ALLOCATOR: good_memory_allocator::SpinLockedAllocator =
     good_memory_allocator::SpinLockedAllocator::empty();
 static LINKED_LIST_ALLOCATOR: linked_list_allocator::LockedHeap =
     linked_list_allocator::LockedHeap::empty();
-static mut DLMALLOC_ALLOCATOR: DlMallocator = 
-    DlMallocator(lock_api::Mutex::new(dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)))));
+static mut DLMALLOC_ALLOCATOR: DlMallocator = DlMallocator(lock_api::Mutex::new(
+    dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
+));
 
-struct DlMallocator(lock_api::Mutex::<talc::AssumeUnlockable, dlmalloc::Dlmalloc<DlmallocArena>>);
+struct DlMallocator(lock_api::Mutex<talc::AssumeUnlockable, dlmalloc::Dlmalloc<DlmallocArena>>);
 
 unsafe impl GlobalAlloc for DlMallocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -129,9 +131,7 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
             (core::ptr::null_mut(), 0, 0)
         } else {
             *lock = true;
-            unsafe {
-                (HEAP.as_mut_ptr(), HEAP_SIZE, 1)
-            }
+            unsafe { (HEAP.as_mut_ptr(), HEAP_SIZE, 1) }
         }
     }
 
@@ -156,11 +156,9 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
     }
 
     fn page_size(&self) -> usize {
-        4*1024
+        4 * 1024
     }
 }
-
-
 
 fn main() {
     const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
@@ -169,23 +167,29 @@ fn main() {
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
-    let benchmarks = benchmark_list!(random_actions, heap_exhaustion);
+    let benchmarks = benchmark_list!(random_actions);
 
-    let allocators =
-        allocator_list!(init_talc, init_dlmalloc, init_galloc, init_buddy_alloc, init_linked_list_allocator);
+    let allocators = allocator_list!(
+        init_talc,
+        /* init_prev_talc, */ init_dlmalloc,
+        init_buddy_alloc,
+        init_galloc,
+        init_linked_list_allocator
+    );
 
-    {
+    /* {
         // heap efficiency benchmark
 
-        println!("             ALLOCATOR | AVERAGE HEAP EFFICIENCY");
-        println!("-----------------------|------------------------");
+
+        println!("|             Allocator | Average Random Actions Heap Efficiency |");
+        println!("| --------------------- | -------------------------------------- |");
 
         for allocator in allocators {
             let efficiency = heap_efficiency((allocator.init_fn)());
 
-            println!("{:>22} | {:2.2}%", allocator.name, efficiency);
+            println!("|{:>22} | {:>38} |", allocator.name, format!("{:2.2}%", efficiency));
         }
-    }
+    } */
 
     for benchmark in benchmarks {
         let mut csv = String::new();
@@ -200,35 +204,7 @@ fn main() {
                     (0..TRIALS_AMOUNT)
                         .map(|_| {
                             let allocator_ref = (allocator.init_fn)();
-                            /* if true { */
-                            let barrier = Barrier::new(1);
-                            (benchmark.benchmark_fn)(duration, allocator_ref, &barrier)
-                            /* } else {
-                                const THREADS: usize = 2;
-                                let barrier = Barrier::new(THREADS);
-                                std::thread::scope(|s| {
-                                    let pts = [
-                                        s.spawn(|| {
-                                            (benchmark.benchmark_fn)(
-                                                duration,
-                                                allocator_ref,
-                                                &barrier,
-                                            )
-                                        }),
-                                        s.spawn(|| {
-                                            (benchmark.benchmark_fn)(
-                                                duration,
-                                                allocator_ref,
-                                                &barrier,
-                                            )
-                                        }),
-                                    ];
-                                    assert!(pts.len() == THREADS);
-
-                                    pts.into_iter().map(|s| s.join().unwrap()).fold(0, |a, b| a + b)
-                                        as f64
-                                })
-                            } */
+                            (benchmark.benchmark_fn)(duration, allocator_ref)
                         })
                         .sum::<usize>()
                         / TRIALS_AMOUNT
@@ -252,6 +228,15 @@ fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         TALC_ALLOCATOR = talc::Talc::with_arena(talc::ErrOnOom, HEAP.as_mut_slice().into()).lock();
         &TALC_ALLOCATOR
+    }
+}
+
+#[allow(dead_code)]
+fn init_prev_talc() -> &'static (dyn GlobalAlloc) {
+    unsafe {
+        PREV_TALC_ALLOCATOR =
+            prev_talc::Talc::with_arena(prev_talc::ErrOnOom, HEAP.as_mut_slice().into()).lock();
+        &PREV_TALC_ALLOCATOR
     }
 }
 
@@ -288,26 +273,27 @@ fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
 fn init_dlmalloc() -> &'static dyn GlobalAlloc {
     unsafe {
         DLMALLOC_ALLOCATOR = DlMallocator(lock_api::Mutex::new(
-            dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)))
+            dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
         ));
         &DLMALLOC_ALLOCATOR
     }
 }
 
-pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: &Barrier) -> usize {
+pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize {
     let mut score = 0;
     let mut v = Vec::with_capacity(10000);
 
-    barrier.wait();
+    let rng = fastrand::Rng::new();
+
     let start = Instant::now();
     while start.elapsed() < duration {
         for _ in 0..100 {
-            let action = fastrand::usize(0..3);
+            let action = rng.usize(0..3);
 
             match action {
                 0 => {
-                    let size = fastrand::usize(100..=1000);
-                    let alignment = 8 << fastrand::u16(..).trailing_zeros() / 2;
+                    let size = rng.usize(100..=1000);
+                    let alignment = 8 << rng.u16(..).trailing_zeros() / 2;
                     if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
                         v.push(allocation);
                         score += 1;
@@ -315,16 +301,16 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
                 }
                 1 => {
                     if !v.is_empty() {
-                        let index = fastrand::usize(0..v.len());
+                        let index = rng.usize(0..v.len());
                         v.swap_remove(index);
                         score += 1;
                     }
                 }
                 2 => {
                     if !v.is_empty() {
-                        let index = fastrand::usize(0..v.len());
+                        let index = rng.usize(0..v.len());
                         if let Some(random_allocation) = v.get_mut(index) {
-                            let size = fastrand::usize(100..=10000);
+                            let size = rng.usize(100..=10000);
                             random_allocation.realloc(size);
                         }
                         score += 1;
@@ -338,70 +324,60 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
     score
 }
 
-pub fn heap_exhaustion(
-    duration: Duration,
-    allocator: &dyn GlobalAlloc,
-    barrier: &Barrier,
-) -> usize {
-    let mut v = Vec::with_capacity(10000);
-    let mut score = 0;
-
-    barrier.wait();
-    let start = Instant::now();
-
-    while start.elapsed() < duration {
-        for _ in 0..10 {
-            let size = fastrand::usize(10000..=300000);
-            let alignment = 8 << fastrand::u16(..).trailing_zeros() / 2;
-
-            match AllocationWrapper::new(size, alignment, allocator) {
-                Some(allocation) => {
-                    v.push(allocation);
-                    score += 1
-                }
-                None => {
-                    // heap was exhausted, penalize the score by sleeping.
-                    std::thread::sleep(Duration::from_millis(3));
-
-                    // free all allocation to empty the heap.
-                    v.clear();
-
-                    break;
-                }
-            }
-        }
-    }
-
-    score
-}
-
 pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
-    let mut v = Vec::with_capacity(10000);
+    let mut v = Vec::with_capacity(100000);
     let mut used = 0;
     let mut total = HEAP_SIZE;
 
-    'trials: for _ in 0..1000 {
+    for _ in 0..50 {
         loop {
-            let size = fastrand::usize(10000..=300000);
-            let alignment = 8 << fastrand::u16(..).trailing_zeros() / 2;
+            let action = fastrand::usize(0..10);
 
-            match AllocationWrapper::new(size, alignment, allocator) {
-                Some(allocation) => {
-                    used += allocation.layout.size();
-                    v.push(allocation);
+            match action {
+                0..=4 => {
+                    let size = fastrand::usize(1000..=10000);
+                    let align = 8 << fastrand::u16(..).trailing_zeros() / 2;
+
+                    if let Some(allocation) = AllocationWrapper::new(size, align, allocator) {
+                        //used += allocation.layout.size();
+                        v.push(allocation);
+                    } else {
+                        used += v.iter().map(|a| a.layout.size()).sum::<usize>();
+                        total += HEAP_SIZE;
+                        v.clear();
+                        break;
+                    }
                 }
-                None => {
-                    v.clear();
-
-                    total += HEAP_SIZE;
-
-                    continue 'trials;
+                5 => {
+                    if !v.is_empty() {
+                        let index = fastrand::usize(0..v.len());
+                        //used -= v[index].layout.size();
+                        v.swap_remove(index);
+                    }
                 }
+                6..=9 => {
+                    if !v.is_empty() {
+                        let index = fastrand::usize(0..v.len());
+
+                        if let Some(random_allocation) = v.get_mut(index) {
+                            //let old_size = random_allocation.layout.size();
+                            let new_size = fastrand::usize(1000..=100000);
+                            random_allocation.realloc(new_size);
+                            //used = used + new_size - old_size;
+                        } else {
+                            used += v.iter().map(|a| a.layout.size()).sum::<usize>();
+                            total += HEAP_SIZE;
+                            v.clear();
+                            break;
+                        }
+                    }
+                }
+                _ => unreachable!(),
             }
         }
     }
 
-    used as f64 * 100.0 / total as f64
+    used as f64 / total as f64 * 100.0
 }
 
 struct AllocationWrapper<'a> {

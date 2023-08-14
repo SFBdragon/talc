@@ -42,14 +42,14 @@ b_ofst = int(math.log2(double_buckets_limit)) # log2_start_pow | 16
 b_p2dv = int(math.log2(exp_fractions)) # log2_div_count | 4
 
 for b in range(0, (word_size * 8 * 2) - word_bins_count - double_bins_count):
-    # calculation for size from g
+    # calculation for size from b
     size = ((1 << b_p2dv) + (b & ((1<<b_p2dv)-1))) << ((b >> b_p2dv) + (b_ofst-b_p2dv))
 
     # calculation of b from size
     size_log2 = math.floor(math.log2(size))
-    g_calc = ((size >> size_log2 - b_p2dv) ^ (1<<b_p2dv)) + ((size_log2-b_ofst) << b_p2dv)
+    b_calc = ((size >> size_log2 - b_p2dv) ^ (1<<b_p2dv)) + ((size_log2-b_ofst) << b_p2dv)
 
     # check that they match
-    assert b == g_calc
+    assert b == b_calc
 
     print("{1:>3}: {0:>8} {0:>20b} | ".format(size, b + word_bins_count + double_bins_count), end='\n')

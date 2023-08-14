@@ -58,7 +58,9 @@ fn panic_handler(_: &core::panic::PanicInfo) -> ! {
 // Box a `u8`!
 #[no_mangle]
 pub extern "C" fn hello() -> *mut u8 {
-    Vec::<u8>::with_capacity(42).into_raw_parts().0
+    let mut vec = Vec::<u8>::new();
+    let _ = vec.try_reserve(42);
+    vec.into_raw_parts().0
 }
 
 /// Free a `Box<u8>` that we allocated earlier!
@@ -75,6 +77,6 @@ pub unsafe extern "C" fn goodbye(ptr: *mut u8) {
 #[no_mangle]
 pub unsafe extern "C" fn renegotiate(ptr: *mut u8, old_size: usize, new_size: usize) -> *mut u8 {
     let mut v = Vec::from_raw_parts(ptr, 0, old_size);
-    v.reserve(new_size - old_size);
+    let _ = v.try_reserve(new_size - old_size);
     v.into_raw_parts().0
 }

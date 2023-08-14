@@ -1,3 +1,5 @@
 target
 Cargo.lock
 *.asm
+perf*
+flamegraph.svg

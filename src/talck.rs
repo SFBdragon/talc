@@ -162,7 +162,7 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
 }
 
 /// A dummy RawMutex implementation to skip synchronization on single threaded systems.
-/// 
+///
 /// # Safety
 /// This is very unsafe and may cause undefined behaviour if multiple threads enter
 /// a critical section syncronized by this, even without explicit unsafe code.
@@ -175,9 +175,11 @@ unsafe impl lock_api::RawMutex for AssumeUnlockable {
     // A spinlock guard can be sent to another thread and unlocked there
     type GuardMarker = lock_api::GuardSend;
 
-    fn lock(&self) { }
+    fn lock(&self) {}
 
-    fn try_lock(&self) -> bool { true }
+    fn try_lock(&self) -> bool {
+        true
+    }
 
-    unsafe fn unlock(&self) { }
+    unsafe fn unlock(&self) {}
 }

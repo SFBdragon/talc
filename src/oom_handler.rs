@@ -43,6 +43,8 @@ impl OomHandler for InitOnOom {
                 talc.init(talc.oom_handler.0);
             }
 
+            talc.oom_handler.0 = Span::empty();
+
             Ok(())
         } else {
             Err(())
@@ -50,31 +52,29 @@ impl OomHandler for InitOnOom {
     }
 }
 
-
 #[cfg(target_family = "wasm")]
 pub struct WasmHandler;
 
 #[cfg(target_family = "wasm")]
 impl OomHandler for WasmHandler {
     fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()> {
-
         /// WASM page size is 64KiB
         const PAGE_SIZE: usize = 1024 * 64;
 
         // growth strategy: just try to grow enough to avoid OOM again on this allocation
         let required = (layout.size() + 8).max(layout.align() * 2);
         let mut delta_pages = (required + (PAGE_SIZE - 1)) / PAGE_SIZE;
-        
-        let prev = 'prev: { 
+
+        let prev = 'prev: {
             // this performs a scan, trying to find a smaller possible
             // growth if the previous one was unsuccessful. return
             // any successful allocated to memory, and try again.
-            
+
             // if we're about to fail because of allocation failure
             // we may as well try as hard as we can to probe what's permissable
             // which can be done with a log2(n)-ish algorithm
             while delta_pages != 0 {
-                // use `core::arch::wasm` instead once it doesn't 
+                // use `core::arch::wasm` instead once it doesn't
                 // require the unstable feature wasm_simd64?
                 let result = core::arch::wasm32::memory_grow::<0>(delta_pages);
 
@@ -94,11 +94,7 @@ impl OomHandler for WasmHandler {
 
         unsafe {
             talc.extend(Span::new(
-                talc
-                    .get_arena()
-                    .get_base_acme()
-                    .map_or((prev * PAGE_SIZE) as _, |(base, _)| base), 
-
+                talc.get_arena().get_base_acme().map_or((prev * PAGE_SIZE) as _, |(base, _)| base),
                 ((prev + delta_pages) * PAGE_SIZE) as *mut u8,
             ));
         }

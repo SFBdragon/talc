@@ -24,16 +24,21 @@ enum Actions {
     Extend { low: u16, high: u16 },
     // Truncate the arena by the additional amount specified on the low and high side
     Truncate { low: u16, high: u16 },
+    /// Reinitialize the whole arena
+    Reinitialize { low: u32, high: u32 },
 }
 use Actions::*;
 
-fuzz_target!(|data: (usize, Vec<Actions>)| {
-    let (arena_size, actions) = data;
+fuzz_target!(|data: (usize, usize, usize, Vec<Actions>)| {
+    let (arena_size, low_trunc, high_trunc, actions) = data;
 
     let arena = Box::leak(vec![0u8; arena_size % (1 << 24)].into_boxed_slice());
     arena.fill(0x11);
+    let arena = arena as *mut _;
 
-    let allocator = unsafe { Talc::with_arena(ErrOnOom, arena.into()).lock::<spin::Mutex<()>>() };
+    let arena_subset = Span::from(arena).truncate(low_trunc % (1 << 24), high_trunc % (1 << 24));
+
+    let allocator = unsafe { Talc::with_arena(ErrOnOom, arena_subset).lock::<spin::Mutex<()>>() };
     
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
 
@@ -85,7 +90,7 @@ fuzz_target!(|data: (usize, Vec<Actions>)| {
 
                 let new_arena = allocator.0.lock().get_arena()
                     .extend(low as usize, high as usize)
-                    .fit_within(arena.into());
+                    .fit_within(Span::from(arena));
 
                 let _ = unsafe { allocator.0.lock().extend(new_arena) };
             },
@@ -98,6 +103,13 @@ fuzz_target!(|data: (usize, Vec<Actions>)| {
                     .fit_over(talc.get_allocated_span());
 
                 talc.truncate(new_arena);
+            },
+            Reinitialize { low, high } => {
+
+                let mut talc = allocator.0.lock();
+                let new_arena_subset = Span::from(arena).truncate(low as usize % (1 << 24), high as usize % (1 << 24));
+                unsafe { talc.init(new_arena_subset); }
+                allocations.clear();
             }
         }
     }

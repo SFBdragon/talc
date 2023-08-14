@@ -184,9 +184,7 @@ impl Span {
     /// Empty spans don't overlap with anything.
     #[inline]
     pub fn overlaps(self, other: Span) -> bool {
-        !self.is_empty()
-            && !other.is_empty()
-            && !(other.base >= self.acme || self.base >= other.acme)
+        self.is_sized() && other.is_sized() && !(other.base >= self.acme || self.base >= other.acme)
     }
 
     /// Aligns `base` upward and `acme` downward by `align_of::<usize>()`.

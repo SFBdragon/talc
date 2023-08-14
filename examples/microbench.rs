@@ -86,9 +86,7 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
             (core::ptr::null_mut(), 0, 0)
         } else {
             *lock = true;
-            unsafe {
-                (HEAP_MEMORY.as_mut_ptr(), HEAP_SIZE, 1)
-            }
+            unsafe { (HEAP_MEMORY.as_mut_ptr(), HEAP_SIZE, 1) }
         }
     }
 
@@ -113,7 +111,7 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
     }
 
     fn page_size(&self) -> usize {
-        4*1024
+        4 * 1024
     }
 }
 
@@ -145,7 +143,6 @@ fn main() {
     let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)));
     let bench_dlmalloc = benchmark_allocator(&DlMallocator(spin::Mutex::new(dlmalloc)));
 
-
     print_bench_results("Talc", &bench_talc);
     println!();
     print_bench_results("Buddy Allocator", &bench_buddy);
@@ -167,9 +164,9 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
 
         #[cfg(target_arch = "aarch64")]
         {
-            let cntvct_el0: u64;
-            std::arch::asm!("msr {0}, CNTVCT_EL0", out(reg) cntvct_el0, options(nomem, nostack));
-            return cntvct_el0;
+            let mut timer: u64;
+            std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+            return timer;
         }
 
         #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]

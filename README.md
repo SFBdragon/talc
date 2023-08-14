@@ -9,8 +9,6 @@ Is your project targeting WASM? Check out [usage and comparisons here](./README_
 ### Table of Contents
 - [Setup](#setup)
 - [Benchmarks](#benchmarks)
-- [Performance](#performance)
-- [Memory Overhead](#memory-overhead)
 - [Algorithm](#algorithm)
 - [Testing](#testing)
 - [General Usage](#general-usage)
@@ -63,7 +61,7 @@ See [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for mo
 
 ### Macrobenchmarks (based on galloc's benchmarks)
 
-The original benchmarks have been modified (e.g. replacing `rand` with `fastrand`) in order to alleviate the overhead.
+The original benchmarks have been modified (e.g. replacing `rand` with `fastrand`) in order to alleviate the overhead. Additionally, alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common.
 
 #### Random Actions Benchmark Results
 
@@ -73,28 +71,20 @@ The number of successful allocations, deallocations, and reallocations within th
 
 #### Heap Efficiency Benchmark Results
 
-The average occupied capacity once filled with random allocations.
+The average occupied capacity upon first allocation failure when randomly allocating/deallocating/reallocating.
 
-|              ALLOCATOR | AVERAGE HEAP EFFICIENCY |
-| -----------------------|------------------------ |
-|                   talc | 99.82%                  |
-|  linked_list_allocator | 99.82%                  |
-|               dlmalloc | 99.81%                  |
-|                 galloc | 99.81%                  |
-|            buddy_alloc | 59.45%                  |
+|             Allocator | Average Random Actions Heap Efficiency |
+| --------------------- | -------------------------------------- |
+|              dlmalloc |                                 97.34% |
+|                  talc |                                 97.12% |
+| linked_list_allocator |                                 96.54% |
+|                galloc |                                 94.47% |
+|           buddy_alloc |                                 57.70% |
 
-#### Heap Exhaustion Benchmark Results
-
-The number of allocation when filling and flushing the heap with a penalty for each cycle.
-
-![Heap Exhaustion Benchmark Results](/benchmark_graphs/heap_exhaustion.png)
-
-Notes:
-- alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
 
 ### Microbenchmarks (based on simple_chunk_allocator's benchmark)
 
-Pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration.
+Pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration. Actual number of pre-fail allocations can be quite noisy due to random allocation sizes.
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
@@ -138,27 +128,12 @@ Pre-Fail Allocations |       42     924    2310    4032    6216    8883   12537 
        Deallocations |       42    3423    7224   11550   16485   22092   28833   37569   98679 |   19085   ticks
 ```
 
-Notes:
-- number of pre-fail allocations is more noise than signal due to random allocation sizes
-- alignment requirements are inversely exponentially frequent, ranging from 2^2 bytes to 2^18, with 2^2 and 2^3 being most common
-
-
-## Performance
-O(n) worst case allocations. In practice, it's usually fast. See the benchmarks below.
-
-Deallocation is always O(1), reallocation is usually O(1) unless in-place allocation fails.
-
-## Memory Overhead
-Allocations have a overhead of one `usize` each, typically. The chunk size is at minumum `3 * usize`, so tiny allocations will have a lot of overhead.
-
-This improves on Galloc (another boundary-tagging allocator), which has a minimum chunk size of `4 * usize`.
-
 ## Algorithm
-This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases.
+This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1).
 
 The main differences compared to Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
-Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations.
+Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation.
 
 ## Testing
 Tests on most of the helper types and Talc functions.
@@ -241,6 +216,13 @@ impl OomHandler for MyOomHandler {
 
 ## Changelog
 
+#### v2.2.1
+- Rewrote the allocator internals to place allocation metadata above the allocation.
+    - This will have the largest impact on avoiding false sharing, where previously, the allocation metadata for one allocation would infringe on the cache-line of the allocation before it, even if a sufficiently high alignment was demanded. A marginal/negligible increase in performance resulted, too.
+- Removed heap_exhaustion and replaced heap_efficiency benchmarks.
+- Improved documentation and other resources.
+- Changed the WASM size measurement to include slightly less overhead.
+
 #### v2.2.0
 - Added `dlmalloc` to the benchmarks.
 - WASM should now be fully supported via `TalckWasm`. Let me know what breaks ;)
@@ -267,8 +249,6 @@ impl OomHandler for MyOomHandler {
 
 
 ## Support Me
-This'll go towards keeping me alive, getting me through university, and allowing me to keep working on my OSS projects. 
+I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's me LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
 
-[![Paypal](/donate.png)](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ)
-
-Appreciate it! 
+On the other hand, if you find the project useful, I'd appreciate a donation via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
