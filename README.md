@@ -128,6 +128,8 @@ Pre-Fail Allocations |       42     924    2310    4032    6216    8883   12537 
        Deallocations |       42    3423    7224   11550   16485   22092   28833   37569   98679 |   19085   ticks
 ```
 
+Why does Buddy Allocator perform much better here than in the random actions benchmark? The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of about 100 to 100000 bytes puts Talc and Buddy Allocator roughly on par, but this is just a coincidence.)
+
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1).
 
