@@ -220,7 +220,7 @@ impl OomHandler for MyOomHandler {
 
 #### v2.2.1
 - Rewrote the allocator internals to place allocation metadata above the allocation.
-    - This will have the largest impact on avoiding false sharing, where previously, the allocation metadata for one allocation would infringe on the cache-line of the allocation before it, even if a sufficiently high alignment was demanded. A marginal/negligible increase in performance resulted, too.
+    - This will have the largest impact on avoiding false sharing, where previously, the allocation metadata for one allocation would infringe on the cache-line of the allocation before it, even if a sufficiently high alignment was demanded. A marginal/negligible increase in single-threaded performance resulted, too.
 - Removed heap_exhaustion and replaced heap_efficiency benchmarks.
 - Improved documentation and other resources.
 - Changed the WASM size measurement to include slightly less overhead.
