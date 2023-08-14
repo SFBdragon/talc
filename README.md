@@ -249,6 +249,6 @@ impl OomHandler for MyOomHandler {
 
 
 ## Support Me
-I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's me LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
+I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
 
-On the other hand, if you find the project useful, I'd appreciate a donation via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
+On the other hand, if you find the project useful, please consider donating via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
