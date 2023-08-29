@@ -1,6 +1,6 @@
 # Talc
 
-![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square) ![License](https://img.shields.io/crates/l/talc?style=flat-square) 
+[![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/) [![License](https://img.shields.io/crates/l/talc?style=flat-square)](https://github.com/SFBdragon/talc/blob/master/LICENSE.md)
 
 Talc is a performant and flexible memory allocator, with first class support for `no_std` and WebAssembly. It's suitable for projects such as operating system kernels, website backends, or arena allocation in single-threaded contexts.
 
@@ -28,9 +28,8 @@ use core::alloc::{Allocator, Layout};
 static mut ARENA: [u8; 10000] = [0; 10000];
 
 fn main () {
-    let talck = unsafe {
-        Talc::with_arena(ErrOnOom, ARENA.as_mut().into()).lock::<spin::Mutex<()>>()
-    };
+    let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+    unsafe { talck.0.lock().claim(ARENA.as_mut().into()); }
     
     talck.allocator().allocate(Layout::new::<[u32; 16]>());
 }
@@ -43,10 +42,10 @@ use talc::*;
 static mut ARENA: [u8; 10000] = [0; 10000];
 
 #[global_allocator]
-static ALLOCATOR: Talck<spin::Mutex<()>, InitOnOom> = Talc::new(unsafe {
+static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
     // if we're in a hosted environment, the Rust runtime may allocate before
     // main() is called, so we need to initialize the arena automatically
-    InitOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
+    ClaimOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
 }).lock();
 
 fn main() {
@@ -88,52 +87,54 @@ Pre-fail allocations account for all allocations up until the first allocation f
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
- 2221032 allocation attempts, 1564703 successful allocations,   26263 pre-fail allocations, 1553755 deallocations
+ 1980717 allocation attempts, 1397166 successful allocations,   27321 pre-fail allocations, 1386546 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       21      42      63      63      84      84     105     189   54327 |     123   ticks
-Pre-Fail Allocations |       42      63      63      63      84      84     105     126    1743 |      93   ticks
-       Deallocations |       21      63      84      84     105     126     231     315   21357 |     178   ticks
+     All Allocations |       42      63      63      84      84     105     126     210   31752 |     137   ticks
+Pre-Fail Allocations |       42      63      84      84      84     105     105     126    3465 |     105   ticks
+       Deallocations |       42      84      84     105     210     252     294     420   34062 |     239   ticks
 
 RESULTS OF BENCHMARK: Buddy Allocator
- 2370094 allocation attempts, 1665891 successful allocations,   17228 pre-fail allocations, 1659287 deallocations
+ 2181289 allocation attempts, 1534468 successful allocations,   19225 pre-fail allocations, 1527694 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       21      42      42      42      42      63      63      63   15519 |      52   ticks
-Pre-Fail Allocations |       21      42      42      42      42      63      63      63     756 |      75   ticks
-       Deallocations |       42      63      63      63      63      84      84     126   16107 |      94   ticks
+     All Allocations |       21      42      42      63      63      63      63      63  288414 |      59   ticks
+Pre-Fail Allocations |       21      42      42      42      63      63      63      84  288414 |      79   ticks
+       Deallocations |       42      63      63      63      63      84      84     126   21945 |      95   ticks
 
 RESULTS OF BENCHMARK: Dlmalloc
- 2176317 allocation attempts, 1531543 successful allocations,   25560 pre-fail allocations, 1520414 deallocations
+ 1963524 allocation attempts, 1391789 successful allocations,   26241 pre-fail allocations, 1380568 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      84     147     168     189     210     294   19026 |     170   ticks
-Pre-Fail Allocations |       42      63     105     147     147     168     189     273   16863 |     168   ticks
-       Deallocations |       42     105     126     126     189     252     294     399   19509 |     240   ticks
+     All Allocations |       42      63      84     147     168     189     210     315   25557 |     179   ticks
+Pre-Fail Allocations |       42      63     105     147     168     189     210     294    2289 |     173   ticks
+       Deallocations |       42     105     126     210     252     294     378     441   62958 |     280   ticks
 
 RESULTS OF BENCHMARK: Galloc
-  282268 allocation attempts,  207553 successful allocations,   23284 pre-fail allocations,  197680 deallocations
+  274406 allocation attempts,  200491 successful allocations,   24503 pre-fail allocations,  190673 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      63     294   12306   26901   41748   45906  128877 |   19106   ticks
-Pre-Fail Allocations |       42      42      42      42      63      63      63     630   21147 |     663   ticks
-       Deallocations |       42      63      84      84     147     252     378     735   18018 |     288   ticks
+     All Allocations |       42      63      84     273   12327   27489   42441   46263  110145 |   19458   ticks
+Pre-Fail Allocations |       42      42      42      63      63      63      63     861   22344 |     730   ticks
+       Deallocations |       42      63      84     168     231     273     399     756   27153 |     322   ticks
 
 RESULTS OF BENCHMARK: Linked List Allocator
-  137396 allocation attempts,  107083 successful allocations,   24334 pre-fail allocations,   96915 deallocations
+  133404 allocation attempts,  103843 successful allocations,   25115 pre-fail allocations,   93590 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42    4452    9786   16296   24108   33894   45801   56763 1199415 |   28868   ticks
-Pre-Fail Allocations |       42     924    2310    4032    6216    8883   12537   18039  902979 |   11427   ticks
-       Deallocations |       42    3423    7224   11550   16485   22092   28833   37569   98679 |   19085   ticks
+     All Allocations |       42    4263    9618   16212   24297   35028   47502   59724  729666 |   29867   ticks
+Pre-Fail Allocations |       42     819    2310    4095    6426    9198   12810   17955  836325 |   11266   ticks
+       Deallocations |       42    3234    7056   11298   16338   22218   29442   39039  117957 |   19519   ticks
 ```
 
-Why does Buddy Allocator perform much better here than in the random actions benchmark? The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of about 100 to 100000 bytes puts Talc and Buddy Allocator roughly on par, but this is just a coincidence.)
+Q: Why does Buddy Allocator perform much better here than in the random actions benchmark? 
+
+A: The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of about 100 to 10000 bytes puts Talc and Buddy Allocator roughly on par in random actions, but this is just a coincidence.)
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1).
 
-The main differences compared to Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment, so expect Galloc to be faster where lots of small, large alignment allocations are made. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
+The main differences compared to Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation.
 
@@ -147,15 +148,12 @@ Other than that, lots of fuzzing of the allocator.
 Here is the list of `Talc` methods:
 * Constructors:
     * `new`
-    * `with_arena`
 * Information:
-    * `get_arena` - returns the current arena memory region
-    * `get_allocatable_span` - returns the current memory region in which allocations could occur
     * `get_allocated_span` - returns the minimum span containing all allocated memory
 * Management:
-    * `init` - initialize or re-initialize the arena (forgets all previous allocations, if any)
-    * `extend` - extend the arena (or initialize, if uninitialized)
-    * `truncate` - reduce the extent of the arena
+    * `claim` - claim memory, establishing a new heap
+    * `extend` - extend the extent of a heap
+    * `truncate` - reduce the extent of a heap
     * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
 * Allocation:
     * `malloc`
@@ -163,18 +161,22 @@ Here is the list of `Talc` methods:
     * `grow`
     * `shrink`
 
-See their docs for more info.
+Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
 
-`Span` is a handy little type for describing memory regions, because trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs tends to be inconvenient or annoying. See `Span::from*` and `span.to_*` functions for conversions.
+[`Span`](https://docs.rs/talc/latest/talc/struct.Span.html) is a handy little type for describing memory regions, because trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs tends to be inconvenient or annoying.
 
 ## Advanced Usage
 
-The most powerful feature of the allocator is that it has a modular OOM handling system, allowing you to perform any actions, including directly on the allocator or reporting the offending allocation, allowing you to fail out of or recover from allocation failure easily. As an example, recovering my extending the arena is implemented below.
+The most powerful feature of the allocator is that it has a modular OOM handling system, allowing you to fail out of or recover from allocation failure easily. 
+
+As an example, recovering by extending the heap is implemented below.
 
 ```rust
 use talc::*;
 
-struct MyOomHandler;
+struct MyOomHandler {
+    heap: Span,
+}
 
 impl OomHandler for MyOomHandler {
     fn handle_oom(talc: &mut Talc<Self>, layout: core::alloc::Layout) -> Result<(), ()> {
@@ -183,29 +185,30 @@ impl OomHandler for MyOomHandler {
     
         // we can inspect `layout` to estimate how much we should free up for this allocation
         // or we can extend by any amount (increasing powers of two has good time complexity)
+        // creating another heap would also work, but this isn't covered here
     
         // this function will be repeatly called until we free up enough memory or 
         // we return Err(()) causing allocation failure. Be careful to avoid conditions where 
-        // the arena isn't sufficiently extended indefinitely, causing an infinite loop
+        // the heap isn't sufficiently extended indefinitely, causing an infinite loop
     
         // an arbitrary address limit for the sake of example
-        const ARENA_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
+        const HEAP_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
     
-        let old_arena: Span = talc.get_arena();
+        let old_heap: Span = talc.oom_handler.heap;
     
-        // we're going to extend the arena upward, doubling its size
+        // we're going to extend the heap upward, doubling its size
         // but we'll be sure not to extend past the limit
-        let new_arena: Span = old_arena.extend(0, old_arena.size()).below(ARENA_TOP_LIMIT);
+        let new_heap: Span = old_heap.extend(0, old_heap.size()).below(HEAP_TOP_LIMIT);
     
-        if new_arena == old_arena {
-            // we won't be extending the arena, so we should return Err
+        if new_heap == old_heap {
+            // we won't be extending the heap, so we should return Err
             return Err(());
         }
     
         unsafe {
-            // we're assuming the new memory up to ARENA_TOP_LIMIT is allocatable
-            talc.extend(new_arena);
-        };
+            // we're assuming the new memory up to HEAP_TOP_LIMIT is allocatable
+            talc.oom_handler.heap = talc.extend(old_heap, new_heap);
+        }
     
         Ok(())
     }
@@ -217,6 +220,17 @@ impl OomHandler for MyOomHandler {
 * `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
 
 ## Changelog
+
+#### v3.0.0
+- Added support for multiple discontinuous heaps! This required some major API changes
+    - `new_arena` no longer exists (use `new` and then `claim`)
+    - `init` has been replaced with `claim`
+    - `claim`, `extend` and `truncate` now return the new heap extent 
+    - `InitOnOom` is now `ClaimOnOom`. 
+    - All of the above now have different behaviour and documentation.
+- Each heap now has a fixed overhead of one `usize` at the bottom.
+
+To migrate from v2 to v3, keep in mind that you must keep track of the heaps if you want to resize them, by storing the returned `Span`s. Read [`claim`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.claim), [`extend`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.extend) and [`truncate`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.truncate)'s documentation for all the details.
 
 #### v2.2.1
 - Rewrote the allocator internals to place allocation metadata above the allocation.

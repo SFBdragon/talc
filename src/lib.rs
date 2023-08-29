@@ -20,7 +20,7 @@ mod utils;
 
 #[cfg(all(target_family = "wasm", feature = "lock_api"))]
 pub use oom_handler::WasmHandler;
-pub use oom_handler::{ErrOnOom, InitOnOom, OomHandler};
+pub use oom_handler::{ErrOnOom, ClaimOnOom, OomHandler};
 pub use span::Span;
 #[cfg(all(feature = "lock_api", feature = "allocator"))]
 pub use talck::TalckRef;
@@ -57,6 +57,7 @@ const TAG_SIZE: usize = core::mem::size_of::<Tag>();
 
 const MIN_TAG_OFFSET: usize = NODE_SIZE;
 const MIN_CHUNK_SIZE: usize = MIN_TAG_OFFSET + TAG_SIZE;
+const MIN_HEAP_SIZE: usize = MIN_CHUNK_SIZE + TAG_SIZE;
 
 const BIN_COUNT: usize = usize::BITS as usize * 2;
 
@@ -64,20 +65,13 @@ type Bin = Option<NonNull<LlistNode>>;
 
 /// The Talc Allocator!
 ///
-/// To get started:
-/// - Construct with `new` or `with_arena` functions (use [`ErrOnOom`] to ignore OOM handling).
-/// - Initialize with `init` or `extend`.
-/// - Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
+/// One way to get started:
+/// 1. Construct with [`new`](Talc::new) (supply [`ErrOnOom`] to ignore OOM handling).
+/// 2. Establish any number of heaps with [`claim`](Talc::claim).
+/// 3. Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
 /// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
 pub struct Talc<O: OomHandler> {
     pub oom_handler: O,
-
-    arena: Span,
-
-    allocatable_base: *mut u8,
-    allocatable_acme: *mut u8,
-
-    is_base_free: bool,
 
     /// The low bits of the availability flags.
     availability_low: usize,
@@ -93,12 +87,9 @@ unsafe impl<O: Send + OomHandler> Send for Talc<O> {}
 impl<O: OomHandler> core::fmt::Debug for Talc<O> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Talc")
-            .field("arena", &self.arena)
-            .field("alloc_base", &self.allocatable_base)
-            .field("alloc_acme", &self.allocatable_acme)
-            .field("is_base_free", &self.is_base_free)
             .field("availability_low", &format_args!("{:x}", self.availability_low))
             .field("availability_high", &format_args!("{:x}", self.availability_high))
+            .field("metadata_ptr", &self.bins)
             .finish()
     }
 }
@@ -190,19 +181,6 @@ impl<O: OomHandler> Talc<O> {
         }
     }
 
-    /// Ensures the below chunk's `is_above_free` or the `talc.is_base_free` flag is cleared.
-    ///
-    /// Assumes an allocated chunk's base is at `chunk_acme`.
-    #[inline]
-    unsafe fn clear_below_free_flag(&mut self, chunk_base: *mut u8) {
-        if chunk_base != self.allocatable_base {
-            Tag::clear_above_free(chunk_base.sub(TAG_SIZE).cast());
-        } else {
-            debug_assert!(self.is_base_free);
-            self.is_base_free = false;
-        }
-    }
-
     /// Allocate a contiguous region of memory according to `layout`, if possible.
     /// # Safety
     /// `layout.size()` must be nonzero.
@@ -210,9 +188,7 @@ impl<O: OomHandler> Talc<O> {
         debug_assert!(layout.size() != 0);
 
         let (mut chunk_base, chunk_acme, alloc_base) = loop {
-            // no checks for initialization are performed, as it would be overhead.
-            // this will return None here as the availability flags are initialized
-            // to zero; all clear; no memory to allocate, call the OOM handler.
+            // this returns None if there are no heaps or allocatable memory
             match self.get_sufficient_chunk(layout) {
                 Some(payload) => break payload,
                 None => _ = O::handle_oom(self, layout)?,
@@ -226,7 +202,7 @@ impl<O: OomHandler> Talc<O> {
             self.register(chunk_base, chunk_base_ceil);
             chunk_base = chunk_base_ceil;
         } else {
-            self.clear_below_free_flag(chunk_base);
+            Tag::clear_above_free(chunk_base.sub(TAG_SIZE).cast());
         }
 
         // the word immediately after the allocation
@@ -260,8 +236,10 @@ impl<O: OomHandler> Talc<O> {
         &mut self,
         layout: Layout,
     ) -> Option<(*mut u8, *mut u8, *mut u8)> {
+
         let required_chunk_size = Self::required_chunk_size(layout.size());
 
+        // if there are no valid heaps, availability is zero, and next_available_bin returns None
         let mut bin = self.next_available_bin(bin_of_size(required_chunk_size))?;
 
         if layout.align() <= ALIGN {
@@ -342,11 +320,6 @@ impl<O: OomHandler> Talc<O> {
     /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
-        debug_assert!(self.arena.contains(ptr.as_ptr()));
-
-        // todo, consider a bounds check here for alloc_base < ptr < alloc_acme
-        // else hand off to the OOM handler (OOM handler could be able to map its own
-        // allocations outside the arena, supporting operations like mmap)?
 
         let (tag_ptr, tag) = tag_from_alloc_ptr(ptr.as_ptr(), layout.size());
         let mut chunk_base = tag.base_ptr();
@@ -356,25 +329,16 @@ impl<O: OomHandler> Talc<O> {
         debug_assert!(is_chunk_size(chunk_base, chunk_acme));
 
         // try recombine below
-        if chunk_base != self.allocatable_base {
-            union Discriminant {
-                tag: Tag,
-                size: usize,
-            }
-
-            let below_ptr = chunk_base.sub(TAG_SIZE);
-            let disc = below_ptr.cast::<Discriminant>().read();
-
-            if disc.tag.is_allocated() {
-                Tag::set_above_free(below_ptr.cast());
-            } else {
-                let below_size = disc.size;
-                chunk_base = chunk_base.sub(below_size);
-                self.deregister(FreeChunk(chunk_base).node_ptr(), bin_of_size(below_size));
-            }
+        let below_ptr = chunk_base.sub(TAG_SIZE).cast::<Tag>();
+        let below_tag = below_ptr.read();
+        if below_tag.is_allocated() {
+            Tag::set_above_free(below_ptr);
         } else {
-            debug_assert!(!self.is_base_free);
-            self.is_base_free = true;
+            // if the below tag doesn't have the allocated flag set,
+            // it's actually a size usize of a free chunk!
+            let below_size = below_tag.base_ptr() as usize;
+            chunk_base = chunk_base.sub(below_size);
+            self.deregister(FreeChunk(chunk_base).node_ptr(), bin_of_size(below_size));
         }
 
         // try recombine above
@@ -402,7 +366,6 @@ impl<O: OomHandler> Talc<O> {
         new_size: usize,
     ) -> Result<NonNull<u8>, ()> {
         debug_assert!(new_size >= layout.size());
-        debug_assert!(self.arena.contains(ptr.as_ptr()));
 
         let old_post_alloc_ptr = align_up(ptr.as_ptr().add(layout.size()));
         let new_post_alloc_ptr = align_up(ptr.as_ptr().add(new_size));
@@ -487,7 +450,6 @@ impl<O: OomHandler> Talc<O> {
     pub unsafe fn shrink(&mut self, ptr: NonNull<u8>, layout: Layout, new_size: usize) {
         debug_assert!(new_size != 0);
         debug_assert!(new_size <= layout.size());
-        debug_assert!(self.arena.contains(ptr.as_ptr()));
 
         let (tag_ptr, tag) = tag_from_alloc_ptr(ptr.as_ptr(), layout.size());
         let chunk_base = tag.base_ptr();
@@ -534,348 +496,324 @@ impl<O: OomHandler> Talc<O> {
         Self {
             oom_handler,
 
-            arena: Span::empty(),
-            allocatable_base: core::ptr::null_mut(),
-            allocatable_acme: core::ptr::null_mut(),
-            is_base_free: true,
-
             availability_low: 0,
             availability_high: 0,
             bins: null_mut(),
         }
     }
 
-    /// Contruct and initialize a `Talc` with the given OOM handler and arena.
-    ///
-    /// If you don't want to handle OOM, use [`ErrOnOom`].
+    /// Returns the minimum [`Span`] containing this heap's allocated memory.
     /// # Safety
-    /// See [`init`](Talc::init) for safety requirements.
-    pub unsafe fn with_arena(oom_handler: O, arena: Span) -> Self {
-        let mut talc = Self::new(oom_handler);
-        talc.init(arena);
-        talc
-    }
+    /// `heap` must be the return value of a heap manipulation function.
+    pub unsafe fn get_allocated_span(&self, heap: Span) -> Span {
+        assert!(heap.size() >= MIN_HEAP_SIZE);
 
-    /// Returns the [`Span`] which has been granted to this allocator as allocatable.
-    pub const fn get_arena(&self) -> Span {
-        self.arena
-    }
+        let (mut base, mut acme) = heap.get_base_acme().unwrap();
 
-    /// Returns the [`Span`] in which allocations may be placed.
-    pub fn get_allocatable_span(&self) -> Span {
-        Span::new(self.allocatable_base, self.allocatable_acme)
-    }
-
-    /// Returns the minimum [`Span`] containing all allocated memory.
-    pub fn get_allocated_span(&self) -> Span {
-        // check if the arena is nonexistant
-        if self.get_allocatable_span().size() < MIN_CHUNK_SIZE {
-            return Span::empty();
-        }
-
-        let mut allocated_acme = self.allocatable_acme;
-        let mut allocated_base = self.allocatable_base;
-
-        // check for free space at the arena's top
-        let top_disc = allocated_acme.wrapping_sub(TAG_SIZE);
-        if !(unsafe { *top_disc.cast::<Tag>() }).is_allocated() {
+        // check for free space at the heap's top
+        let top_disc = acme.wrapping_sub(TAG_SIZE);
+        if !unsafe { top_disc.cast::<Tag>().read() }.is_allocated() {
             let top_size = unsafe { top_disc.cast::<usize>().read() };
-            allocated_acme = allocated_acme.wrapping_sub(top_size);
+            acme = acme.wrapping_sub(top_size);
         }
 
-        // check for free memory at the bottom of the arena
-        if self.is_base_free {
-            let bottom_size = unsafe { FreeChunk(self.allocatable_base).size_ptr().read() };
-            allocated_base = allocated_base.wrapping_add(bottom_size);
+        // check for free memory at the bottom of the heap using the base tag
+        if unsafe { base.cast::<Tag>().read() }.is_above_free() {
+            let bottom_base = base.wrapping_add(TAG_SIZE);
+            let bottom_size = unsafe { FreeChunk(bottom_base).size_ptr().read() };
+            base = base.wrapping_add(bottom_size - TAG_SIZE);
         }
 
-        // allocated_base might be greater or equal to allocated_acme
+        // base might be greater that acme for an empty heap
         // but that's fine, this'll just become an empty span
-        Span::new(allocated_base, allocated_acme)
+        Span::new(base, acme)
     }
 
-    /// Initialize the allocator heap.
-    ///
-    /// Note that metadata will be placed into the bottom of the heap.
-    /// It should be on the order of ~1KiB on 64-bit systems.
-    /// If the arena isn't big enough, this function will **not** panic.
-    /// However, no memory will be made available for allocation.
-    ///
-    /// # Reinitialization
-    /// Calling `init` on the same [`Talc`] multiple times is valid. However,
-    /// this will "forget" all prior allocations, as if an entirely new allocator
-    /// was constructed.
+    /// Attempt to initialize a new heap for the allocator.
+    /// 
+    /// Note:
+    /// * Each heap reserves a `usize` at the bottom as fixed overhead.
+    /// * Metadata will be placed into the bottom of the first successfully established heap.
+    /// It is currently ~1KiB on 64-bit systems (less on 32-bit). This is subject to change.
+    /// 
+    /// # Return Values
+    /// The resulting [`Span`] is the actual heap extent, and may
+    /// be slightly smaller than requested. Use this to resize the heap.
+    /// Any memory outside the claimed heap is free to use.
+    /// 
+    /// Returns [`Err`] where 
+    /// * allocator metadata not yet esablished, and there's insufficient memory to do so.
+    /// * allocator metadata is established, but the heap is too small 
+    /// (less than ~ `4 * usize` for now).
     ///
     /// # Safety
-    /// - The memory within the `arena` must be valid for reads and writes,
+    /// - The memory within the `memory` must be valid for reads and writes,
     /// and memory therein not allocated to the user must not be mutated
     /// while the allocator is in use.
+    /// - `memory` should not overlap with any other active heap.
     ///
     /// # Panics
-    /// Panics if `arena` contains the null address.
-    pub unsafe fn init(&mut self, arena: Span) {
-        // set up the allocator with a new arena
-        // we need to store the metadata in the heap
-        // by using allocation chunk metadata, it's not a special special case
-        // essentially, we want to allocate the metadata by hand
+    /// Panics if `memory` contains the null address.
+    pub unsafe fn claim(&mut self, memory: Span) -> Result<Span, ()> {
+        const BIN_ARRAY_SIZE: usize = core::mem::size_of::<Bin>() * BIN_COUNT;
 
-        assert!(!arena.contains(null_mut()), "Arena covers the null address!");
+        // create a new heap
+        // if bins is null, we will need to try put the metadata in this heap
+        // this metadata is allocated 'by hand' to be isomorphic with other chunks
 
-        self.arena = arena;
-        self.availability_low = 0;
-        self.availability_high = 0;
+        assert!(!memory.contains(null_mut()), "heap covers the null address!");
 
-        let aligned_arena = arena.word_align_inward();
+        let aligned_heap = memory.word_align_inward();
 
         // if this fails, there's no space to work with
-        if let Some((base, acme)) = aligned_arena.get_base_acme() {
-            const BIN_ALIGNMENT: usize = core::mem::align_of::<Bin>();
-            const BIN_ARRAY_SIZE: usize = core::mem::size_of::<Bin>() * BIN_COUNT;
+        if let Some((base, acme)) = aligned_heap.get_base_acme() {
 
-            // check if there's enough space to bother
-            if acme as usize - base as usize >= BIN_ARRAY_SIZE + TAG_SIZE + MIN_CHUNK_SIZE {
-                // align the metadata pointer against the base of the arena
-                let metadata_ptr = align_up_by(base, BIN_ALIGNMENT - 1);
-                // align the tag pointer against the top of the metadata
-                let tag_ptr = align_up(metadata_ptr.add(BIN_ARRAY_SIZE));
+            // the allocator has already successfully allocated its metadata
+            if !self.bins.is_null() {
+                // check if there's enough space to establish a free chunk
+                if acme as usize - base as usize >= MIN_HEAP_SIZE {
+                    // write in the base tag
+                    Tag::write(base, null_mut(), true);
 
-                self.allocatable_base = base;
-                self.allocatable_acme = acme;
+                    // register the free memory
+                    let chunk_base = base.wrapping_add(TAG_SIZE);
+                    self.register(chunk_base, acme);
 
-                // initialize the bins to None
-                for i in 0..BIN_COUNT {
-                    let bin_ptr = metadata_ptr.cast::<Bin>().add(i);
-                    *bin_ptr = None;
+                    scan_for_errors(self);
+    
+                    return Ok(aligned_heap);
                 }
+            } else {
+                // check if there's enough space to allocate metadata and establish a free chunk
+                if acme as usize - base as usize >= TAG_SIZE + BIN_ARRAY_SIZE + TAG_SIZE {
+                    Tag::write(base, null_mut(), false);
 
-                self.bins = metadata_ptr.cast::<Bin>();
-                self.is_base_free = false;
-
-                // check whether there's enough room on top to free
-                // add_chunk_to_record only depends on self.bins
-                let metadata_chunk_acme = tag_ptr.add(TAG_SIZE);
-                if is_chunk_size(metadata_chunk_acme, acme) {
-                    self.register(metadata_chunk_acme, acme);
-                    Tag::write(tag_ptr, base, true);
-                } else {
-                    Tag::write(tag_ptr, base, false);
+                    // align the metadata pointer against the base of the heap
+                    let metadata_ptr = base.add(TAG_SIZE);
+                    // align the tag pointer against the top of the metadata
+                    let post_metadata_ptr = metadata_ptr.add(BIN_ARRAY_SIZE);
+    
+                    // initialize the bins to None
+                    for i in 0..BIN_COUNT {
+                        let bin_ptr = metadata_ptr.cast::<Bin>().add(i);
+                        bin_ptr.write(None);
+                    }
+    
+                    self.bins = metadata_ptr.cast::<Bin>();
+    
+                    // check whether there's enough room on top to free
+                    // add_chunk_to_record only depends on self.bins
+                    let metadata_chunk_acme = post_metadata_ptr.add(TAG_SIZE);
+                    if is_chunk_size(metadata_chunk_acme, acme) {
+                        self.register(metadata_chunk_acme, acme);
+                        Tag::write(post_metadata_ptr, base, true);
+                    } else {
+                        let tag_ptr = acme.sub(TAG_SIZE);
+                        post_metadata_ptr.cast::<*mut u8>().write(tag_ptr);
+                        Tag::write(tag_ptr, base, false);
+                    }
+    
+                    scan_for_errors(self);
+    
+                    return Ok(aligned_heap);
                 }
-
-                scan_for_errors(self);
-
-                return;
             }
         }
 
-        // fallthrough from being unable to allocate metadata
+        // fallthrough from insufficient size
 
-        self.allocatable_base = null_mut();
-        self.allocatable_acme = null_mut();
-        self.bins = null_mut();
-        self.is_base_free = false;
-
-        scan_for_errors(self);
+        Err(())
     }
 
-    /// Increase the extent of the arena.
+    /// Increase the extent of a heap. The new extent of the heap is returned,
+    /// and will be equal to or slightly smaller than requested.
     ///
     /// # Safety
-    /// The entire new_arena memory but be readable and writable
-    /// and unmutated besides that which is allocated. So on and so forth.
+    /// - `old_heap` must be the return value of a heap-manipulation function
+    /// of this allocator instance.
+    /// - The entire `new_heap` memory but be readable and writable
+    /// and unmutated besides that which is allocated so long as the heap is in use.
     ///
     /// # Panics
     /// This function panics if:
-    /// - `new_arena` doesn't contain the old arena (NB: empty arenas are contained by any arena)
-    /// - `new_arena` contains the null address
+    /// - `old_heap` is too small or heap metadata is not yet allocated
+    /// - `new_heap` doesn't contain `old_heap`
+    /// - `new_heap` contains the null address
     ///
     /// A recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talc::*;
     /// # let mut talc = Talc::new(ErrOnOom);
-    /// // compute the new arena as an extention of the old arena
-    /// // for the sake of example we avoid the null page too
-    /// let new_arena = talc.get_arena().extend(1234, 5678).above(0x400 as *mut u8);
+    /// let mut heap = [0u8; 2000];
+    /// let old_heap = Span::from(&mut heap[300..1700]);
+    /// let old_heap = unsafe { talc.claim(old_heap).unwrap() };
+    /// 
+    /// // compute the new heap span as an extention of the old span
+    /// let new_heap = old_heap.extend(250, 500).fit_within((&mut heap[..]).into());
+    /// 
     /// // SAFETY: be sure not to extend into memory we can't use
-    /// unsafe { talc.extend(new_arena); }
+    /// let new_heap = unsafe { talc.extend(old_heap, new_heap) };
     /// ```
-    pub unsafe fn extend(&mut self, new_arena: Span) {
-        assert!(new_arena.contains_span(self.arena), "new_span must contain the current arena");
-        assert!(!new_arena.contains(null_mut()), "Arena covers the null address!");
+    pub unsafe fn extend(&mut self, old_heap: Span, new_heap: Span) -> Span {
+        assert!(!self.bins.is_null());
+        assert!(old_heap.size() >= MIN_HEAP_SIZE);
+        assert!(new_heap.contains_span(old_heap), "new_heap must contain old_heap");
+        assert!(!new_heap.contains(null_mut()), "new_heap covers the null address!");
 
-        if !is_chunk_size(self.allocatable_base, self.allocatable_acme) {
-            // there's no free or allocated memory, so just init instead
-            self.init(new_arena);
-            return;
-        }
-
-        self.arena = new_arena;
-
-        let old_alloc_base = self.allocatable_base;
-        let old_alloc_acme = self.allocatable_acme;
-
-        match new_arena.word_align_inward().get_base_acme() {
-            Some((base, acme)) if acme as usize - base as usize >= MIN_CHUNK_SIZE => {
-                self.allocatable_base = base;
-                self.allocatable_acme = acme;
-            }
-
-            // we confirmed the new_arena is bigger than the old arena
-            // and that the old allocatable range is bigger than min chunk size
-            // thus the aligned result should be big enough
-            _ => unreachable!(),
-        }
+        let (old_base, old_acme) = old_heap.word_align_inward().get_base_acme().unwrap();
+        let (new_base, new_acme) = new_heap.word_align_inward().get_base_acme().unwrap();
+        let old_chunk_base = old_base.add(TAG_SIZE);
+        let new_chunk_base = new_base.add(TAG_SIZE);
+        let mut ret_base = new_base;
+        let mut ret_acme = new_acme;
 
         // if the top chunk is free, extend the block to cover the new extra area
         // otherwise allocate above if possible
-        if !(*old_alloc_acme.sub(TAG_SIZE).cast::<Tag>()).is_allocated() {
-            let top_size = old_alloc_acme.sub(TAG_SIZE).cast::<usize>().read();
-            let top_chunk = FreeChunk(old_alloc_acme.sub(top_size));
+        if !(old_acme.sub(TAG_SIZE).cast::<Tag>().read()).is_allocated() {
+            let top_size = old_acme.sub(TAG_SIZE).cast::<usize>().read();
+            let top_chunk = FreeChunk(old_acme.sub(top_size));
 
             self.deregister(top_chunk.node_ptr(), bin_of_size(top_size));
-            self.register(top_chunk.base(), self.allocatable_acme);
-        } else if is_chunk_size(old_alloc_acme, self.allocatable_acme) {
-            self.register(old_alloc_acme, self.allocatable_acme);
-            Tag::set_above_free(old_alloc_acme.sub(TAG_SIZE).cast());
+            self.register(top_chunk.base(), new_acme);
+        } else if is_chunk_size(old_acme, new_acme) {
+            self.register(old_acme, new_acme);
+            Tag::set_above_free(old_acme.sub(TAG_SIZE).cast());
         } else {
-            self.allocatable_acme = old_alloc_acme;
+            ret_acme = old_acme;
         }
 
         // extend the bottom chunk if it's free, else add free chunk below if possible
-        if self.is_base_free {
-            let bottom_chunk = FreeChunk(old_alloc_base);
+        if unsafe { old_base.cast::<Tag>().read() }.is_above_free() {
+            let bottom_chunk = FreeChunk(old_chunk_base);
             let bottom_size = bottom_chunk.size_ptr().read();
 
             self.deregister(bottom_chunk.node_ptr(), bin_of_size(bottom_size));
-            self.register(self.allocatable_base, bottom_chunk.base().add(bottom_size));
-        } else if is_chunk_size(self.allocatable_base, old_alloc_base) {
-            self.register(self.allocatable_base, old_alloc_base);
-            self.is_base_free = true;
+            self.register(new_chunk_base, bottom_chunk.base().add(bottom_size));
+            Tag::write(new_base, null_mut(), true);
+        } else if is_chunk_size(new_chunk_base, old_chunk_base) {
+            self.register(new_chunk_base, old_chunk_base);
+            Tag::write(new_base, null_mut(), true);
         } else {
-            self.allocatable_base = old_alloc_base;
+            ret_base = old_base;
         }
 
         scan_for_errors(self);
+
+        Span::new(ret_base, ret_acme)
     }
 
-    /// Reduce the extent of the arena.
+    /// Reduce the extent of a heap.
     /// The new extent must encompass all current allocations. See below.
+    /// 
+    /// The resultant heap is always equal to or slightly smaller than `new_heap`.
+    /// 
+    /// Truncating to an empty [`Span`] is valid for heaps where no memory is
+    /// allocated within it, where [`get_allocated_span`](Talc::get_allocated_span) is empty.
+    /// In all cases where the return value is empty, the heap no longer exists.
+    /// You may do what you like with the memory. The empty span should not be
+    /// used as input to [`truncate`](Talc::truncate), [`extend`](Talc::extend), 
+    /// or [`get_allocated_span`](Talc::get_allocated_span).
+    /// 
+    /// # Safety
+    /// `old_heap` must be the return value of a heap-manipulation function
+    /// of this allocator instance.
     ///
     /// # Panics:
     /// This function panics if:
-    /// - old arena doesn't contain `new_arena`
-    /// - `new_arena` doesn't contain all the allocated memory
+    /// - `old_heap` doesn't contain `new_heap`
+    /// - `new_heap` doesn't contain all the allocated memory in `old_heap`
+    /// - the heap metadata is not yet allocated
     ///
-    /// The recommended pattern for satisfying these criteria is:
+    /// A recommended pattern for satisfying these criteria is:
     /// ```rust
     /// # use talc::*;
     /// # let mut talc = Talc::new(ErrOnOom);
-    /// // note: lock the allocator otherwise a race condition may occur
-    /// // in between get_allocated_span and truncate
-    ///
-    /// // compute the new arena as a reduction of the old arena
-    /// let new_arena = talc.get_arena().truncate(1234, 5678).fit_over(talc.get_allocated_span());
-    /// // alternatively...
-    /// let new_arena = Span::from((1234 as *mut u8)..(5678 as *mut u8))
-    ///     .fit_within(talc.get_arena())
-    ///     .fit_over(talc.get_allocated_span());
-    /// // truncate the arena
-    /// talc.truncate(new_arena);
+    /// let mut heap = [0u8; 2000];
+    /// let old_heap = Span::from(&mut heap[300..1700]);
+    /// let old_heap = unsafe { talc.claim(old_heap).unwrap() };
+    /// 
+    /// // note: lock a `Talck` otherwise a race condition may occur
+    /// // in between Talc::get_allocated_span and Talc::truncate
+    /// 
+    /// // compute the new heap span as a truncation of the old span
+    /// let new_heap = old_heap
+    ///     .truncate(250, 300)
+    ///     .fit_over(unsafe { talc.get_allocated_span(old_heap) });
+    /// 
+    /// // truncate the heap
+    /// unsafe { talc.truncate(old_heap, new_heap); }
     /// ```
-    pub fn truncate(&mut self, new_arena: Span) {
-        let new_alloc_span = new_arena.word_align_inward();
+    pub unsafe fn truncate(&mut self, old_heap: Span, new_heap: Span) -> Span {
+        assert!(!self.bins.is_null(), "no heaps have been successfully established?");
 
-        // check that the new_arena is valid
-        assert!(self.arena.contains_span(new_arena), "the old arena must contain new_arena!");
+        let new_heap = new_heap.word_align_inward();
+
+        // check that the new_heap is valid
+        assert!(old_heap.contains_span(new_heap), "the old_heap must contain new_heap!");
         assert!(
-            new_alloc_span.contains_span(self.get_allocated_span()),
-            "the new_arena must contain the allocated span!"
+            new_heap.contains_span(unsafe { self.get_allocated_span(old_heap) }),
+            "new_heap must contain all the heap's allocated memory! see `get_allocated_span`"
         );
 
-        // if the old allocatable arena is uninitialized, just reinit
-        if self.allocatable_base == null_mut() || self.allocatable_acme == null_mut() {
-            unsafe {
-                // SAFETY: new_arena is smaller than the current arena
-                self.init(new_arena);
-            }
-            return;
+        let (old_base, old_acme) = old_heap.get_base_acme().unwrap();
+        let old_chunk_base = old_base.add(TAG_SIZE);
+        
+        // if the entire heap is decimated, just return an empty span
+        if new_heap.size() < MIN_HEAP_SIZE {
+            self.deregister(
+                old_chunk_base.cast(), 
+                bin_of_size(old_acme as usize - old_chunk_base as usize),
+            );
+
+            return Span::empty();
         }
 
-        let new_alloc_base;
-        let new_alloc_acme;
+        let (new_base, new_acme) = new_heap.get_base_acme().unwrap();
+        let new_chunk_base = new_base.add(TAG_SIZE);
+        let mut ret_base = new_base;
+        let mut ret_acme = new_acme;
 
-        // if it's decimating the entire arena, just reinit, else get the new allocatable extents
-        match new_alloc_span.get_base_acme() {
-            Some((base, acme)) if is_chunk_size(base, acme) => {
-                self.arena = new_arena;
-                new_alloc_base = base;
-                new_alloc_acme = acme;
-            }
-            _ => {
-                // this shouldn't ever be executed while we're using the heap
-                // for metadata, but this code shall remain in case of changes
-                unsafe {
-                    // SAFETY: new_arena is smaller than the current arena
-                    self.init(new_arena);
-                }
-                return;
-            }
-        }
-
-        // trim down the arena
 
         // trim the top
-        if new_alloc_acme < self.allocatable_acme {
-            let top_size = unsafe { self.allocatable_acme.sub(WORD_SIZE).cast::<usize>().read() };
-            let top_chunk = FreeChunk(self.allocatable_acme.wrapping_sub(top_size));
+        if new_acme < old_acme {
+            let top_size = unsafe { old_acme.sub(WORD_SIZE).cast::<usize>().read() };
+            let top_chunk = FreeChunk(old_acme.wrapping_sub(top_size));
 
-            unsafe {
-                self.deregister(top_chunk.node_ptr(), bin_of_size(top_size));
-            }
+            self.deregister(top_chunk.node_ptr(), bin_of_size(top_size));
 
-            if is_chunk_size(top_chunk.base(), new_alloc_acme) {
-                self.allocatable_acme = new_alloc_acme;
-
-                unsafe {
-                    self.register(top_chunk.base(), new_alloc_acme);
-                }
+            if is_chunk_size(top_chunk.base(), new_acme) {
+                self.register(top_chunk.base(), new_acme);
             } else {
-                self.allocatable_acme = top_chunk.base();
-
-                unsafe {
-                    Tag::clear_above_free(top_chunk.base().sub(TAG_SIZE).cast());
-                }
+                ret_acme = top_chunk.base();
+                Tag::clear_above_free(top_chunk.base().sub(TAG_SIZE).cast());
             }
         }
 
-        // no need to check if the entire arena vanished;
+        // no need to check if the entire heap vanished;
         // we checked against this possiblity earlier
-        // i.e. that new_alloc_span is insignificantly sized
 
-        // check for free memory at the bottom of the arena
-        if self.allocatable_base < new_alloc_base {
-            debug_assert!(self.is_base_free);
+        // trim the bottom
+        if old_base < new_base {
+            debug_assert!(old_base.cast::<Tag>().read().is_above_free());
 
-            let bottom_chunk = FreeChunk(self.allocatable_base);
+            let bottom_chunk = FreeChunk(old_chunk_base);
             let bottom_size = unsafe { bottom_chunk.size_ptr().read() };
-            let bottom_acme = bottom_chunk.base().wrapping_add(bottom_size);
+            let bottom_acme = bottom_chunk.base().add(bottom_size);
 
-            unsafe {
-                self.deregister(bottom_chunk.node_ptr(), bin_of_size(bottom_size));
-            }
+            self.deregister(bottom_chunk.node_ptr(), bin_of_size(bottom_size));
 
-            if is_chunk_size(new_alloc_base, bottom_acme) {
-                self.allocatable_base = new_alloc_base;
-
-                unsafe {
-                    self.register(new_alloc_base, bottom_acme);
-                }
+            if is_chunk_size(new_chunk_base, bottom_acme) {
+                self.register(new_chunk_base, bottom_acme);
+                Tag::write(new_base, null_mut(), true);
             } else {
-                self.allocatable_base = bottom_acme;
-                self.is_base_free = false;
+                ret_base = bottom_acme.sub(TAG_SIZE);
+                Tag::write(ret_base, null_mut(), false);
             }
         }
 
         scan_for_errors(self);
+
+        Span::new(ret_base, ret_acme)
     }
 
     /// Wrap in `Talck`, a mutex-locked wrapper struct using [`lock_api`].
@@ -914,12 +852,13 @@ impl TalckWasm {
     /// Create a [`Talck`] instance that takes control of WASM memory management.
     ///
     /// # Safety
-    /// The runtime evironment must be WASM.
+    /// The runtime evironment must be single-threaded WASM.
     ///
     /// These restrictions apply while the allocator is in use:
     /// - WASM memory should not manipulated unless allocated.
+    /// - Talc's heap resizing functions must not be used.
     pub const unsafe fn new_global() -> Self {
-        Talc::new(WasmHandler).lock_assume_single_threaded()
+        Talc::new(WasmHandler::new()).lock_assume_single_threaded()
     }
 }
 
@@ -928,12 +867,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn alignment_assumptions_hold() {
+        // claim assumes this
+        assert!(ALIGN == std::mem::align_of::<Bin>() && ALIGN == std::mem::size_of::<Bin>());
+    }
+
+    #[test]
     fn alloc_dealloc_test() {
         const ARENA_SIZE: usize = 10000000;
 
         let arena = Box::leak(vec![0u8; ARENA_SIZE].into_boxed_slice()) as *mut [_];
 
-        let mut talc = unsafe { Talc::with_arena(ErrOnOom, arena.into()) };
+        let mut talc = Talc::new(ErrOnOom);
+
+        unsafe {
+            talc.claim(arena.into()).unwrap();
+        }
+
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
 
@@ -977,50 +927,38 @@ mod tests {
     }
 
     #[test]
-    fn init_truncate_extend_test() {
+    fn claim_truncate_extend_test() {
         // not big enough to fit the metadata
-        let mut tiny_arena = [0u8; BIN_COUNT * WORD_SIZE / 2];
-        let tiny_arena_span: Span = Span::from(&mut tiny_arena);
+        let mut tiny_heap = [0u8; BIN_COUNT * WORD_SIZE / 2];
+        let tiny_heap_span: Span = Span::from(&mut tiny_heap);
 
         // big enough with plenty of extra
-        let arena = Box::leak(vec![0u8; BIN_COUNT * WORD_SIZE + 100000].into_boxed_slice());
-        let arena_span = Span::from(arena as *mut _);
+        let big_heap = Box::leak(vec![0u8; BIN_COUNT * WORD_SIZE + 100000].into_boxed_slice());
+        let big_heap_span = Span::from(big_heap as *mut _);
 
         let mut talc = Talc::new(ErrOnOom);
 
-        talc.truncate(Span::empty());
-        assert!(talc.get_arena().is_empty());
-        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
-        assert!(!talc.is_base_free);
-        assert!(talc.bins.is_null());
-        assert!(talc.availability_low == 0 && talc.availability_high == 0);
-
         unsafe {
-            talc.init(tiny_arena_span);
+            talc.claim(tiny_heap_span).unwrap_err();
         }
 
-        assert!(talc.get_arena() == tiny_arena_span);
-        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
-        assert!(!talc.is_base_free);
         assert!(talc.bins.is_null());
         assert!(talc.availability_low == 0 && talc.availability_high == 0);
 
-        talc.truncate(talc.get_arena().truncate(50, 50).fit_over(talc.get_allocated_span()));
+        let alloc_big_heap = unsafe { talc.claim(big_heap_span).unwrap() };
 
-        assert!(talc.allocatable_base.is_null() && talc.allocatable_acme.is_null());
-        assert!(!talc.is_base_free);
-        assert!(talc.bins.is_null());
-        assert!(talc.availability_low == 0 && talc.availability_high == 0);
-
-        unsafe {
-            talc.init(arena_span);
-        }
-
-        assert!(talc.get_arena() == arena_span);
-        assert!(!talc.is_base_free);
         assert!(!talc.bins.is_null());
 
-        talc.truncate(talc.get_arena().truncate(500, 500).fit_over(talc.get_allocated_span()));
+        let alloc_big_heap = unsafe {
+            talc.truncate(
+                alloc_big_heap, 
+                alloc_big_heap
+                    .truncate(500, 500)
+                    .fit_over(talc.get_allocated_span(alloc_big_heap))
+            )
+        };
+
+        let _alloc_tiny_heap = unsafe { talc.claim(tiny_heap_span).unwrap() };
 
         let allocation = unsafe {
             let allocation = talc.malloc(Layout::new::<u128>()).unwrap();
@@ -1028,12 +966,18 @@ mod tests {
             allocation
         };
 
-        talc.truncate(
-            talc.get_arena().truncate(100000, 100000).fit_over(talc.get_allocated_span()),
-        );
+
+        let alloc_big_heap = unsafe {
+            talc.truncate(
+                alloc_big_heap,
+                alloc_big_heap
+                    .truncate(100000, 100000)
+                    .fit_over(talc.get_allocated_span(alloc_big_heap))
+            )
+        };
 
         unsafe {
-            talc.extend(talc.get_arena().extend(10000, 10000).fit_within(arena_span));
+            talc.extend(alloc_big_heap, alloc_big_heap.extend(10000, 10000).fit_within(big_heap_span));
         }
 
         unsafe {
@@ -1041,7 +985,7 @@ mod tests {
         }
 
         unsafe {
-            drop(Box::from_raw(arena));
+            drop(Box::from_raw(big_heap));
         }
     }
 }

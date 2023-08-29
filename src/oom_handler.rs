@@ -4,15 +4,15 @@ use crate::{Span, Talc};
 
 pub trait OomHandler: Sized {
     /// Given the allocator and the `layout` of the allocation that caused
-    /// OOM, resize the arena and return `Ok(())` or fail by returning `Err(())`.
+    /// OOM, resize or claim and return `Ok(())` or fail by returning `Err(())`.
     ///
-    /// This function is called repeatedly if the arena was insufficiently extended.
+    /// This function is called repeatedly if the allocator is still out of memory.
     /// Therefore an infinite loop will occur if `Ok(())` is repeatedly returned
-    /// without extending the arena.
+    /// without extending or claiming new memory.
     fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()>;
 }
 
-/// An out-of-memory handler that simply returns [`Err`].
+/// Doesn't handle out-of-memory conditions, immediate allocation error occurs.
 pub struct ErrOnOom;
 
 impl OomHandler for ErrOnOom {
@@ -21,26 +21,28 @@ impl OomHandler for ErrOnOom {
     }
 }
 
-/// An out-of-memory handler that initializes the [`Talc`]'s arena
-/// to the given [`Span`] on OOM if it has not been initialized already.
+/// An out-of-memory handler that attepts to claim the
+/// memory within the given [`Span`] upon OOM. 
+/// 
+/// The contained span is then overwritten with an empty span.
 ///
-/// Otherwise, this returns [`Err`].
-pub struct InitOnOom(Span);
+/// If the span is empty or `claim` fails, allocation failure occurs.
+pub struct ClaimOnOom(Span);
 
-impl InitOnOom {
+impl ClaimOnOom {
     /// # Safety
     /// The memory within the given [`Span`] must conform to
-    /// the requirements laid out by [`Talc::init`].
+    /// the requirements laid out by [`claim`](Talc::claim).
     pub const unsafe fn new(span: Span) -> Self {
-        InitOnOom(span)
+        ClaimOnOom(span)
     }
 }
 
-impl OomHandler for InitOnOom {
+impl OomHandler for ClaimOnOom {
     fn handle_oom(talc: &mut Talc<Self>, _: Layout) -> Result<(), ()> {
-        if talc.get_arena().is_empty() && !talc.oom_handler.0.is_empty() {
+        if !talc.oom_handler.0.is_empty() {
             unsafe {
-                talc.init(talc.oom_handler.0);
+                talc.claim(talc.oom_handler.0)?;
             }
 
             talc.oom_handler.0 = Span::empty();
@@ -53,10 +55,27 @@ impl OomHandler for InitOnOom {
 }
 
 #[cfg(target_family = "wasm")]
-pub struct WasmHandler;
+pub struct WasmHandler {
+    heap_base: Option<*mut u8>,
+}
+
+#[cfg(target_family = "wasm")]
+unsafe impl Send for WasmHandler {}
+
+#[cfg(target_family = "wasm")]
+impl WasmHandler {
+    /// Create a new WASM handler.
+    /// # Safety
+    /// [`WasmHandler`] expects to have full control over WASM memory
+    /// and be running in a single-threaded environment.
+    pub const unsafe fn new() -> Self {
+        Self { heap_base: None }
+    }
+}
 
 #[cfg(target_family = "wasm")]
 impl OomHandler for WasmHandler {
+
     fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()> {
         /// WASM page size is 64KiB
         const PAGE_SIZE: usize = 1024 * 64;
@@ -72,7 +91,8 @@ impl OomHandler for WasmHandler {
 
             // if we're about to fail because of allocation failure
             // we may as well try as hard as we can to probe what's permissable
-            // which can be done with a log2(n)-ish algorithm
+            // which can be done with a log2(n)-ish algorithm 
+            // (factoring in repeated called to oom_handler)
             while delta_pages != 0 {
                 // use `core::arch::wasm` instead once it doesn't
                 // require the unstable feature wasm_simd64?
@@ -89,14 +109,35 @@ impl OomHandler for WasmHandler {
             return Err(());
         };
 
-        // taking ownership from the bottom seems to cause problems
-        // so only cover grown memory
 
-        unsafe {
-            talc.extend(Span::new(
-                talc.get_arena().get_base_acme().map_or((prev * PAGE_SIZE) as _, |(base, _)| base),
-                ((prev + delta_pages) * PAGE_SIZE) as *mut u8,
-            ));
+        let prev_heap_acme = (prev * PAGE_SIZE) as *mut u8;
+        let new_heap_acme = prev_heap_acme.wrapping_add(delta_pages * PAGE_SIZE);
+        
+        if let Some(heap_base) = talc.oom_handler.heap_base {
+            // the allocator has been initialized previously
+
+            unsafe {
+                talc.extend(
+                    Span::new(heap_base, prev_heap_acme), 
+                    Span::new(heap_base, new_heap_acme)
+                );
+            }
+
+        } else {
+            // we havent initialized the allocator heap yet
+
+            // taking ownership from the bottom seems to cause problems
+            // so only cover grown memory
+
+            let heap = unsafe {                
+                // delta_pages is always greater than zero
+                // thus one page is enough space for metadata
+                // therefore we can unwrap the result
+                talc.claim(Span::new(prev_heap_acme, new_heap_acme)).unwrap() 
+            };
+
+            // the resulting heap span will not be empty
+            talc.oom_handler.heap_base = Some(heap.get_base_acme().unwrap().0);
         }
 
         Ok(())

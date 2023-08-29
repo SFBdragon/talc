@@ -136,11 +136,11 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
     }
 
     fn remap(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize, _can_move: bool) -> *mut u8 {
-        todo!()
+        unimplemented!()
     }
 
     fn free_part(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize) -> bool {
-        todo!()
+        unimplemented!()
     }
 
     fn free(&self, _ptr: *mut u8, _size: usize) -> bool {
@@ -226,7 +226,8 @@ fn main() {
 
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
-        TALC_ALLOCATOR = talc::Talc::with_arena(talc::ErrOnOom, HEAP.as_mut_slice().into()).lock();
+        TALC_ALLOCATOR = talc::Talc::new(talc::ErrOnOom).lock();
+        TALC_ALLOCATOR.0.lock().claim(HEAP.as_mut_slice().into()).unwrap();
         &TALC_ALLOCATOR
     }
 }
@@ -250,9 +251,9 @@ fn init_linked_list_allocator() -> &'static (dyn GlobalAlloc) {
 fn init_galloc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         GALLOC_ALLOCATOR = good_memory_allocator::SpinLockedAllocator::empty();
+        GALLOC_ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE);
+        &GALLOC_ALLOCATOR
     }
-    unsafe { GALLOC_ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
-    unsafe { &GALLOC_ALLOCATOR }
 }
 
 fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {

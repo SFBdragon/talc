@@ -20,27 +20,21 @@ enum Actions {
     Dealloc { index: u8 },
     /// Realloc the ith allocation
     Realloc { index: u8, new_size: u16 },
-    // Extend the arena by the additional amount specified on the low and high side
-    Extend { low: u16, high: u16 },
-    // Truncate the arena by the additional amount specified on the low and high side
-    Truncate { low: u16, high: u16 },
-    /// Reinitialize the whole arena
-    Reinitialize { low: u32, high: u32 },
+    /// Claim a new segment of memory
+    Claim { offset: u16, size: u16, capacity: u16 },
+    // Extend the ith heap by the additional amount specified on the low and high side
+    Extend { index: u8, low: u16, high: u16 },
+    // Truncate the ith heap by the additional amount specified on the low and high side
+    Truncate { index: u8, low: u16, high: u16 },
 }
 use Actions::*;
 
-fuzz_target!(|data: (usize, usize, usize, Vec<Actions>)| {
-    let (arena_size, low_trunc, high_trunc, actions) = data;
+fuzz_target!(|actions: Vec<Actions>| {
 
-    let arena = Box::leak(vec![0u8; arena_size % (1 << 24)].into_boxed_slice());
-    arena.fill(0x11);
-    let arena = arena as *mut _;
-
-    let arena_subset = Span::from(arena).truncate(low_trunc % (1 << 24), high_trunc % (1 << 24));
-
-    let allocator = unsafe { Talc::with_arena(ErrOnOom, arena_subset).lock::<spin::Mutex<()>>() };
+    let allocator = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
     
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
+    let mut heaps: Vec<(Span, Span)> = vec![];
 
     for action in actions {
         match action {
@@ -70,7 +64,6 @@ fuzz_target!(|data: (usize, usize, usize, Vec<Actions>)| {
                 if new_size == 0 { continue; }
 
                 let (ptr, old_layout) = allocations[index as usize];
-
                 
                 //eprintln!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize);
                 
@@ -85,31 +78,59 @@ fuzz_target!(|data: (usize, usize, usize, Vec<Actions>)| {
                     }
                 }
             },
-            Extend { low, high } => {
+            Claim { offset, size, capacity } => {
+                if capacity == 0 { continue; }
+
+                let capacity = capacity as usize;
+                let mem = Span::from(Box::leak(vec![0u8; capacity].into_boxed_slice()));
+
+                let size = size as usize % capacity;
+                let offset = if size == capacity { 0 } else { offset as usize % (capacity - size) };
+
+                let heap = mem.truncate(offset, capacity - size + offset);
+                let heap = unsafe { allocator.0.lock().claim(heap) };
+
+                if let Ok(heap) = heap {
+                    heaps.push((heap, mem));
+                } else {
+                    drop(unsafe { Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()) });
+                }
+            },
+            Extend { index, low, high } => {
                 //eprintln!("EXTEND | low: {} high: {} old arena {}", low, high, allocator.0.lock().get_arena());
 
-                let new_arena = allocator.0.lock().get_arena()
-                    .extend(low as usize, high as usize)
-                    .fit_within(Span::from(arena));
+                let index = index as usize;
+                if index >= heaps.len() { continue; }
 
-                let _ = unsafe { allocator.0.lock().extend(new_arena) };
+                let (old_heap, mem) = heaps[index];
+
+                let new_heap = old_heap.extend(low as usize, high as usize).fit_within(mem);
+                let new_heap = unsafe { allocator.0.lock().extend(old_heap, new_heap) };
+
+                heaps[index].0 = new_heap;
             },
-            Truncate { low, high } => {
+            Truncate { index, low, high } => {
                 //eprintln!("TRUNCATE | low: {} high: {} old arena {}", low, high, allocator.0.lock().get_arena());
 
+                let index = index as usize;
+                if index >= heaps.len() { continue; }
+
+                let (old_heap, _) = heaps[index];
+
                 let mut talc = allocator.0.lock();
-                let new_arena = talc.get_arena()
+
+                let new_heap = old_heap
                     .truncate(low as usize, high as usize)
-                    .fit_over(talc.get_allocated_span());
+                    .fit_over(unsafe { talc.get_allocated_span(old_heap) });
 
-                talc.truncate(new_arena);
-            },
-            Reinitialize { low, high } => {
+                let new_heap = unsafe { talc.truncate(old_heap, new_heap) };
 
-                let mut talc = allocator.0.lock();
-                let new_arena_subset = Span::from(arena).truncate(low as usize % (1 << 24), high as usize % (1 << 24));
-                unsafe { talc.init(new_arena_subset); }
-                allocations.clear();
+                if new_heap.is_empty() {
+                    let (_, mem) = heaps.swap_remove(index);
+                    drop(unsafe { Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()) });
+                } else {
+                    heaps[index].0 = new_heap;
+                }
             }
         }
     }
@@ -120,5 +141,10 @@ fuzz_target!(|data: (usize, usize, usize, Vec<Actions>)| {
         unsafe { allocator.dealloc(ptr, layout); }
     }
 
-    unsafe { drop(Box::from_raw(arena)); }
+    // drop the remaining heaps
+    for (_, mem) in heaps {
+        unsafe {
+            drop(Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()));
+        }
+    }
 });

@@ -121,26 +121,19 @@ pub(crate) fn is_chunk_size(base: *mut u8, acme: *mut u8) -> bool {
 /// Determines the acme pointer and retrieves the tag, given the allocated pointer.
 #[inline]
 pub(crate) unsafe fn tag_from_alloc_ptr(ptr: *mut u8, size: usize) -> (*mut u8, Tag) {
-    #[derive(Clone, Copy)]
-    union PostAllocData {
-        tag: Tag,
-        ptr: *mut Tag,
-    }
+    
+    let post_alloc_ptr = align_up(ptr.add(size));
+    // we're either reading a tag_ptr or a Tag with the base pointer + metadata in the low bits
+    let base_or_tag_ptr = post_alloc_ptr.cast::<*mut u8>().read();
 
-    let mut post_alloc_ptr = align_up(ptr.add(size));
-
-    let data = post_alloc_ptr.cast::<PostAllocData>().read();
-
-    // if the chunk_ptr doesn't point to an allocate-flagged tag
-    // it points to a pointer to the actual tag
-    let tag = if !data.tag.is_allocated() {
-        post_alloc_ptr = data.ptr.cast();
-        *data.ptr
+    // if the pointer is greater, it's a tag_ptr
+    // if it's less, it's a Tag with the base pointer
+    // the low bits of metadata don't effect the inequality
+    if base_or_tag_ptr > post_alloc_ptr {
+        (base_or_tag_ptr, base_or_tag_ptr.cast::<Tag>().read())
     } else {
-        data.tag
-    };
-
-    (post_alloc_ptr, tag)
+        (post_alloc_ptr, Tag(base_or_tag_ptr))
+    }
 }
 
 /// Pointer wrapper to a free chunk. Provides convenience methods
@@ -169,39 +162,16 @@ impl FreeChunk {
     }
 }
 
-/// An abstraction over the unknown state of the chunk below.
-/* pub(crate) enum BelowChunk {
-    Free(FreeChunk),
-    Allocated(*mut Tag),
-}
-
-/// Distinguish the nature of the chunk below.
-pub(crate) unsafe fn identify_below(chunk_base: *mut u8) -> BelowChunk {
-    let below_tag = chunk_base.sub(TAG_SIZE).cast::<Tag>();
-    if (*below_tag).is_allocated() {
-        BelowChunk::Allocated(below_tag)
-    } else {
-        BelowChunk::Free(FreeChunk(chunk_base))
-    }
-} */
-
 #[cfg(not(debug_assertions))]
 pub(crate) fn scan_for_errors<O: OomHandler>(_: &mut Talc<O>) {}
 
 #[cfg(debug_assertions)]
 /// Debugging function for checking various assumptions.
 pub(crate) fn scan_for_errors<O: OomHandler>(talc: &mut Talc<O>) {
-    assert!(talc.allocatable_acme >= talc.allocatable_base);
-    let alloc_span = Span::new(talc.allocatable_base as _, talc.allocatable_acme as _);
-    assert!(talc.arena.contains_span(alloc_span));
-
     #[cfg(any(test, fuzzing))]
     let mut vec = std::vec::Vec::<Span>::new();
 
     if talc.bins != null_mut() {
-        assert!(talc.allocatable_base != null_mut());
-        assert!(talc.allocatable_acme != null_mut());
-
         for b in 0..BIN_COUNT {
             let mut any = false;
             unsafe {
@@ -219,16 +189,10 @@ pub(crate) fn scan_for_errors<O: OomHandler>(talc: &mut Talc<O>) {
                     let acme_ptr = free_chunk.base().add(size);
                     let low_size = acme_ptr.sub(WORD_SIZE).cast::<usize>().read();
                     assert!(low_size == size);
-                    assert!(acme_ptr <= talc.allocatable_acme);
 
-                    if base_ptr > talc.allocatable_base {
-                        let lower_tag = *base_ptr.sub(TAG_SIZE).cast::<Tag>();
-                        assert!(lower_tag.is_allocated());
-                        assert!(lower_tag.is_above_free());
-                    } else {
-                        assert!(base_ptr == talc.allocatable_base);
-                        assert!(talc.is_base_free);
-                    }
+                    let lower_tag = base_ptr.sub(TAG_SIZE).cast::<Tag>().read();
+                    assert!(lower_tag.is_allocated());
+                    assert!(lower_tag.is_above_free());
 
                     #[cfg(any(test, fuzzing))]
                     {
@@ -251,8 +215,8 @@ pub(crate) fn scan_for_errors<O: OomHandler>(talc: &mut Talc<O>) {
             }
         }
     } else {
-        assert!(talc.allocatable_base == null_mut());
-        assert!(talc.allocatable_acme == null_mut());
+        assert!(talc.availability_low == 0);
+        assert!(talc.availability_high == 0);
     }
 }
 
