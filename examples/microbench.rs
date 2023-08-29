@@ -91,11 +91,11 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
     }
 
     fn remap(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize, _can_move: bool) -> *mut u8 {
-        todo!()
+        unimplemented!()
     }
 
     fn free_part(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize) -> bool {
-        todo!()
+        unimplemented!()
     }
 
     fn free(&self, _ptr: *mut u8, _size: usize) -> bool {
@@ -135,9 +135,8 @@ fn main() {
     };
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
-    let talc = unsafe {
-        Talc::with_arena(ErrOnOom, HEAP_MEMORY.as_mut_slice().into()).lock_assume_single_threaded()
-    };
+    let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+    unsafe { talc.0.lock().claim(HEAP_MEMORY.as_mut_slice().into()).unwrap(); }
     let bench_talc = benchmark_allocator(&talc.allocator());
 
     let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)));
@@ -188,7 +187,6 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
 
     let mut any_alloc_failed = false;
 
-    // run for 10s
     let bench_begin_time = Instant::now();
     while bench_begin_time.elapsed().as_secs_f64() <= BENCH_DURATION {
         let size = fastrand::usize((1 << 6)..(1 << 16));

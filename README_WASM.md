@@ -17,9 +17,9 @@ Rough measurements of allocator size for relative comparison using `wasm_size.sh
 
 | Allocator | Size (bytes) - lower is better |
 | --------- | ----- |
-| lol_alloc | 19181 |
-| talc      | 22885 |
-| dlmalloc  | 24813 |
+| lol_alloc | 18737 |
+| talc      | 22445 |
+| dlmalloc  | 24339 |
 
 ## WASM Benchmarks
 

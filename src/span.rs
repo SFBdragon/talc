@@ -9,9 +9,8 @@ use crate::{align_down, align_up, ALIGN};
 /// # Empty Spans
 /// Note that where `base >= acme`, the [`Span`] is considered empty, in which case
 /// the specific values of `base` and `acme` are considered meaningless.
-/// * Most functions will no-op or return `None` for empty spans (check the docs).
 /// * Empty spans contain nothing and overlap with nothing.
-/// * Empty spans are contained by all sized spans.
+/// * Empty spans are contained by any sized span.
 #[derive(Clone, Copy)]
 pub struct Span {
     base: *mut u8,

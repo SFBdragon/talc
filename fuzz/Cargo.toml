@@ -25,13 +25,7 @@ members = ["."]
 debug = 1
 
 [[bin]]
-name = "fuzz_arena"
-path = "fuzz_targets/fuzz_arena.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_bits"
-path = "fuzz_targets/fuzz_bits.rs"
+name = "fuzz_talc"
+path = "fuzz_targets/fuzz_talc.rs"
 test = false
 doc = false

@@ -6,8 +6,8 @@ use talc::*;
 
 static mut ARENA: [u8; 10000] = [0; 10000];
 #[global_allocator]
-static ALLOCATOR: Talck<spin::Mutex<()>, InitOnOom> = Talc::new(unsafe {
-    InitOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
+static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
+    ClaimOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
 })
 .lock();
 
