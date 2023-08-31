@@ -14,8 +14,8 @@ Is your project targeting WASM? Check out [usage and comparisons here](./README_
 - [General Usage](#general-usage)
 - [Advanced Usage](#advanced-usage)
 - [Conditional Features](#conditional-features)
-- [Changelog](#changelog)
 - [Support Me](#support-me)
+- [Changelog](#changelog)
 
 ## Setup
 
@@ -37,6 +37,7 @@ fn main () {
 
 Or as a global allocator:
 ```rust
+#![feature(const_mut_refs)]
 use talc::*;
 
 static mut ARENA: [u8; 10000] = [0; 10000];
@@ -45,7 +46,7 @@ static mut ARENA: [u8; 10000] = [0; 10000];
 static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
     // if we're in a hosted environment, the Rust runtime may allocate before
     // main() is called, so we need to initialize the arena automatically
-    ClaimOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
+    ClaimOnOom::new(Span::from_array(&mut ARENA))
 }).lock();
 
 fn main() {
@@ -68,22 +69,24 @@ The number of successful allocations, deallocations, and reallocations within th
 
 ![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
 
+Note that these results are sensitive to the allocation sizes, ratio of allocations to deallocations, and other such factors.
+
 #### Heap Efficiency Benchmark Results
 
 The average occupied capacity upon first allocation failure when randomly allocating/deallocating/reallocating.
 
 |             Allocator | Average Random Actions Heap Efficiency |
 | --------------------- | -------------------------------------- |
-|              dlmalloc |                                 97.34% |
-|                  talc |                                 97.12% |
-| linked_list_allocator |                                 96.54% |
-|                galloc |                                 94.47% |
-|           buddy_alloc |                                 57.70% |
+|              dlmalloc |                                 99.07% |
+|                  talc |                                 98.87% |
+| linked_list_allocator |                                 98.28% |
+|                galloc |                                 95.86% |
+|           buddy_alloc |                                 58.75% |
 
 
 ### Microbenchmarks (based on simple_chunk_allocator's benchmark)
 
-Pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are seperated out for seperate consideration. Actual number of pre-fail allocations can be quite noisy due to random allocation sizes.
+Pre-fail allocations account for all allocations up until the first allocation failure, at which point heap pressure has become a major factor. Some allocators deal with heap pressure better than others, and many applications aren't concerned with such cases (where allocation failure results in a panic), hence they are separated out for separate consideration. Actual number of pre-fail allocations can be quite noisy due to random allocation sizes.
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
@@ -129,7 +132,7 @@ Pre-Fail Allocations |       42     819    2310    4095    6426    9198   12810 
 
 Q: Why does Buddy Allocator perform much better here than in the random actions benchmark? 
 
-A: The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of about 100 to 10000 bytes puts Talc and Buddy Allocator roughly on par in random actions, but this is just a coincidence.)
+A: The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of 1 to 20000 bytes leads to the results above in Random Actions.)
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1).
@@ -151,7 +154,7 @@ Here is the list of `Talc` methods:
 * Information:
     * `get_allocated_span` - returns the minimum span containing all allocated memory
 * Management:
-    * `claim` - claim memory, establishing a new heap
+    * `claim` - claim memory to establishing a new heap
     * `extend` - extend the extent of a heap
     * `truncate` - reduce the extent of a heap
     * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
@@ -187,7 +190,7 @@ impl OomHandler for MyOomHandler {
         // or we can extend by any amount (increasing powers of two has good time complexity)
         // creating another heap would also work, but this isn't covered here
     
-        // this function will be repeatly called until we free up enough memory or 
+        // this function will be repeatedly called until we free up enough memory or 
         // we return Err(()) causing allocation failure. Be careful to avoid conditions where 
         // the heap isn't sufficiently extended indefinitely, causing an infinite loop
     
@@ -219,7 +222,18 @@ impl OomHandler for MyOomHandler {
 * `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
 * `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
 
+## Support Me
+If you find the project useful, please consider donating via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
+
+On the other hand, I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
+
 ## Changelog
+
+#### v3.0.1
+- Improved documentation
+- Improved and updated benchmarks
+    - Increased the range of allocation sizes on Random Actions. (sorry Buddy Allocator!)
+    - Increased the number of iterations the Heap Efficiency benchmark does to produce more accurate and stable values.
 
 #### v3.0.0
 - Added support for multiple discontinuous heaps! This required some major API changes
@@ -227,7 +241,7 @@ impl OomHandler for MyOomHandler {
     - `init` has been replaced with `claim`
     - `claim`, `extend` and `truncate` now return the new heap extent 
     - `InitOnOom` is now `ClaimOnOom`. 
-    - All of the above now have different behaviour and documentation.
+    - All of the above now have different behavior and documentation.
 - Each heap now has a fixed overhead of one `usize` at the bottom.
 
 To migrate from v2 to v3, keep in mind that you must keep track of the heaps if you want to resize them, by storing the returned `Span`s. Read [`claim`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.claim), [`extend`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.extend) and [`truncate`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.truncate)'s documentation for all the details.
@@ -263,8 +277,3 @@ To migrate from v2 to v3, keep in mind that you must keep track of the heaps if 
     - Span now uses pointers exclusively and carries provenance.
 - Updated the benchmarks in a number of ways, notably adding `buddy_alloc` and removing `simple_chunk_allocator`.
 
-
-## Support Me
-I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
-
-On the other hand, if you find the project useful, please consider donating via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!

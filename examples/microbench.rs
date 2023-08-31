@@ -136,7 +136,7 @@ fn main() {
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
     let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-    unsafe { talc.0.lock().claim(HEAP_MEMORY.as_mut_slice().into()).unwrap(); }
+    unsafe { talc.0.lock().claim(HEAP_MEMORY.as_mut_slice().into()) }.unwrap();
     let bench_talc = benchmark_allocator(&talc.allocator());
 
     let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)));

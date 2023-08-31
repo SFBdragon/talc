@@ -11,7 +11,8 @@ use core::alloc::AllocError;
 
 /// Talc lock: wrapper struct containing a mutex-locked [`Talc`].
 ///
-/// In order to access the [`Allocator`](core::alloc::Allocator) API, call [`Talck::allocator`].
+/// In order to access the [`Allocator`](core::alloc::Allocator) 
+/// API, call [`allocator`](Talc::allocator).
 ///
 /// # Example
 /// ```rust

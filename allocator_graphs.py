@@ -44,7 +44,7 @@ def get_benchmark_data(filename):
     return allocators
 
 def plot_benchmark(filename):
-    xaxis = [i/10 for i in range(1, 12+1)]
+    xaxis = [i/10 for i in range(2, 10+1, 2)]
     data = get_benchmark_data(filename)
     yvalues = []
     for k,v in data.items():
@@ -59,8 +59,8 @@ def plot_benchmark(filename):
     full_diff_str = ''
     
     k1 = 'talc'
-    for k2 in list(data.keys())[1:]:
-        v1 = data[k1]
+    v1 = data.pop(k1)
+    for k2 in data.keys():
         v2 = data[k2]
         diff = round(difference_average(v1, v2), 2)    
         full_diff_str += f'{k1} - {k2}: {diff}%\n'

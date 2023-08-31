@@ -21,9 +21,9 @@ impl OomHandler for ErrOnOom {
     }
 }
 
-/// An out-of-memory handler that attepts to claim the
-/// memory within the given [`Span`] upon OOM. 
-/// 
+/// An out-of-memory handler that attempts to claim the
+/// memory within the given [`Span`] upon OOM.
+///
 /// The contained span is then overwritten with an empty span.
 ///
 /// If the span is empty or `claim` fails, allocation failure occurs.
@@ -75,7 +75,6 @@ impl WasmHandler {
 
 #[cfg(target_family = "wasm")]
 impl OomHandler for WasmHandler {
-
     fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()> {
         /// WASM page size is 64KiB
         const PAGE_SIZE: usize = 1024 * 64;
@@ -91,7 +90,7 @@ impl OomHandler for WasmHandler {
 
             // if we're about to fail because of allocation failure
             // we may as well try as hard as we can to probe what's permissable
-            // which can be done with a log2(n)-ish algorithm 
+            // which can be done with a log2(n)-ish algorithm
             // (factoring in repeated called to oom_handler)
             while delta_pages != 0 {
                 // use `core::arch::wasm` instead once it doesn't
@@ -109,31 +108,29 @@ impl OomHandler for WasmHandler {
             return Err(());
         };
 
-
         let prev_heap_acme = (prev * PAGE_SIZE) as *mut u8;
         let new_heap_acme = prev_heap_acme.wrapping_add(delta_pages * PAGE_SIZE);
-        
+
         if let Some(heap_base) = talc.oom_handler.heap_base {
             // the allocator has been initialized previously
 
             unsafe {
                 talc.extend(
-                    Span::new(heap_base, prev_heap_acme), 
-                    Span::new(heap_base, new_heap_acme)
+                    Span::new(heap_base, prev_heap_acme),
+                    Span::new(heap_base, new_heap_acme),
                 );
             }
-
         } else {
-            // we havent initialized the allocator heap yet
+            // we haven't initialized the allocator heap yet
 
             // taking ownership from the bottom seems to cause problems
             // so only cover grown memory
 
-            let heap = unsafe {                
+            let heap = unsafe {
                 // delta_pages is always greater than zero
                 // thus one page is enough space for metadata
                 // therefore we can unwrap the result
-                talc.claim(Span::new(prev_heap_acme, new_heap_acme)).unwrap() 
+                talc.claim(Span::new(prev_heap_acme, new_heap_acme)).unwrap()
             };
 
             // the resulting heap span will not be empty

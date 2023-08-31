@@ -121,7 +121,6 @@ pub(crate) fn is_chunk_size(base: *mut u8, acme: *mut u8) -> bool {
 /// Determines the acme pointer and retrieves the tag, given the allocated pointer.
 #[inline]
 pub(crate) unsafe fn tag_from_alloc_ptr(ptr: *mut u8, size: usize) -> (*mut u8, Tag) {
-    
     let post_alloc_ptr = align_up(ptr.add(size));
     // we're either reading a tag_ptr or a Tag with the base pointer + metadata in the low bits
     let base_or_tag_ptr = post_alloc_ptr.cast::<*mut u8>().read();
@@ -163,15 +162,15 @@ impl FreeChunk {
 }
 
 #[cfg(not(debug_assertions))]
-pub(crate) fn scan_for_errors<O: OomHandler>(_: &mut Talc<O>) {}
+pub(crate) fn scan_for_errors<O: OomHandler>(_: &Talc<O>) {}
 
 #[cfg(debug_assertions)]
 /// Debugging function for checking various assumptions.
-pub(crate) fn scan_for_errors<O: OomHandler>(talc: &mut Talc<O>) {
+pub(crate) fn scan_for_errors<O: OomHandler>(talc: &Talc<O>) {
     #[cfg(any(test, fuzzing))]
     let mut vec = std::vec::Vec::<Span>::new();
 
-    if talc.bins != null_mut() {
+    if !talc.bins.is_null() {
         for b in 0..BIN_COUNT {
             let mut any = false;
             unsafe {

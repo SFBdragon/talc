@@ -20,7 +20,7 @@ mod utils;
 
 #[cfg(all(target_family = "wasm", feature = "lock_api"))]
 pub use oom_handler::WasmHandler;
-pub use oom_handler::{ErrOnOom, ClaimOnOom, OomHandler};
+pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
 pub use span::Span;
 #[cfg(all(feature = "lock_api", feature = "allocator"))]
 pub use talck::TalckRef;
@@ -71,6 +71,9 @@ type Bin = Option<NonNull<LlistNode>>;
 /// 3. Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
 /// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
 pub struct Talc<O: OomHandler> {
+    /// The user-specified OOM handler. 
+    /// 
+    /// Its state is entirely maintained by the user.
     pub oom_handler: O,
 
     /// The low bits of the availability flags.
@@ -236,7 +239,6 @@ impl<O: OomHandler> Talc<O> {
         &mut self,
         layout: Layout,
     ) -> Option<(*mut u8, *mut u8, *mut u8)> {
-
         let required_chunk_size = Self::required_chunk_size(layout.size());
 
         // if there are no valid heaps, availability is zero, and next_available_bin returns None
@@ -260,7 +262,7 @@ impl<O: OomHandler> Talc<O> {
                 bin = self.next_available_bin(bin + 1)?;
             }
         } else {
-            // a larger than word-size alignement is demanded
+            // a larger than word-size alignment is demanded
             // therefore each chunk is manually checked to be sufficient accordingly
             let align_mask = layout.align() - 1;
             let required_size = layout.size() + TAG_SIZE;
@@ -320,7 +322,6 @@ impl<O: OomHandler> Talc<O> {
     /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
-
         let (tag_ptr, tag) = tag_from_alloc_ptr(ptr.as_ptr(), layout.size());
         let mut chunk_base = tag.base_ptr();
         let mut chunk_acme = tag_ptr.add(TAG_SIZE);
@@ -440,7 +441,7 @@ impl<O: OomHandler> Talc<O> {
 
     /// Shrink a previously allocated/reallocated region of memory to `new_size`.
     ///
-    /// This function is infallibe given valid inputs, and the reallocation will always be
+    /// This function is infallible given valid inputs, and the reallocation will always be
     /// done in-place, maintaining the validity of the pointer.
     ///
     /// # Safety
@@ -493,13 +494,7 @@ impl<O: OomHandler> Talc<O> {
     ///
     /// If you don't want to handle OOM, use [`ErrOnOom`].
     pub const fn new(oom_handler: O) -> Self {
-        Self {
-            oom_handler,
-
-            availability_low: 0,
-            availability_high: 0,
-            bins: null_mut(),
-        }
+        Self { oom_handler, availability_low: 0, availability_high: 0, bins: null_mut() }
     }
 
     /// Returns the minimum [`Span`] containing this heap's allocated memory.
@@ -530,21 +525,21 @@ impl<O: OomHandler> Talc<O> {
     }
 
     /// Attempt to initialize a new heap for the allocator.
-    /// 
+    ///
     /// Note:
     /// * Each heap reserves a `usize` at the bottom as fixed overhead.
     /// * Metadata will be placed into the bottom of the first successfully established heap.
     /// It is currently ~1KiB on 64-bit systems (less on 32-bit). This is subject to change.
-    /// 
+    ///
     /// # Return Values
     /// The resulting [`Span`] is the actual heap extent, and may
     /// be slightly smaller than requested. Use this to resize the heap.
     /// Any memory outside the claimed heap is free to use.
-    /// 
-    /// Returns [`Err`] where 
-    /// * allocator metadata not yet esablished, and there's insufficient memory to do so.
-    /// * allocator metadata is established, but the heap is too small 
-    /// (less than ~ `4 * usize` for now).
+    ///
+    /// Returns [`Err`] where
+    /// * allocator metadata is not yet established, and there's insufficient memory to do so.
+    /// * allocator metadata is established, but the heap is too small
+    /// (less than around `4 * usize` for now).
     ///
     /// # Safety
     /// - The memory within the `memory` must be valid for reads and writes,
@@ -567,7 +562,6 @@ impl<O: OomHandler> Talc<O> {
 
         // if this fails, there's no space to work with
         if let Some((base, acme)) = aligned_heap.get_base_acme() {
-
             // the allocator has already successfully allocated its metadata
             if !self.bins.is_null() {
                 // check if there's enough space to establish a free chunk
@@ -580,7 +574,7 @@ impl<O: OomHandler> Talc<O> {
                     self.register(chunk_base, acme);
 
                     scan_for_errors(self);
-    
+
                     return Ok(aligned_heap);
                 }
             } else {
@@ -592,15 +586,15 @@ impl<O: OomHandler> Talc<O> {
                     let metadata_ptr = base.add(TAG_SIZE);
                     // align the tag pointer against the top of the metadata
                     let post_metadata_ptr = metadata_ptr.add(BIN_ARRAY_SIZE);
-    
+
                     // initialize the bins to None
                     for i in 0..BIN_COUNT {
                         let bin_ptr = metadata_ptr.cast::<Bin>().add(i);
                         bin_ptr.write(None);
                     }
-    
+
                     self.bins = metadata_ptr.cast::<Bin>();
-    
+
                     // check whether there's enough room on top to free
                     // add_chunk_to_record only depends on self.bins
                     let metadata_chunk_acme = post_metadata_ptr.add(TAG_SIZE);
@@ -612,9 +606,9 @@ impl<O: OomHandler> Talc<O> {
                         post_metadata_ptr.cast::<*mut u8>().write(tag_ptr);
                         Tag::write(tag_ptr, base, false);
                     }
-    
+
                     scan_for_errors(self);
-    
+
                     return Ok(aligned_heap);
                 }
             }
@@ -647,10 +641,10 @@ impl<O: OomHandler> Talc<O> {
     /// let mut heap = [0u8; 2000];
     /// let old_heap = Span::from(&mut heap[300..1700]);
     /// let old_heap = unsafe { talc.claim(old_heap).unwrap() };
-    /// 
-    /// // compute the new heap span as an extention of the old span
+    ///
+    /// // compute the new heap span as an extension of the old span
     /// let new_heap = old_heap.extend(250, 500).fit_within((&mut heap[..]).into());
-    /// 
+    ///
     /// // SAFETY: be sure not to extend into memory we can't use
     /// let new_heap = unsafe { talc.extend(old_heap, new_heap) };
     /// ```
@@ -704,16 +698,16 @@ impl<O: OomHandler> Talc<O> {
 
     /// Reduce the extent of a heap.
     /// The new extent must encompass all current allocations. See below.
-    /// 
+    ///
     /// The resultant heap is always equal to or slightly smaller than `new_heap`.
-    /// 
+    ///
     /// Truncating to an empty [`Span`] is valid for heaps where no memory is
     /// allocated within it, where [`get_allocated_span`](Talc::get_allocated_span) is empty.
     /// In all cases where the return value is empty, the heap no longer exists.
     /// You may do what you like with the memory. The empty span should not be
-    /// used as input to [`truncate`](Talc::truncate), [`extend`](Talc::extend), 
+    /// used as input to [`truncate`](Talc::truncate), [`extend`](Talc::extend),
     /// or [`get_allocated_span`](Talc::get_allocated_span).
-    /// 
+    ///
     /// # Safety
     /// `old_heap` must be the return value of a heap-manipulation function
     /// of this allocator instance.
@@ -731,15 +725,15 @@ impl<O: OomHandler> Talc<O> {
     /// let mut heap = [0u8; 2000];
     /// let old_heap = Span::from(&mut heap[300..1700]);
     /// let old_heap = unsafe { talc.claim(old_heap).unwrap() };
-    /// 
+    ///
     /// // note: lock a `Talck` otherwise a race condition may occur
     /// // in between Talc::get_allocated_span and Talc::truncate
-    /// 
+    ///
     /// // compute the new heap span as a truncation of the old span
     /// let new_heap = old_heap
     ///     .truncate(250, 300)
     ///     .fit_over(unsafe { talc.get_allocated_span(old_heap) });
-    /// 
+    ///
     /// // truncate the heap
     /// unsafe { talc.truncate(old_heap, new_heap); }
     /// ```
@@ -757,11 +751,11 @@ impl<O: OomHandler> Talc<O> {
 
         let (old_base, old_acme) = old_heap.get_base_acme().unwrap();
         let old_chunk_base = old_base.add(TAG_SIZE);
-        
+
         // if the entire heap is decimated, just return an empty span
         if new_heap.size() < MIN_HEAP_SIZE {
             self.deregister(
-                old_chunk_base.cast(), 
+                old_chunk_base.cast(),
                 bin_of_size(old_acme as usize - old_chunk_base as usize),
             );
 
@@ -772,7 +766,6 @@ impl<O: OomHandler> Talc<O> {
         let new_chunk_base = new_base.add(TAG_SIZE);
         let mut ret_base = new_base;
         let mut ret_acme = new_acme;
-
 
         // trim the top
         if new_acme < old_acme {
@@ -790,7 +783,7 @@ impl<O: OomHandler> Talc<O> {
         }
 
         // no need to check if the entire heap vanished;
-        // we checked against this possiblity earlier
+        // we checked against this possibility earlier
 
         // trim the bottom
         if old_base < new_base {
@@ -838,6 +831,13 @@ impl<O: OomHandler> Talc<O> {
         Talck(lock_api::Mutex::new(self))
     }
 
+    /// Wrap in a `Talck` without a synchronizing lock. 
+    /// 
+    /// **Not generally recommended.** Use [`lock`](Talc::lock) with a 
+    /// spin lock instead if you're unsure.
+    /// # Safety
+    /// You must maintain exclusivity of access to the lock, whether via platform
+    /// specific constrains, application thread usage, or some form of synchronization.
     #[cfg(feature = "lock_api")]
     pub const unsafe fn lock_assume_single_threaded(self) -> Talck<talck::AssumeUnlockable, O> {
         Talck(lock_api::Mutex::new(self))
@@ -852,7 +852,7 @@ impl TalckWasm {
     /// Create a [`Talck`] instance that takes control of WASM memory management.
     ///
     /// # Safety
-    /// The runtime evironment must be single-threaded WASM.
+    /// The runtime environment must be single-threaded WASM.
     ///
     /// These restrictions apply while the allocator is in use:
     /// - WASM memory should not manipulated unless allocated.
@@ -883,7 +883,6 @@ mod tests {
         unsafe {
             talc.claim(arena.into()).unwrap();
         }
-
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
 
@@ -951,10 +950,8 @@ mod tests {
 
         let alloc_big_heap = unsafe {
             talc.truncate(
-                alloc_big_heap, 
-                alloc_big_heap
-                    .truncate(500, 500)
-                    .fit_over(talc.get_allocated_span(alloc_big_heap))
+                alloc_big_heap,
+                alloc_big_heap.truncate(500, 500).fit_over(talc.get_allocated_span(alloc_big_heap)),
             )
         };
 
@@ -966,18 +963,20 @@ mod tests {
             allocation
         };
 
-
         let alloc_big_heap = unsafe {
             talc.truncate(
                 alloc_big_heap,
                 alloc_big_heap
                     .truncate(100000, 100000)
-                    .fit_over(talc.get_allocated_span(alloc_big_heap))
+                    .fit_over(talc.get_allocated_span(alloc_big_heap)),
             )
         };
 
         unsafe {
-            talc.extend(alloc_big_heap, alloc_big_heap.extend(10000, 10000).fit_within(big_heap_span));
+            talc.extend(
+                alloc_big_heap,
+                alloc_big_heap.extend(10000, 10000).fit_within(big_heap_span),
+            );
         }
 
         unsafe {

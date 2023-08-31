@@ -1,3 +1,4 @@
+#![feature(const_mut_refs)]
 use talc::*;
 
 // note: miri thinks this violates stacked borrows.
@@ -5,11 +6,10 @@ use talc::*;
 // use the allocator API if you want nice things.
 
 static mut ARENA: [u8; 10000] = [0; 10000];
+
 #[global_allocator]
-static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
-    ClaimOnOom::new(Span::from_slice(ARENA.as_slice() as *const [u8] as *mut [u8]))
-})
-.lock();
+static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> =
+    Talc::new(unsafe { ClaimOnOom::new(Span::from_array(&mut ARENA)) }).lock();
 
 fn main() {
     let mut vec = Vec::with_capacity(100);

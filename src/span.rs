@@ -271,17 +271,15 @@ impl Span {
     pub fn truncate(self, low: usize, high: usize) -> Span {
         if self.is_empty() {
             self
+        } else if (self.base as usize).checked_add(low).is_none()
+            || (self.acme as usize).checked_sub(high).is_none()
+        {
+            Span::empty()
         } else {
-            if (self.base as usize).checked_add(low).is_none()
-                || (self.acme as usize).checked_sub(high).is_none()
-            {
-                Span::empty()
-            } else {
-                Self {
-                    // if either boundary saturates, the span will be empty thereafter, as expected
-                    base: self.base.wrapping_add(low),
-                    acme: self.acme.wrapping_sub(high),
-                }
+            Self {
+                // if either boundary saturates, the span will be empty thereafter, as expected
+                base: self.base.wrapping_add(low),
+                acme: self.acme.wrapping_sub(high),
             }
         }
     }

@@ -29,7 +29,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    time::{Duration, Instant},
+    time::{Duration, Instant}, io::Write,
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
@@ -37,11 +37,14 @@ use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 const HEAP_SIZE: usize = 1 << 27;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
-const TIME_STEPS_AMOUNT: usize = 12;
-const TIME_STEP_MILLIS: usize = 100;
+const TIME_STEPS_AMOUNT: usize = 5;
+const TIME_STEP_MILLIS: usize = 200;
 
 const MIN_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS;
 const MAX_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS * TIME_STEPS_AMOUNT;
+
+const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
+const TRIALS_AMOUNT: usize = 15;
 
 struct NamedBenchmark {
     benchmark_fn: fn(Duration, &dyn GlobalAlloc) -> usize,
@@ -161,9 +164,6 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
 }
 
 fn main() {
-    const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
-    const TRIALS_AMOUNT: usize = 5;
-
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
@@ -171,13 +171,18 @@ fn main() {
 
     let allocators = allocator_list!(
         init_talc,
-        /* init_prev_talc, */ init_dlmalloc,
+        init_prev_talc, 
+        init_dlmalloc,
         init_buddy_alloc,
         init_galloc,
         init_linked_list_allocator
     );
 
-    /* {
+    print!("Run heap efficiency microbenchmarks? y/N: ");
+    std::io::stdout().flush().unwrap();
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
+    if input.trim() == "y" {
         // heap efficiency benchmark
 
 
@@ -189,7 +194,7 @@ fn main() {
 
             println!("|{:>22} | {:>38} |", allocator.name, format!("{:2.2}%", efficiency));
         }
-    } */
+    }
 
     for benchmark in benchmarks {
         let mut csv = String::new();
@@ -274,7 +279,9 @@ fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
 fn init_dlmalloc() -> &'static dyn GlobalAlloc {
     unsafe {
         DLMALLOC_ALLOCATOR = DlMallocator(lock_api::Mutex::new(
-            dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
+            dlmalloc::Dlmalloc::new_with_allocator(
+                DlmallocArena(spin::Mutex::new(false))
+            )
         ));
         &DLMALLOC_ALLOCATOR
     }
@@ -282,7 +289,7 @@ fn init_dlmalloc() -> &'static dyn GlobalAlloc {
 
 pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize {
     let mut score = 0;
-    let mut v = Vec::with_capacity(10000);
+    let mut v = Vec::with_capacity(100000);
 
     let rng = fastrand::Rng::new();
 
@@ -293,7 +300,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize 
 
             match action {
                 0 => {
-                    let size = rng.usize(100..=1000);
+                    let size = rng.usize(1..=2000);
                     let alignment = 8 << rng.u16(..).trailing_zeros() / 2;
                     if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
                         v.push(allocation);
@@ -311,7 +318,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize 
                     if !v.is_empty() {
                         let index = rng.usize(0..v.len());
                         if let Some(random_allocation) = v.get_mut(index) {
-                            let size = rng.usize(100..=10000);
+                            let size = rng.usize(1..=20000);
                             random_allocation.realloc(size);
                         }
                         score += 1;
@@ -330,13 +337,13 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
     let mut used = 0;
     let mut total = HEAP_SIZE;
 
-    for _ in 0..50 {
+    for _ in 0..500 {
         loop {
             let action = fastrand::usize(0..10);
 
             match action {
                 0..=4 => {
-                    let size = fastrand::usize(1000..=10000);
+                    let size = fastrand::usize(1..=20000);
                     let align = 8 << fastrand::u16(..).trailing_zeros() / 2;
 
                     if let Some(allocation) = AllocationWrapper::new(size, align, allocator) {
@@ -362,7 +369,7 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
 
                         if let Some(random_allocation) = v.get_mut(index) {
                             //let old_size = random_allocation.layout.size();
-                            let new_size = fastrand::usize(1000..=100000);
+                            let new_size = fastrand::usize(1..=200000);
                             random_allocation.realloc(new_size);
                             //used = used + new_size - old_size;
                         } else {
