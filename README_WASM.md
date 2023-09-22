@@ -8,7 +8,7 @@ If you'd like to see comparisons to other allocators in this space, consider cre
 Set the global allocator in your project after running `cargo add talc` as follows:
 
 ```rust
-#[global_allocator] struct TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+#[global_allocator] static TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 ```
 
 Make sure that you have the `lock_api` feature enabled! 
