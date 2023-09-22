@@ -1,13 +1,8 @@
 #![doc = include_str!("../README.md")]
-#![feature(offset_of)]
-#![feature(pointer_is_aligned)]
-#![feature(alloc_layout_extra)]
-#![feature(slice_ptr_get)]
-#![feature(slice_ptr_len)]
-#![feature(const_slice_ptr_len)]
-#![feature(const_slice_from_raw_parts_mut)]
 #![cfg_attr(not(any(test, fuzzing)), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
+#![cfg_attr(feature = "nightly_api", feature(slice_ptr_len))]
+#![cfg_attr(feature = "nightly_api", feature(const_slice_ptr_len))]
 
 #[cfg(feature = "lock_api")]
 mod talck;
@@ -844,10 +839,10 @@ impl<O: OomHandler> Talc<O> {
     }
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 pub type TalckWasm = Talck<AssumeUnlockable, WasmHandler>;
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 impl TalckWasm {
     /// Create a [`Talck`] instance that takes control of WASM memory management.
     ///
@@ -881,7 +876,7 @@ mod tests {
         let mut talc = Talc::new(ErrOnOom);
 
         unsafe {
-            talc.claim(arena.into()).unwrap();
+            talc.claim(arena.as_mut().unwrap().into()).unwrap();
         }
 
         let layout = Layout::from_size_align(1243, 8).unwrap();
@@ -933,7 +928,7 @@ mod tests {
 
         // big enough with plenty of extra
         let big_heap = Box::leak(vec![0u8; BIN_COUNT * WORD_SIZE + 100000].into_boxed_slice());
-        let big_heap_span = Span::from(big_heap as *mut _);
+        let big_heap_span = Span::from(big_heap.as_mut());
 
         let mut talc = Talc::new(ErrOnOom);
 

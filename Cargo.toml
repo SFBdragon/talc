@@ -1,6 +1,7 @@
 [package]
 name = "talc"
-version = "3.0.1"
+version = "3.1.0"
+rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"
 authors = ["Shaun Beautement"]
@@ -18,9 +19,10 @@ exclude = [
 
 
 [features]
-allocator = ["lock_api"]
-default = ["allocator"]
 fuzzing = []
+nightly_api = []
+allocator = ["lock_api"]
+default = ["allocator", "nightly_api"]
 
 
 [dependencies]

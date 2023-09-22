@@ -14,6 +14,7 @@ Is your project targeting WASM? Check out [usage and comparisons here](./README_
 - [General Usage](#general-usage)
 - [Advanced Usage](#advanced-usage)
 - [Conditional Features](#conditional-features)
+- [Stable Rust and MSRV](#stable-rust-and-msrv)
 - [Support Me](#support-me)
 - [Changelog](#changelog)
 
@@ -220,7 +221,13 @@ impl OomHandler for MyOomHandler {
 
 ## Conditional Features
 * `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
-* `allocator` (default): Provides an `Allocator` trait implementation via `Talck`.
+* `allocator` (default, requires nightly): Provides an `Allocator` trait implementation via `Talck`.
+* `nightly_api` (default, requires nightly): Provides the `Span::from(*mut [T])` and `Span::from_slice` functions.
+
+## Stable Rust and MSRV
+Talc can be built on stable Rust by using `--no-default-features --features=lock_api` (`lock_api` isn't strictly necessary). 
+
+The MSRV is currently 1.67.1
 
 ## Support Me
 If you find the project useful, please consider donating via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
@@ -228,6 +235,11 @@ If you find the project useful, please consider donating via [Paypal](https://ww
 On the other hand, I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
 
 ## Changelog
+
+#### v3.1.0
+- Reduced use of nightly-only features, and feature-gated the remainder (`Span::from(*mut [T])` and `Span::from_slice`) behind `nightly_api`.
+- `nightly_api` feature is default-enabled
+    - *WARNING:* use of `default-features = false` may cause unexpected errors if the gated functions are used. Consider adding `nightly_api` or using another function.
 
 #### v3.0.1
 - Improved documentation

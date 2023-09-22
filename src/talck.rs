@@ -9,6 +9,12 @@ use core::{
 #[cfg(feature = "allocator")]
 use core::alloc::AllocError;
 
+
+#[cfg(feature = "allocator")]
+pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
+    (ptr as usize).trailing_zeros() >= align.trailing_zeros()
+}
+
 /// Talc lock: wrapper struct containing a mutex-locked [`Talc`].
 ///
 /// In order to access the [`Allocator`](core::alloc::Allocator) 
@@ -100,7 +106,7 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
             return self.allocate(new_layout);
         }
 
-        if !ptr.as_ptr().is_aligned_to(new_layout.align()) {
+        if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
             let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
             self.0.0.lock().free(ptr, old_layout);
@@ -124,9 +130,8 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
         let res = self.grow(ptr, old_layout, new_layout);
 
         if let Ok(allocation) = res {
-            allocation
-                .as_ptr()
-                .get_unchecked_mut(old_layout.size())
+            (allocation.as_ptr() as *mut u8)
+                .add(old_layout.size())
                 .write_bytes(0, new_layout.size() - old_layout.size());
         }
 
@@ -146,10 +151,10 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
                 self.0.0.lock().free(ptr, old_layout);
             }
 
-            return Ok(NonNull::slice_from_raw_parts(new_layout.dangling(), 0));
+            return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
-        if !ptr.as_ptr().is_aligned_to(new_layout.align()) {
+        if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
             let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
             self.0.0.lock().free(ptr, old_layout);

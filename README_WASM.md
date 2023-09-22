@@ -11,6 +11,9 @@ Set the global allocator in your project after running `cargo add talc` as follo
 #[global_allocator] struct TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 ```
 
+Make sure that you have the `lock_api` feature enabled! 
+- e.g. using stable Rust, in your `Cargo.toml`: `talc = { version = "3", default-features = false, features = ["lock_api"] }`
+
 ## Relative WASM Binary Size
 
 Rough measurements of allocator size for relative comparison using `wasm_size.sh` and `wasm-size`.

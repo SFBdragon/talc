@@ -51,7 +51,7 @@ impl<T> From<Range<*mut T>> for Span {
 
 impl<T> From<&mut [T]> for Span {
     fn from(value: &mut [T]) -> Self {
-        Self::from(value as *mut [T])
+        Self::from(value.as_mut_ptr_range())
     }
 }
 
@@ -61,6 +61,7 @@ impl<T, const N: usize> From<&mut [T; N]> for Span {
     }
 }
 
+#[cfg(feature = "nightly_api")]
 impl<T> From<*mut [T]> for Span {
     fn from(value: *mut [T]) -> Self {
         Self::from_slice(value)
@@ -125,13 +126,14 @@ impl Span {
         Self { base, acme: base.wrapping_add(size) }
     }
 
+    #[cfg(feature = "nightly_api")]
     #[inline]
     pub const fn from_slice<T>(slice: *mut [T]) -> Self {
         Self {
-            base: slice.as_mut_ptr().cast(),
+            base: slice as *mut T as *mut u8,
             // SAFETY: pointing directly after an object is considered
             // within the same object
-            acme: unsafe { slice.as_mut_ptr().add(slice.len()).cast() },
+            acme: unsafe { (slice as *mut T as *mut u8).add(slice.len()).cast() },
         }
     }
 

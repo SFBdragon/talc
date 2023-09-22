@@ -9,6 +9,7 @@ use core::ptr::NonNull;
 ///
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
 #[derive(Debug)]
+#[repr(C)]
 pub(crate) struct LlistNode {
     pub next: Option<NonNull<LlistNode>>,
     pub next_of_prev: *mut Option<NonNull<LlistNode>>,
@@ -17,7 +18,7 @@ pub(crate) struct LlistNode {
 impl LlistNode {
     #[inline]
     pub fn next_ptr(ptr: *mut Self) -> *mut Option<NonNull<LlistNode>> {
-        ptr.cast::<u8>().wrapping_add(core::mem::offset_of!(LlistNode, next)).cast()
+        ptr.cast() /* .cast::<u8>().wrapping_add(core::mem::offset_of!(LlistNode, next)) */
     }
 
     /// Create a new node as a member of an existing linked list at `node`.

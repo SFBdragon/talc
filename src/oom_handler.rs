@@ -54,15 +54,15 @@ impl OomHandler for ClaimOnOom {
     }
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 pub struct WasmHandler {
     heap_base: Option<*mut u8>,
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 unsafe impl Send for WasmHandler {}
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 impl WasmHandler {
     /// Create a new WASM handler.
     /// # Safety
@@ -73,7 +73,7 @@ impl WasmHandler {
     }
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 impl OomHandler for WasmHandler {
     fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()> {
         /// WASM page size is 64KiB
