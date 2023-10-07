@@ -557,7 +557,7 @@ impl<O: OomHandler> Talc<O> {
 
         // if this fails, there's no space to work with
         if let Some((base, acme)) = aligned_heap.get_base_acme() {
-            // the allocator has already successfully allocated its metadata
+            // check if the allocator has already successfully placed its metadata
             if !self.bins.is_null() {
                 // check if there's enough space to establish a free chunk
                 if acme as usize - base as usize >= MIN_HEAP_SIZE {
