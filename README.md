@@ -240,6 +240,9 @@ On the other hand, I'm looking for part-time programming work for which South Af
 
 ## Changelog
 
+#### v3.1.2
+- Some improvements to documentation.
+
 #### v3.1.1
 - Changed the WASM OOM handler's behavior to be more robust if other code calls `memory.grow` during the allocator's use.
 
