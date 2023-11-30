@@ -88,7 +88,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let offset = if size == capacity { 0 } else { offset as usize % (capacity - size) };
 
                 let heap = mem.truncate(offset, capacity - size + offset);
-                let heap = unsafe { allocator.0.lock().claim(heap) };
+                let heap = unsafe { allocator.talc().claim(heap) };
 
                 if let Ok(heap) = heap {
                     heaps.push((heap, mem));
@@ -97,7 +97,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 }
             },
             Extend { index, low, high } => {
-                //eprintln!("EXTEND | low: {} high: {} old arena {}", low, high, allocator.0.lock().get_arena());
+                //eprintln!("EXTEND | low: {} high: {} old arena {}", low, high, allocator.talc().get_arena());
 
                 let index = index as usize;
                 if index >= heaps.len() { continue; }
@@ -110,7 +110,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 heaps[index].0 = new_heap;
             },
             Truncate { index, low, high } => {
-                //eprintln!("TRUNCATE | low: {} high: {} old arena {}", low, high, allocator.0.lock().get_arena());
+                //eprintln!("TRUNCATE | low: {} high: {} old arena {}", low, high, allocator.talc().get_arena());
 
                 let index = index as usize;
                 if index >= heaps.len() { continue; }

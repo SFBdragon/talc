@@ -1,4 +1,9 @@
-#![doc = include_str!("../README.md")]
+//! The Talc allocator crate. 
+//! 
+//! Get started by looking at the create README, Talc's documentation 
+//! including that of the associated functions`new`, `claim`, `extend`, 
+//! `truncate`, `lock`.
+
 #![cfg_attr(not(any(test, fuzzing)), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
 #![cfg_attr(feature = "nightly_api", feature(slice_ptr_len))]
@@ -65,6 +70,8 @@ type Bin = Option<NonNull<LlistNode>>;
 /// 2. Establish any number of heaps with [`claim`](Talc::claim).
 /// 3. Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
 /// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
+/// 
+/// Check out the associated functions `new`, `claim`, `lock`, `extend`, and `truncate`.
 pub struct Talc<O: OomHandler> {
     /// The user-specified OOM handler. 
     /// 
@@ -488,6 +495,8 @@ impl<O: OomHandler> Talc<O> {
     /// Returns an uninitialized [`Talc`].
     ///
     /// If you don't want to handle OOM, use [`ErrOnOom`].
+    /// 
+    /// In order to make this allocator useful, `claim` some memory.
     pub const fn new(oom_handler: O) -> Self {
         Self { oom_handler, availability_low: 0, availability_high: 0, bins: null_mut() }
     }
@@ -538,7 +547,7 @@ impl<O: OomHandler> Talc<O> {
     ///
     /// # Safety
     /// - The memory within the `memory` must be valid for reads and writes,
-    /// and memory therein not allocated to the user must not be mutated
+    /// and memory therein (when not allocated to the user) must not be mutated
     /// while the allocator is in use.
     /// - `memory` should not overlap with any other active heap.
     ///

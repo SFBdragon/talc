@@ -1,6 +1,6 @@
 # Talc on WASM
 
-`Talc` provides a good middleground by being much faster than either `lol_alloc` and `dlmalloc` while inbetweening them in size, although your mileage will vary.
+`Talc` provides a good middleground by being faster than `lol_alloc` and `dlmalloc` while inbetweening them in size, although your mileage will vary.
 
 If you'd like to see comparisons to other allocators in this space, consider creating a pull request or opening an issue.
 
@@ -13,6 +13,8 @@ Set the global allocator in your project after running `cargo add talc` as follo
 
 Make sure that you have the `lock_api` feature enabled! 
 - e.g. using stable Rust, in your `Cargo.toml`: `talc = { version = "3", default-features = false, features = ["lock_api"] }`
+
+Note, this disables `nightly_api`, which isn't used in this API, and allowing use of stable Rust.
 
 ## Relative WASM Binary Size
 

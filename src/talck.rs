@@ -44,11 +44,11 @@ impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
 
 unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.0.lock().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
+        self.talc().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.0.lock().free(NonNull::new_unchecked(ptr), layout)
+        self.talc().free(NonNull::new_unchecked(ptr), layout)
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
@@ -60,7 +60,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
                 .map_or(ptr::null_mut(), |nn| nn.as_ptr()),
 
             Ordering::Greater => {
-                self.0.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
+                self.talc().shrink(NonNull::new_unchecked(ptr), layout, new_size);
                 ptr
             }
 
@@ -83,14 +83,14 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
-        unsafe { self.0.0.lock().malloc(layout) }
+        unsafe { self.0.talc().malloc(layout) }
             .map(|nn| NonNull::slice_from_raw_parts(nn, layout.size()))
             .map_err(|_| AllocError)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout.size() != 0 {
-            self.0.0.lock().free(ptr, layout);
+            self.0.talc().free(ptr, layout);
         }
     }
 
@@ -107,9 +107,9 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
         }
 
         if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
+            let allocation = self.0.talc().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            self.0.0.lock().free(ptr, old_layout);
+            self.0.talc().free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
         }
 
@@ -148,20 +148,20 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
 
         if new_layout.size() == 0 {
             if old_layout.size() > 0 {
-                self.0.0.lock().free(ptr, old_layout);
+                self.0.talc().free(ptr, old_layout);
             }
 
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
         if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let allocation = self.0.0.lock().malloc(new_layout).map_err(|_| AllocError)?;
+            let allocation = self.0.talc().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            self.0.0.lock().free(ptr, old_layout);
+            self.0.talc().free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
         }
 
-        self.0.0.lock().shrink(ptr, old_layout, new_layout.size());
+        self.0.talc().shrink(ptr, old_layout, new_layout.size());
 
         Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }

@@ -30,7 +30,7 @@ static mut ARENA: [u8; 10000] = [0; 10000];
 
 fn main () {
     let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-    unsafe { talck.0.lock().claim(ARENA.as_mut().into()); }
+    unsafe { talck.talc().claim(ARENA.as_mut().into()); }
     
     talck.allocator().allocate(Layout::new::<[u32; 16]>());
 }
@@ -56,7 +56,9 @@ fn main() {
 }
 ```
 
-See [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for more details.
+Note that both of these examples use the `spin` crate's mutex as a locking mechanism. Any lock implementing `lock_api` will do, though.
+
+See [the `std_global_allocator` example](/examples/std_global_allocator.rs), [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for more details.
 
 ## Benchmarks
 
@@ -136,9 +138,9 @@ Q: Why does Buddy Allocator perform much better here than in the random actions 
 A: The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of 1 to 20000 bytes leads to the results above in Random Actions.)
 
 ## Algorithm
-This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1).
+This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1). In practice, it's speedy.
 
-The main differences compared to Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
+The main algorithmic difference between Talc and Galloc, using a similar algorithm, is that Talc doesn't bucket by alignment at all, assuming most allocations will require at most a machine-word size alignment. Instead, a much broader range of bucket sizes are used, which should often be more efficient.
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation.
 
@@ -226,6 +228,8 @@ impl OomHandler for MyOomHandler {
 
 ## Stable Rust and MSRV
 Talc can be built on stable Rust by using `--no-default-features --features=lock_api` (`lock_api` isn't strictly necessary). 
+
+Disabling `nightly_api` makes `Span::from(*mut [T])` and `Span::from_slice` unavailable. See the [`std_global_allocator` example](examples/std_global_allocator.rs) for how to get around this restriction in certain contexts.
 
 The MSRV is currently 1.67.1
 

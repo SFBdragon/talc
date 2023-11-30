@@ -232,7 +232,7 @@ fn main() {
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         TALC_ALLOCATOR = talc::Talc::new(talc::ErrOnOom).lock();
-        TALC_ALLOCATOR.0.lock().claim(HEAP.as_mut_slice().into()).unwrap();
+        TALC_ALLOCATOR.talc().claim(HEAP.as_mut_slice().into()).unwrap();
         &TALC_ALLOCATOR
     }
 }
