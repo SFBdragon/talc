@@ -7,14 +7,14 @@ use talc::*;
 static mut START_ARENA: [u8; 10000] = [0; 10000];
 
 #[global_allocator]
-// the mutex provided by the `spin` crate is used here as it's a sensible choice
+// The mutex provided by the `spin` crate is used here as it's a sensible choice
 static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> =
-    // we need to use the ClaimOnOom OOM handler or similar as allocations may
-    // occur prior to invocation of the program entrypoint main(), so claiming some
-    // memory must be done on-demand
+    // Allocations may occur prior to the execution of `main()`, thus support for 
+    // claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
     Talc::new(unsafe { ClaimOnOom::new(
         Span::from_base_size(&START_ARENA as *const _ as *mut _, 10000)
-        // Span::from_array(&mut ARENA) - better but requires unstable #[feature(const_mut_refs)]
+        // A better alternative, but requires the unstable attribute #[feature(const_mut_refs)]
+        // Span::from_array(&mut START_ARENA)
     ) }).lock();
 
 fn main() {
