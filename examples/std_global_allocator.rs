@@ -9,9 +9,8 @@ static mut START_ARENA: [u8; 10000] = [0; 10000];
 #[global_allocator]
 // The mutex provided by the `spin` crate is used here as it's a sensible choice
 static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> =
-    // An OOM handler such as ClaimOnOom is required, as allocations
-    // may occur prior to invoking the program entrypoint `main()`,
-    // thus needs to support claiming memory on demand
+    // Allocations may occur prior to the execution of `main()`, thus support for 
+    // claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
     Talc::new(unsafe { ClaimOnOom::new(
         Span::from_base_size(&START_ARENA as *const _ as *mut _, 10000)
         // A better alternative, but requires the unstable attribute #[feature(const_mut_refs)]
