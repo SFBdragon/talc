@@ -116,10 +116,7 @@ impl OomHandler for WasmHandler {
         if let Some((prev_base, prev_acme)) = talc.oom_handler.prev_heap.get_base_acme() {
             if prev_acme == prev_heap_acme {
                 talc.oom_handler.prev_heap = unsafe {
-                    talc.extend(
-                        talc.oom_handler.prev_heap,
-                        Span::new(prev_base, new_heap_acme),
-                    )
+                    talc.extend(talc.oom_handler.prev_heap, Span::new(prev_base, new_heap_acme))
                 };
 
                 return Ok(());

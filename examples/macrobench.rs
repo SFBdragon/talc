@@ -29,7 +29,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
     alloc::{GlobalAlloc, Layout},
-    time::{Duration, Instant}, io::Write,
+    io::Write,
+    time::{Duration, Instant},
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
@@ -103,7 +104,9 @@ static mut DLMALLOC_ALLOCATOR: DlMallocator = DlMallocator(lock_api::Mutex::new(
     dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
 ));
 
-struct DlMallocator(lock_api::Mutex<talc::AssumeUnlockable, dlmalloc::Dlmalloc<DlmallocArena>>);
+struct DlMallocator(
+    lock_api::Mutex<talc::locking::AssumeUnlockable, dlmalloc::Dlmalloc<DlmallocArena>>,
+);
 
 unsafe impl GlobalAlloc for DlMallocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -171,7 +174,7 @@ fn main() {
 
     let allocators = allocator_list!(
         init_talc,
-        init_prev_talc, 
+        init_prev_talc,
         init_dlmalloc,
         init_buddy_alloc,
         init_galloc,
@@ -184,7 +187,6 @@ fn main() {
     std::io::stdin().read_line(&mut input).unwrap();
     if input.trim() == "y" {
         // heap efficiency benchmark
-
 
         println!("|             Allocator | Average Random Actions Heap Efficiency |");
         println!("| --------------------- | -------------------------------------- |");
@@ -232,7 +234,7 @@ fn main() {
 fn init_talc() -> &'static (dyn GlobalAlloc) {
     unsafe {
         TALC_ALLOCATOR = talc::Talc::new(talc::ErrOnOom).lock();
-        TALC_ALLOCATOR.talc().claim(HEAP.as_mut_slice().into()).unwrap();
+        TALC_ALLOCATOR.lock().claim(HEAP.as_mut_slice().into()).unwrap();
         &TALC_ALLOCATOR
     }
 }
@@ -279,9 +281,7 @@ fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
 fn init_dlmalloc() -> &'static dyn GlobalAlloc {
     unsafe {
         DLMALLOC_ALLOCATOR = DlMallocator(lock_api::Mutex::new(
-            dlmalloc::Dlmalloc::new_with_allocator(
-                DlmallocArena(spin::Mutex::new(false))
-            )
+            dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
         ));
         &DLMALLOC_ALLOCATOR
     }

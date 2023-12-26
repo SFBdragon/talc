@@ -88,7 +88,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let offset = if size == capacity { 0 } else { offset as usize % (capacity - size) };
 
                 let heap = mem.truncate(offset, capacity - size + offset);
-                let heap = unsafe { allocator.talc().claim(heap) };
+                let heap = unsafe { allocator.lock().claim(heap) };
 
                 if let Ok(heap) = heap {
                     heaps.push((heap, mem));
@@ -105,7 +105,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let (old_heap, mem) = heaps[index];
 
                 let new_heap = old_heap.extend(low as usize, high as usize).fit_within(mem);
-                let new_heap = unsafe { allocator.0.lock().extend(old_heap, new_heap) };
+                let new_heap = unsafe { allocator.lock().extend(old_heap, new_heap) };
 
                 heaps[index].0 = new_heap;
             },
@@ -117,7 +117,7 @@ fuzz_target!(|actions: Vec<Actions>| {
 
                 let (old_heap, _) = heaps[index];
 
-                let mut talc = allocator.0.lock();
+                let mut talc = allocator.lock();
 
                 let new_heap = old_heap
                     .truncate(low as usize, high as usize)

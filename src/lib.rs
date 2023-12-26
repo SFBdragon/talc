@@ -1,14 +1,20 @@
-//! The Talc allocator crate. 
+//! The Talc allocator crate.
+//!
+//! For getting started:
+//! - Check out the crate's [README](https://github.com/SFBdragon/talc)
+//! - Read check out the `Talc` and `Talck` structures.
 //! 
-//! Get started by looking at the create README, Talc's documentation 
-//! including that of the associated functions`new`, `claim`, `extend`, 
-//! `truncate`, `lock`.
+//! Your first step will be `Talc::new(...)`, then `claim`.
+//! Calling `Talc::lock()` on it will yield a `Talck` which implements 
+//! [`GlobalAlloc`] and [`Allocator`] (if the appropriate feature flags are set).
 
 #![cfg_attr(not(any(test, fuzzing)), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
 #![cfg_attr(feature = "nightly_api", feature(slice_ptr_len))]
 #![cfg_attr(feature = "nightly_api", feature(const_slice_ptr_len))]
 
+#[cfg(feature = "lock_api")]
+pub mod locking;
 #[cfg(feature = "lock_api")]
 mod talck;
 
@@ -22,10 +28,8 @@ mod utils;
 pub use oom_handler::WasmHandler;
 pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
 pub use span::Span;
-#[cfg(all(feature = "lock_api", feature = "allocator"))]
-pub use talck::TalckRef;
 #[cfg(feature = "lock_api")]
-pub use talck::{AssumeUnlockable, Talck};
+pub use talck::Talck;
 
 use llist::LlistNode;
 use tag::Tag;
@@ -70,11 +74,11 @@ type Bin = Option<NonNull<LlistNode>>;
 /// 2. Establish any number of heaps with [`claim`](Talc::claim).
 /// 3. Call [`lock`](Talc::lock) to get a [`Talck`] which supports the
 /// [`GlobalAlloc`](core::alloc::GlobalAlloc) and [`Allocator`](core::alloc::Allocator) traits.
-/// 
+///
 /// Check out the associated functions `new`, `claim`, `lock`, `extend`, and `truncate`.
 pub struct Talc<O: OomHandler> {
-    /// The user-specified OOM handler. 
-    /// 
+    /// The user-specified OOM handler.
+    ///
     /// Its state is entirely maintained by the user.
     pub oom_handler: O,
 
@@ -495,7 +499,7 @@ impl<O: OomHandler> Talc<O> {
     /// Returns an uninitialized [`Talc`].
     ///
     /// If you don't want to handle OOM, use [`ErrOnOom`].
-    /// 
+    ///
     /// In order to make this allocator useful, `claim` some memory.
     pub const fn new(oom_handler: O) -> Self {
         Self { oom_handler, availability_low: 0, availability_high: 0, bins: null_mut() }
@@ -832,24 +836,12 @@ impl<O: OomHandler> Talc<O> {
     /// ```
     #[cfg(feature = "lock_api")]
     pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O> {
-        Talck(lock_api::Mutex::new(self))
-    }
-
-    /// Wrap in a `Talck` without a synchronizing lock. 
-    /// 
-    /// **Not generally recommended.** Use [`lock`](Talc::lock) with a 
-    /// spin lock instead if you're unsure.
-    /// # Safety
-    /// You must maintain exclusivity of access to the lock, whether via platform
-    /// specific constrains, application thread usage, or some form of synchronization.
-    #[cfg(feature = "lock_api")]
-    pub const unsafe fn lock_assume_single_threaded(self) -> Talck<talck::AssumeUnlockable, O> {
-        Talck(lock_api::Mutex::new(self))
+        Talck::new(self)
     }
 }
 
 #[cfg(all(target_family = "wasm", feature = "lock_api"))]
-pub type TalckWasm = Talck<AssumeUnlockable, WasmHandler>;
+pub type TalckWasm = Talck<locking::AssumeUnlockable, WasmHandler>;
 
 #[cfg(all(target_family = "wasm", feature = "lock_api"))]
 impl TalckWasm {
@@ -858,11 +850,11 @@ impl TalckWasm {
     /// # Safety
     /// The runtime environment must be single-threaded WASM.
     ///
-    /// These restrictions apply while the allocator is in use:
-    /// - WASM memory should not manipulated unless allocated.
-    /// - Talc's heap resizing functions must not be used.
+    /// **Talc's heap resizing functions must not be used.**
+    ///
+    /// Note: independantly growing the WASM memory pool in duing use is allowed.
     pub const unsafe fn new_global() -> Self {
-        Talc::new(WasmHandler::new()).lock_assume_single_threaded()
+        Talc::new(WasmHandler::new()).lock()
     }
 }
 

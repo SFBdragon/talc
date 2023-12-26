@@ -29,7 +29,7 @@ mod dlmalloc {
     static ALLOC: DlMallocator = DlMallocator(lock_api::Mutex::new(Dlmalloc::new()));
     
 
-    struct DlMallocator(lock_api::Mutex::<talc::AssumeUnlockable, Dlmalloc>);
+    struct DlMallocator(lock_api::Mutex::<talc::locking::AssumeUnlockable, Dlmalloc>);
 
     unsafe impl GlobalAlloc for DlMallocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {

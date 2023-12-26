@@ -30,9 +30,9 @@ static mut ARENA: [u8; 10000] = [0; 10000];
 
 fn main () {
     let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-    unsafe { talck.talc().claim(ARENA.as_mut().into()); }
+    unsafe { talck.lock().claim(ARENA.as_mut().into()); }
     
-    talck.allocator().allocate(Layout::new::<[u32; 16]>());
+    talck.allocate(Layout::new::<[u32; 16]>());
 }
 ```
 
@@ -93,44 +93,44 @@ Pre-fail allocations account for all allocations up until the first allocation f
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
- 1980717 allocation attempts, 1397166 successful allocations,   27321 pre-fail allocations, 1386546 deallocations
+ 2011833 allocation attempts, 1419683 successful allocations,   26972 pre-fail allocations, 1408883 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      63      84      84     105     126     210   31752 |     137   ticks
-Pre-Fail Allocations |       42      63      84      84      84     105     105     126    3465 |     105   ticks
-       Deallocations |       42      84      84     105     210     252     294     420   34062 |     239   ticks
+     All Allocations |       42      42      63      84      84     105     126     189   48468 |     133   ticks
+Pre-Fail Allocations |       42      63      63      84      84     105     105     126    6489 |     102   ticks
+       Deallocations |       42      84     105     105     189     252     273     399   31899 |     228   ticks
 
 RESULTS OF BENCHMARK: Buddy Allocator
- 2181289 allocation attempts, 1534468 successful allocations,   19225 pre-fail allocations, 1527694 deallocations
+ 2201551 allocation attempts, 1543457 successful allocations,   16227 pre-fail allocations, 1536871 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       21      42      42      63      63      63      63      63  288414 |      59   ticks
-Pre-Fail Allocations |       21      42      42      42      63      63      63      84  288414 |      79   ticks
-       Deallocations |       42      63      63      63      63      84      84     126   21945 |      95   ticks
+     All Allocations |       21      42      42      63      63      63      63      63   21693 |      57   ticks
+Pre-Fail Allocations |       21      42      42      42      63      63      63      84    4578 |      77   ticks
+       Deallocations |       42      63      63      63      63      84      84     126   18795 |      99   ticks
 
 RESULTS OF BENCHMARK: Dlmalloc
- 1963524 allocation attempts, 1391789 successful allocations,   26241 pre-fail allocations, 1380568 deallocations
+ 1993087 allocation attempts, 1404059 successful allocations,   23911 pre-fail allocations, 1392832 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      84     147     168     189     210     315   25557 |     179   ticks
-Pre-Fail Allocations |       42      63     105     147     168     189     210     294    2289 |     173   ticks
-       Deallocations |       42     105     126     210     252     294     378     441   62958 |     280   ticks
+     All Allocations |       42      63      84     147     168     189     231     315   26166 |     181   ticks
+Pre-Fail Allocations |       42      63     105     147     168     189     210     273    1218 |     172   ticks
+       Deallocations |       42     105     126     147     231     273     336     420   45507 |     257   ticks
 
 RESULTS OF BENCHMARK: Galloc
-  274406 allocation attempts,  200491 successful allocations,   24503 pre-fail allocations,  190673 deallocations
+  276978 allocation attempts,  203844 successful allocations,   24233 pre-fail allocations,  193851 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      84     273   12327   27489   42441   46263  110145 |   19458   ticks
-Pre-Fail Allocations |       42      42      42      63      63      63      63     861   22344 |     730   ticks
-       Deallocations |       42      63      84     168     231     273     399     756   27153 |     322   ticks
+     All Allocations |       42      63      84     294   12201   26859   41937   46116  127512 |   19259   ticks
+Pre-Fail Allocations |       42      42      42      63      63      63      63     735   35007 |     663   ticks
+       Deallocations |       42      63      84     210     231     294     399     651   19635 |     324   ticks
 
 RESULTS OF BENCHMARK: Linked List Allocator
-  133404 allocation attempts,  103843 successful allocations,   25115 pre-fail allocations,   93590 deallocations
+  134333 allocation attempts,  103699 successful allocations,   24836 pre-fail allocations,   93275 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42    4263    9618   16212   24297   35028   47502   59724  729666 |   29867   ticks
-Pre-Fail Allocations |       42     819    2310    4095    6426    9198   12810   17955  836325 |   11266   ticks
-       Deallocations |       42    3234    7056   11298   16338   22218   29442   39039  117957 |   19519   ticks
+     All Allocations |       42    4242    9723   16359   24633   35448   48027   59094 1060941 |   29863   ticks
+Pre-Fail Allocations |       42     798    2205    3969    6216    9051   12747   18375 1126293 |   11534   ticks
+       Deallocations |       42    3171    6972   11319   16254   22029   29211   38661  100044 |   19274   ticks
 ```
 
 Q: Why does Buddy Allocator perform much better here than in the random actions benchmark? 
@@ -239,6 +239,17 @@ If you find the project useful, please consider donating via [Paypal](https://ww
 On the other hand, I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
 
 ## Changelog
+
+#### v4.0.0
+- Changed `Talck`'s API to be more inline with Rust norms. 
+    - `Talck` now hides its internal structure (no more `.0`).
+    - `Talck::talc()` has been replaced by `Talck::lock()`. 
+    - `Talck::new()` and `Talck::into_inner(self)` have been added.
+    - Removed `TalckRef` and implemented the `Allocator` trait on `Talck` directly. No need to call `talck.allocator()` anymore.
+- Changed API for provided locking mechanism
+    - Moved `AssumeUnlockable` into `talc::locking::AssumeUnlockable`
+    - Removed `Talc::lock_assume_single_threaded`, use `.lock::<talc::locking::AssumeUnlockable>()` directly instead.
+- Improvements to documentation here and there. Thanks [polarathene](https://github.com/polarathene) for the contribution!
 
 #### v3.1.2
 - Some improvements to documentation.

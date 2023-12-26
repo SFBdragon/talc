@@ -14,7 +14,7 @@ Set the global allocator in your project after running `cargo add talc` as follo
 Make sure that you have the `lock_api` feature enabled! 
 - e.g. using stable Rust, in your `Cargo.toml`: `talc = { version = "3", default-features = false, features = ["lock_api"] }`
 
-Note, this disables `nightly_api`, which isn't used in this API, and allowing use of stable Rust.
+Note, this disables `nightly_api`, which isn't used in this API, allowing use of stable Rust.
 
 ## Relative WASM Binary Size
 
@@ -22,9 +22,9 @@ Rough measurements of allocator size for relative comparison using `wasm_size.sh
 
 | Allocator | Size (bytes) - lower is better |
 | --------- | ----- |
-| lol_alloc | 18737 |
-| talc      | 22445 |
-| dlmalloc  | 24339 |
+| lol_alloc | 18333 |
+| talc      | 22017 |
+| dlmalloc  | 23935 |
 
 ## WASM Benchmarks
 

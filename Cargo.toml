@@ -1,11 +1,11 @@
 [package]
 name = "talc"
-version = "3.1.2"
+version = "4.0.0"
 rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"
 authors = ["Shaun Beautement"]
-description = "A fast and flexible `no_std` and WASM allocator."
+description = "A fast and flexible allocator for no_std and WASM"
 repository = "https://github.com/SFBdragon/talc"
 keywords = ["allocator", "no_std", "memory", "heap", "wasm"]
 categories = ["memory-management", "no-std", "embedded", "wasm"]

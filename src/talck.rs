@@ -9,16 +9,12 @@ use core::{
 #[cfg(feature = "allocator")]
 use core::alloc::AllocError;
 
-
 #[cfg(feature = "allocator")]
 pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
     (ptr as usize).trailing_zeros() >= align.trailing_zeros()
 }
 
-/// Talc lock: wrapper struct containing a mutex-locked [`Talc`].
-///
-/// In order to access the [`Allocator`](core::alloc::Allocator) 
-/// API, call [`allocator`](Talc::allocator).
+/// Talc lock, contains a mutex-locked [`Talc`].
 ///
 /// # Example
 /// ```rust
@@ -27,40 +23,43 @@ pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
 /// let talck = talc.lock::<spin::Mutex<()>>();
 /// ```
 #[derive(Debug)]
-pub struct Talck<R: lock_api::RawMutex, O: OomHandler>(pub lock_api::Mutex<R, Talc<O>>);
+pub struct Talck<R: lock_api::RawMutex, O: OomHandler>(lock_api::Mutex<R, Talc<O>>);
 
 impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
-    /// Get a reference that implements the [`Allocator`](core::alloc::Allocator) API.
-    #[cfg(feature = "allocator")]
-    pub fn allocator(&self) -> TalckRef<'_, R, O> {
-        TalckRef(self)
+    /// Create a new `Talck`.
+    pub const fn new(talc: Talc<O>) -> Self {
+        Self(lock_api::Mutex::new(talc))
     }
 
     /// Lock the mutex and access the inner `Talc`.
-    pub fn talc(&self) -> lock_api::MutexGuard<'_, R, Talc<O>> {
+    pub fn lock(&self) -> lock_api::MutexGuard<'_, R, Talc<O>> {
         self.0.lock()
+    }
+
+    /// Retrieve the inner `Talc`.
+    pub fn into_inner(self) -> Talc<O> {
+        self.0.into_inner()
     }
 }
 
 unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.talc().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
+        self.lock().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.talc().free(NonNull::new_unchecked(ptr), layout)
+        self.lock().free(NonNull::new_unchecked(ptr), layout)
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         match layout.size().cmp(&new_size) {
             Ordering::Less => self
-                .0
                 .lock()
                 .grow(NonNull::new_unchecked(ptr), layout, new_size)
                 .map_or(ptr::null_mut(), |nn| nn.as_ptr()),
 
             Ordering::Greater => {
-                self.talc().shrink(NonNull::new_unchecked(ptr), layout, new_size);
+                self.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
                 ptr
             }
 
@@ -69,28 +68,21 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     }
 }
 
-/// A reference to a [`Talck`] that implements the [`Allocator`](core::alloc::Allocator) trait.
 #[cfg(feature = "allocator")]
-#[derive(Debug, Clone, Copy)]
-pub struct TalckRef<'a, R: lock_api::RawMutex, O: OomHandler>(pub &'a Talck<R, O>);
-
-#[cfg(feature = "allocator")]
-unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
-    for TalckRef<'a, R, O>
-{
+unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Talck<R, O> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
         if layout.size() == 0 {
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
-        unsafe { self.0.talc().malloc(layout) }
+        unsafe { self.lock().malloc(layout) }
             .map(|nn| NonNull::slice_from_raw_parts(nn, layout.size()))
             .map_err(|_| AllocError)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout.size() != 0 {
-            self.0.talc().free(ptr, layout);
+            self.lock().free(ptr, layout);
         }
     }
 
@@ -104,21 +96,19 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
 
         if old_layout.size() == 0 {
             return self.allocate(new_layout);
-        }
-
-        if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let allocation = self.0.talc().malloc(new_layout).map_err(|_| AllocError)?;
+        } else if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
+            let mut talc = self.lock();
+            let allocation = talc.malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            self.0.talc().free(ptr, old_layout);
-            return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
+            talc.free(ptr, old_layout);
+            Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()))
+        } else {
+            self.0
+                .lock()
+                .grow(ptr, old_layout, new_layout.size())
+                .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
+                .map_err(|_| AllocError)
         }
-
-        self.0
-            .0
-            .lock()
-            .grow(ptr, old_layout, new_layout.size())
-            .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
-            .map_err(|_| AllocError)
     }
 
     unsafe fn grow_zeroed(
@@ -148,44 +138,21 @@ unsafe impl<'a, R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator
 
         if new_layout.size() == 0 {
             if old_layout.size() > 0 {
-                self.0.talc().free(ptr, old_layout);
+                self.lock().free(ptr, old_layout);
             }
 
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
         if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let allocation = self.0.talc().malloc(new_layout).map_err(|_| AllocError)?;
+            let allocation = self.lock().malloc(new_layout).map_err(|_| AllocError)?;
             allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            self.0.talc().free(ptr, old_layout);
+            self.lock().free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
         }
 
-        self.0.talc().shrink(ptr, old_layout, new_layout.size());
+        self.lock().shrink(ptr, old_layout, new_layout.size());
 
         Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }
-}
-
-/// A dummy RawMutex implementation to skip synchronization on single threaded systems.
-///
-/// # Safety
-/// This is very unsafe and may cause undefined behaviour if multiple threads enter
-/// a critical section syncronized by this, even without explicit unsafe code.
-pub struct AssumeUnlockable;
-
-// SAFETY: nope
-unsafe impl lock_api::RawMutex for AssumeUnlockable {
-    const INIT: AssumeUnlockable = AssumeUnlockable;
-
-    // A spinlock guard can be sent to another thread and unlocked there
-    type GuardMarker = lock_api::GuardSend;
-
-    fn lock(&self) {}
-
-    fn try_lock(&self) -> bool {
-        true
-    }
-
-    unsafe fn unlock(&self) {}
 }
