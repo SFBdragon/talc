@@ -1,0 +1,39 @@
+name: ci
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  job1:
+    name: nightly + miri tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-unknown-linux-gnu, i686-unknown-linux-gnu
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo test --verbose
+          cargo test --tests --no-default-features --verbose
+          cargo test --tests --no-default-features --features=lock_api --verbose
+          
+          cargo miri test --tests --verbose
+          cargo miri test --tests --target i686-unknown-linux-gnu --verbose
+
+  job2:
+      name: check stable
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu, wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo check --no-default-features
+          cargo check --no-default-features --target wasm32-unknown-unknown
+          cargo check --no-default-features --features=lock_api --target wasm32-unknown-unknown
