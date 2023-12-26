@@ -66,9 +66,7 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let (ptr, old_layout) = allocations[index as usize];
                 
                 //eprintln!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize);
-                
                 let new_layout = Layout::from_size_align(new_size as usize, old_layout.align()).unwrap();
-
                 let ptr = unsafe { allocator.realloc(ptr, old_layout, new_size as usize) };
 
                 if !ptr.is_null() {
