@@ -241,7 +241,11 @@ If you find the project useful, please consider donating: [Paypal](https://www.p
 
 ## Changelog
 
-#### v4.1.0
+#### v4.1.1
+
+- Fix: Reset MSRV to 1.67.1 and added a check to `test.sh` for it
+
+#### v4.1.0 (yanked, use 4.1.1)
 
 - Added optional tracking of allocation metrics. Thanks [Ken Hoover](https://github.com/khoover) for the suggestion!
     - Enable the `"counters"` feature. Access the data via `talc.get_counters()`
