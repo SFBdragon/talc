@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/) [![License](https://img.shields.io/crates/l/talc?style=flat-square)](https://github.com/SFBdragon/talc/blob/master/LICENSE.md)
 
-Talc is a performant and flexible memory allocator, with first class support for `no_std` and WebAssembly. It's suitable for projects such as operating system kernels, website backends, or arena allocation in single-threaded contexts.
+Talc is a performant and flexible memory allocator, with first class support for **`no_std`** and **WebAssembly**. It's suitable for projects such as operating system kernels, website backends, or arena allocation in single-threaded contexts.
 
 Is your project targeting WASM? Check out [usage and comparisons here](./README_WASM.md).
 
@@ -20,7 +20,7 @@ Is your project targeting WASM? Check out [usage and comparisons here](./README_
 
 ## Setup
 
-Use it as an arena allocator via the `Allocator` API as follows:
+Use it as an arena allocator via the `Allocator` API with `spin` as follows:
 ```rust
 #![feature(allocator_api)]
 use talc::*;
@@ -56,7 +56,7 @@ fn main() {
 }
 ```
 
-Note that both of these examples use the `spin` crate's mutex as a locking mechanism. Any lock implementing `lock_api` will do, though.
+Note that any lock implementing `lock_api` can be used.
 
 See [the `std_global_allocator` example](/examples/std_global_allocator.rs), [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for more details.
 
@@ -81,7 +81,7 @@ The average occupied capacity upon first allocation failure when randomly alloca
 |             Allocator | Average Random Actions Heap Efficiency |
 | --------------------- | -------------------------------------- |
 |              dlmalloc |                                 99.07% |
-|                  talc |                                 98.87% |
+|              **talc** |                                 98.87% |
 | linked_list_allocator |                                 98.28% |
 |                galloc |                                 95.86% |
 |           buddy_alloc |                                 58.75% |
@@ -93,49 +93,47 @@ Pre-fail allocations account for all allocations up until the first allocation f
 
 ``` ignore
 RESULTS OF BENCHMARK: Talc
- 2011833 allocation attempts, 1419683 successful allocations,   26972 pre-fail allocations, 1408883 deallocations
+ 1919774 allocation attempts, 1556400 successful allocations,   74575 pre-fail allocations, 1537392 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      42      63      84      84     105     126     189   48468 |     133   ticks
-Pre-Fail Allocations |       42      63      63      84      84     105     105     126    6489 |     102   ticks
-       Deallocations |       42      84     105     105     189     252     273     399   31899 |     228   ticks
+       Normal Allocs |       42      63      63      84      84     105     105     126    7812 |     116   (ticks)
+High-Pressure Allocs |       42      63      84      84     105     105     126     294   49980 |     183   (ticks)
+            Deallocs |       42      84     126     210     252     294     399     462   32235 |     289   (ticks)
 
 RESULTS OF BENCHMARK: Buddy Allocator
- 2201551 allocation attempts, 1543457 successful allocations,   16227 pre-fail allocations, 1536871 deallocations
+ 2201546 allocation attempts, 1769552 successful allocations,   53684 pre-fail allocations, 1757592 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       21      42      42      63      63      63      63      63   21693 |      57   ticks
-Pre-Fail Allocations |       21      42      42      42      63      63      63      84    4578 |      77   ticks
-       Deallocations |       42      63      63      63      63      84      84     126   18795 |      99   ticks
+       Normal Allocs |       21      42      42      42      63      63      63      63    5250 |      60   (ticks)
+High-Pressure Allocs |       21      42      42      63      63      63      63      63   20181 |      58   (ticks)
+            Deallocs |       42      63      63      63      84      84     105     147   67158 |     103   (ticks)
 
 RESULTS OF BENCHMARK: Dlmalloc
- 1993087 allocation attempts, 1404059 successful allocations,   23911 pre-fail allocations, 1392832 deallocations
+ 1935460 allocation attempts, 1564035 successful allocations,   78340 pre-fail allocations, 1544000 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      84     147     168     189     231     315   26166 |     181   ticks
-Pre-Fail Allocations |       42      63     105     147     168     189     210     273    1218 |     172   ticks
-       Deallocations |       42     105     126     147     231     273     336     420   45507 |     257   ticks
+       Normal Allocs |       42      84     126     147     168     189     210     315   17115 |     187   (ticks)
+High-Pressure Allocs |       42      84     126     168     189     189     231     315   57687 |     192   (ticks)
+            Deallocs |       42     126     147     231     273     357     399     462   65394 |     307   (ticks)
 
 RESULTS OF BENCHMARK: Galloc
-  276978 allocation attempts,  203844 successful allocations,   24233 pre-fail allocations,  193851 deallocations
+  201507 allocation attempts,  179724 successful allocations,   76734 pre-fail allocations,  162520 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42      63      84     294   12201   26859   41937   46116  127512 |   19259   ticks
-Pre-Fail Allocations |       42      42      42      63      63      63      63     735   35007 |     663   ticks
-       Deallocations |       42      63      84     210     231     294     399     651   19635 |     324   ticks
+       Normal Allocs |       42      42      42      42      63      63      84    3045   66255 |    1784   (ticks)
+High-Pressure Allocs |       42      63      84     315   23415   50694   87570  114933  367752 |   43719   (ticks)
+            Deallocs |       42      63      84     126     231     273     399     672   66024 |     312   (ticks)
 
 RESULTS OF BENCHMARK: Linked List Allocator
-  134333 allocation attempts,  103699 successful allocations,   24836 pre-fail allocations,   93275 deallocations
+  105312 allocation attempts,  101486 successful allocations,   78507 pre-fail allocations,   84896 deallocations
             CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE
 ---------------------|--------------------------------------------------------------------------|---------
-     All Allocations |       42    4242    9723   16359   24633   35448   48027   59094 1060941 |   29863   ticks
-Pre-Fail Allocations |       42     798    2205    3969    6216    9051   12747   18375 1126293 |   11534   ticks
-       Deallocations |       42    3171    6972   11319   16254   22029   29211   38661  100044 |   19274   ticks
+       Normal Allocs |       42    1386    3864    7098   11319   16905   25494   42882  739809 |   20006   (ticks)
+High-Pressure Allocs |       63   13356   28938   47439   68985   93555  121443  148491  203007 |   76488   (ticks)
+            Deallocs |       42    1701    4620    8589   13860   21609   35133   64554  210252 |   26608   (ticks)
 ```
 
-Q: Why does Buddy Allocator perform much better here than in the random actions benchmark? 
-
-A: The buddy allocator's performance is heavily dependant on the size of allocations in random actions, as it doesn't appear to reallocate efficiently. The microbenchmark results only measure allocation and deallocation, with no regard to reallocation. (The currently-used sizes of 1 to 20000 bytes leads to the results above in Random Actions.)
+\* The reason Buddy Allocator appears so much better here than in Random Actions is that reallocation effeciency is not measured at all.
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1). In practice, it's speedy.
@@ -151,15 +149,15 @@ Other than that, lots of fuzzing of the allocator.
 
 ## General Usage
 
-Here is the list of `Talc` methods:
+Here is the list of important `Talc` methods:
 * Constructors:
     * `new`
 * Information:
-    * `get_allocated_span` - returns the minimum span containing all allocated memory
+    * `get_allocated_span` - returns the minimum heap span containing all allocated memory in an established heap
 * Management:
     * `claim` - claim memory to establishing a new heap
-    * `extend` - extend the extent of a heap
-    * `truncate` - reduce the extent of a heap
+    * `extend` - extend an established heap
+    * `truncate` - reduce the extent of an established heap
     * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
 * Allocation:
     * `malloc`
@@ -169,13 +167,18 @@ Here is the list of `Talc` methods:
 
 Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
 
-[`Span`](https://docs.rs/talc/latest/talc/struct.Span.html) is a handy little type for describing memory regions, because trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs tends to be inconvenient or annoying.
+[`Span`](https://docs.rs/talc/latest/talc/struct.Span.html) is a handy little type for describing memory regions, as trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs tends to be inconvenient or annoying.
 
 ## Advanced Usage
 
 The most powerful feature of the allocator is that it has a modular OOM handling system, allowing you to fail out of or recover from allocation failure easily. 
 
-As an example, recovering by extending the heap is implemented below.
+Provided `OomHandler` implementations include:
+- `ErrOnOom`: allocations fail on OOM
+- `ClaimOnOom`: claims a heap upon first OOM, useful for initialization
+- `WasmHandler`: itegrate with WebAssembly's `memory` module for automatic memory heap management
+
+As an example of a custom implementation, recovering by extending the heap is implemented below.
 
 ```rust
 use talc::*;
@@ -186,16 +189,16 @@ struct MyOomHandler {
 
 impl OomHandler for MyOomHandler {
     fn handle_oom(talc: &mut Talc<Self>, layout: core::alloc::Layout) -> Result<(), ()> {
-        // alloc doesn't have enough memory, and we just got called! we must free up some memory
-        // we'll go through an example of how to handle this situation
+        // Talc doesn't have enough memory, and we just got called!
+        // We'll go through an example of how to handle this situation.
     
-        // we can inspect `layout` to estimate how much we should free up for this allocation
-        // or we can extend by any amount (increasing powers of two has good time complexity)
-        // creating another heap would also work, but this isn't covered here
+        // We can inspect `layout` to estimate how much we should free up for this allocation
+        // or we can extend by any amount (increasing powers of two has good time complexity).
+        // (Creating another heap with `claim` will also work.)
     
-        // this function will be repeatedly called until we free up enough memory or 
+        // This function will be repeatedly called until we free up enough memory or 
         // we return Err(()) causing allocation failure. Be careful to avoid conditions where 
-        // the heap isn't sufficiently extended indefinitely, causing an infinite loop
+        // the heap isn't sufficiently extended indefinitely, causing an infinite loop.
     
         // an arbitrary address limit for the sake of example
         const HEAP_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
@@ -212,7 +215,7 @@ impl OomHandler for MyOomHandler {
         }
     
         unsafe {
-            // we're assuming the new memory up to HEAP_TOP_LIMIT is allocatable
+            // we're assuming the new memory up to HEAP_TOP_LIMIT is unused and allocatable
             talc.oom_handler.heap = talc.extend(old_heap, new_heap);
         }
     
@@ -222,23 +225,31 @@ impl OomHandler for MyOomHandler {
 ```
 
 ## Conditional Features
-* `lock_api` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
-* `allocator` (default, requires nightly): Provides an `Allocator` trait implementation via `Talck`.
-* `nightly_api` (default, requires nightly): Provides the `Span::from(*mut [T])` and `Span::from_slice` functions.
+* `"lock_api"` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
+* `"allocator"` (default, requires nightly): Provides an `Allocator` trait implementation via `Talck`.
+* `"nightly_api"` (default, requires nightly): Provides the `Span::from(*mut [T])` and `Span::from_slice` functions.
+* `"counters"`: `Talc` will track heap and allocation metrics. Use `Talc::get_counters` to access them.
 
 ## Stable Rust and MSRV
-Talc can be built on stable Rust by using `--no-default-features --features=lock_api` (`lock_api` isn't strictly necessary). 
+Talc can be built on stable Rust by disabling `"allocator"` and `"nightly_api"`. The MSRV is 1.67.1.
 
-Disabling `nightly_api` makes `Span::from(*mut [T])` and `Span::from_slice` unavailable. See the [`std_global_allocator` example](examples/std_global_allocator.rs) for how to get around this restriction in certain contexts.
+Disabling `"nightly_api"` makes `Span::from(*mut [T])` and `Span::from_slice` unavailable. See the [`std_global_allocator` example](examples/std_global_allocator.rs) for how to get around this restriction in certain contexts.
 
-The MSRV is currently 1.67.1
 
 ## Support Me
-If you find the project useful, please consider donating via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!
-
-On the other hand, I'm looking for part-time programming work for which South Africans are eligible. If you know of any suitable vacancies, please get in touch. [Here's my LinkedIn.](https://www.linkedin.com/in/shaun-beautement-9101a823b/)
+If you find the project useful, please consider donating: [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ)
 
 ## Changelog
+
+#### v4.1.0
+
+- Added optional tracking of allocation metrics. Thanks [Ken Hoover](https://github.com/khoover) for the suggestion!
+    - Enable the `"counters"` feature. Access the data via `talc.get_counters()`
+    - Metrics include allocation count, bytes available, fragmentation, overhead, and [more](https://docs.rs/talc/latest/talc/struct.Span.html)
+- Improvements to documentation
+- Improved and updated benchmarks
+- Integrated the WASM performance benchmark into the project. Use `wasm-bench.sh` to run (requires _wasm-pack_ and _deno_)
+- Improved `wasm-size` and `wasm-size.sh`
 
 #### v4.0.0
 - Changed `Talck`'s API to be more inline with Rust norms. 
@@ -248,7 +259,7 @@ On the other hand, I'm looking for part-time programming work for which South Af
     - Removed `TalckRef` and implemented the `Allocator` trait on `Talck` directly. No need to call `talck.allocator()` anymore.
 - Changed API for provided locking mechanism
     - Moved `AssumeUnlockable` into `talc::locking::AssumeUnlockable`
-    - Removed `Talc::lock_assume_single_threaded`, use `.lock::<talc::locking::AssumeUnlockable>()` directly instead.
+    - Removed `Talc::lock_assume_single_threaded`, use `.lock::<talc::locking::AssumeUnlockable>()` if necessary.
 - Improvements to documentation here and there. Thanks [polarathene](https://github.com/polarathene) for the contribution!
 
 #### v3.1.2
@@ -281,7 +292,7 @@ To migrate from v2 to v3, keep in mind that you must keep track of the heaps if 
 
 #### v2.2.1
 - Rewrote the allocator internals to place allocation metadata above the allocation.
-    - This will have the largest impact on avoiding false sharing, where previously, the allocation metadata for one allocation would infringe on the cache-line of the allocation before it, even if a sufficiently high alignment was demanded. A marginal/negligible increase in single-threaded performance resulted, too.
+    - This will have the largest impact on avoiding false sharing, where previously, the allocation metadata for one allocation would infringe on the cache-line of the allocation before it, even if a sufficiently high alignment was demanded. Single-threaded performance marginally increased, too.
 - Removed heap_exhaustion and replaced heap_efficiency benchmarks.
 - Improved documentation and other resources.
 - Changed the WASM size measurement to include slightly less overhead.

@@ -3,7 +3,7 @@ import math
 # modify these parameters to determine the bucketing strategy
 # the main things we want are 
 # - coverage up to the 100MiB-1GiB area
-# - minimize sizes per bucket
+# - minimize number of allocation sizes per bucket
 # - facilitate particularly quick allocation of small sizes
 # - don't sacrifice the speed of large allocations much
 
@@ -36,7 +36,7 @@ print("double bins count:", double_bins_count)
 for i, bsb in enumerate(range(word_buckets_limit, double_buckets_limit, 2*word_size)):
     print("{1:>3}: {0:>8} {0:>20b} | ".format(bsb, i), end='\n')
 
-print("log bins")
+print("pseudo log-spaced bins")
 
 b_ofst = int(math.log2(double_buckets_limit)) # log2_start_pow | 16
 b_p2dv = int(math.log2(exp_fractions)) # log2_div_count | 4

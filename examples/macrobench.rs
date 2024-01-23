@@ -28,9 +28,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #![feature(const_mut_refs)]
 
 use std::{
-    alloc::{GlobalAlloc, Layout},
     io::Write,
+    alloc::{GlobalAlloc, Layout},
     time::{Duration, Instant},
+    ptr::addr_of,
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
@@ -48,7 +49,7 @@ const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
 const TRIALS_AMOUNT: usize = 15;
 
 struct NamedBenchmark {
-    benchmark_fn: fn(Duration, &dyn GlobalAlloc) -> usize,
+    benchmark_fn: fn(Duration, *const dyn GlobalAlloc) -> usize,
     name: &'static str,
 }
 
@@ -67,7 +68,7 @@ macro_rules! benchmark_list {
 
 struct NamedAllocator {
     name: &'static str,
-    init_fn: fn() -> &'static (dyn GlobalAlloc),
+    init_fn: fn() -> *const dyn GlobalAlloc,
 }
 
 macro_rules! allocator_list {
@@ -77,7 +78,7 @@ macro_rules! allocator_list {
                 NamedAllocator {
                     init_fn: $init_fn,
                     name: {
-                        const INIT_FN_NAME:&'static str = stringify!($init_fn);
+                        const INIT_FN_NAME: &'static str = stringify!($init_fn);
                         &INIT_FN_NAME["init_".len()..]
                     },
                 }
@@ -88,8 +89,6 @@ macro_rules! allocator_list {
 
 static mut TALC_ALLOCATOR: talc::Talck<spin::Mutex<()>, talc::ErrOnOom> =
     talc::Talc::new(talc::ErrOnOom).lock();
-static mut PREV_TALC_ALLOCATOR: prev_talc::Talck<spin::Mutex<()>, prev_talc::ErrOnOom> =
-    prev_talc::Talc::new(prev_talc::ErrOnOom).lock();
 static mut BUDDY_ALLOCATOR: buddy_alloc::NonThreadsafeAlloc = unsafe {
     NonThreadsafeAlloc::new(
         FastAllocParam::new(HEAP.as_ptr(), HEAP_SIZE / 8),
@@ -174,7 +173,6 @@ fn main() {
 
     let allocators = allocator_list!(
         init_talc,
-        init_prev_talc,
         init_dlmalloc,
         init_buddy_alloc,
         init_galloc,
@@ -231,39 +229,30 @@ fn main() {
     }
 }
 
-fn init_talc() -> &'static (dyn GlobalAlloc) {
+fn init_talc() -> *const dyn GlobalAlloc {
     unsafe {
         TALC_ALLOCATOR = talc::Talc::new(talc::ErrOnOom).lock();
         TALC_ALLOCATOR.lock().claim(HEAP.as_mut_slice().into()).unwrap();
-        &TALC_ALLOCATOR
+        addr_of!(TALC_ALLOCATOR)
     }
 }
 
-#[allow(dead_code)]
-fn init_prev_talc() -> &'static (dyn GlobalAlloc) {
-    unsafe {
-        PREV_TALC_ALLOCATOR =
-            prev_talc::Talc::with_arena(prev_talc::ErrOnOom, HEAP.as_mut_slice().into()).lock();
-        &PREV_TALC_ALLOCATOR
-    }
-}
-
-fn init_linked_list_allocator() -> &'static (dyn GlobalAlloc) {
+fn init_linked_list_allocator() -> *const dyn GlobalAlloc {
     let mut a = LINKED_LIST_ALLOCATOR.lock();
     *a = linked_list_allocator::Heap::empty();
     unsafe { a.init(HEAP.as_mut_ptr().cast(), HEAP_SIZE) }
-    &LINKED_LIST_ALLOCATOR
+    addr_of!(LINKED_LIST_ALLOCATOR)
 }
 
-fn init_galloc() -> &'static (dyn GlobalAlloc) {
+fn init_galloc() -> *const dyn GlobalAlloc {
     unsafe {
         GALLOC_ALLOCATOR = good_memory_allocator::SpinLockedAllocator::empty();
         GALLOC_ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE);
-        &GALLOC_ALLOCATOR
+        addr_of!(GALLOC_ALLOCATOR)
     }
 }
 
-fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
+fn init_buddy_alloc() -> *const dyn GlobalAlloc {
     unsafe {
         BUDDY_ALLOCATOR = NonThreadsafeAlloc::new(
             FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8),
@@ -273,21 +262,20 @@ fn init_buddy_alloc() -> &'static (dyn GlobalAlloc) {
                 64,
             ),
         );
-
-        &BUDDY_ALLOCATOR
+        addr_of!(BUDDY_ALLOCATOR)
     }
 }
 
-fn init_dlmalloc() -> &'static dyn GlobalAlloc {
+fn init_dlmalloc() -> *const dyn GlobalAlloc {
     unsafe {
         DLMALLOC_ALLOCATOR = DlMallocator(lock_api::Mutex::new(
             dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
         ));
-        &DLMALLOC_ALLOCATOR
+        addr_of!(DLMALLOC_ALLOCATOR)
     }
 }
 
-pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize {
+pub fn random_actions(duration: Duration, allocator: *const dyn GlobalAlloc) -> usize {
     let mut score = 0;
     let mut v = Vec::with_capacity(100000);
 
@@ -332,7 +320,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc) -> usize 
     score
 }
 
-pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
+pub fn heap_efficiency(allocator: *const dyn GlobalAlloc) -> f64 {
     let mut v = Vec::with_capacity(100000);
     let mut used = 0;
     let mut total = HEAP_SIZE;
@@ -388,16 +376,16 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
     used as f64 / total as f64 * 100.0
 }
 
-struct AllocationWrapper<'a> {
+struct AllocationWrapper {
     ptr: *mut u8,
     layout: Layout,
-    allocator: &'a dyn GlobalAlloc,
+    allocator: *const dyn GlobalAlloc,
 }
-impl<'a> AllocationWrapper<'a> {
-    fn new(size: usize, align: usize, allocator: &'a dyn GlobalAlloc) -> Option<Self> {
+impl AllocationWrapper {
+    fn new(size: usize, align: usize, allocator: *const dyn GlobalAlloc) -> Option<Self> {
         let layout = Layout::from_size_align(size, align).unwrap();
 
-        let ptr = unsafe { allocator.alloc(layout) };
+        let ptr = unsafe { (*allocator).alloc(layout) };
 
         if ptr.is_null() {
             return None;
@@ -407,7 +395,7 @@ impl<'a> AllocationWrapper<'a> {
     }
 
     fn realloc(&mut self, new_size: usize) {
-        let new_ptr = unsafe { self.allocator.realloc(self.ptr, self.layout, new_size) };
+        let new_ptr = unsafe { (*self.allocator).realloc(self.ptr, self.layout, new_size) };
         if new_ptr.is_null() {
             return;
         }
@@ -416,8 +404,8 @@ impl<'a> AllocationWrapper<'a> {
     }
 }
 
-impl<'a> Drop for AllocationWrapper<'a> {
+impl Drop for AllocationWrapper {
     fn drop(&mut self) {
-        unsafe { self.allocator.dealloc(self.ptr, self.layout) }
+        unsafe { (*self.allocator).dealloc(self.ptr, self.layout) }
     }
 }

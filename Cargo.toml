@@ -1,6 +1,6 @@
 [package]
 name = "talc"
-version = "4.0.0"
+version = "4.1.0"
 rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"
@@ -20,13 +20,14 @@ exclude = [
 
 [features]
 fuzzing = []
+counters = []
 nightly_api = []
 allocator = ["lock_api"]
-default = ["allocator", "nightly_api"]
+default = ["lock_api", "allocator", "nightly_api"]
 
 
 [dependencies]
-lock_api = { version= "0.4", optional = true, default-features = false }
+lock_api = { version = "0.4", optional = true, default-features = false }
 
 [dev-dependencies]
 fastrand = "1.9"
@@ -35,7 +36,6 @@ linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "co
 good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
 buddy-alloc = "0.5"
 dlmalloc = { version =  "0.2.4", default-features = false }
-prev_talc = { package = "talc", version = "2" }
 
 [profile.release]
 lto = true

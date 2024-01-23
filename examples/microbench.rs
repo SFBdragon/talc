@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-/* Heavily modified by Shaun Beautement. All errors are probably my own. */
+// Heavily modified by Shaun Beautement. All errors are probably my own.
 
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
@@ -76,17 +76,16 @@ unsafe impl Allocator for DlMallocator {
 }
 
 // Turn DlMalloc into an arena allocator
-struct DlmallocArena(spin::Mutex<bool>);
+struct DlmallocArena(std::sync::atomic::AtomicBool);
 
 unsafe impl dlmalloc::Allocator for DlmallocArena {
     fn alloc(&self, _size: usize) -> (*mut u8, usize, u32) {
-        let mut lock = self.0.lock();
+        let has_data = self.0.fetch_and(false, core::sync::atomic::Ordering::SeqCst);
 
-        if *lock {
-            (core::ptr::null_mut(), 0, 0)
-        } else {
-            *lock = true;
+        if has_data {
             unsafe { (HEAP_MEMORY.as_mut_ptr(), HEAP_SIZE, 1) }
+        } else {
+            (core::ptr::null_mut(), 0, 0)
         }
     }
 
@@ -116,10 +115,12 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
 }
 
 fn main() {
+    eprintln!("Benchmarking: Linked List Allocator...");
     let linked_list_allocator =
         unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
     let bench_linked = benchmark_allocator(&linked_list_allocator);
 
+    eprintln!("Benchmarking: Galloc...");
     let mut galloc_allocator =
         good_memory_allocator::SpinLockedAllocator::<DEFAULT_SMALLBINS_AMOUNT>::empty();
     unsafe {
@@ -127,6 +128,7 @@ fn main() {
     }
     let bench_galloc = benchmark_allocator(&mut galloc_allocator);
 
+    eprintln!("Benchmarking: Buddy Allocator...");
     let buddy_alloc = unsafe {
         buddy_alloc::NonThreadsafeAlloc::new(
             FastAllocParam::new(HEAP_MEMORY.as_ptr(), HEAP_SIZE / 8),
@@ -135,12 +137,16 @@ fn main() {
     };
     let bench_buddy = benchmark_allocator(&BuddyAllocator(buddy_alloc));
 
+    eprintln!("Benchmarking: Talc...");
     let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
     unsafe { talc.lock().claim(HEAP_MEMORY.as_mut_slice().into()) }.unwrap();
     let bench_talc = benchmark_allocator(&talc);
 
-    let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false)));
+    eprintln!("Benchmarking: Dlmalloc...");
+    let dlmalloc = dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(true.into()));
     let bench_dlmalloc = benchmark_allocator(&DlMallocator(spin::Mutex::new(dlmalloc)));
+
+    eprintln!();
 
     print_bench_results("Talc", &bench_talc);
     println!();
@@ -176,7 +182,7 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
 
     let mut active_allocations = Vec::new();
 
-    let mut all_alloc_measurements = Vec::new();
+    let mut high_pressure_alloc_measurements = Vec::new();
     let mut nofail_alloc_measurements = Vec::new();
     let mut dealloc_measurements = Vec::new();
 
@@ -187,9 +193,17 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
 
     let mut any_alloc_failed = false;
 
+    // warm up
+    for i in 1..100 {
+        let layout = Layout::from_size_align(i * 8, 8).unwrap();
+        let ptr = allocator.allocate(layout).unwrap().as_non_null_ptr();
+        unsafe { let _ = ptr.as_ptr().read_volatile(); }
+        unsafe { allocator.deallocate(ptr, layout); }
+    }
+
     let bench_begin_time = Instant::now();
     while bench_begin_time.elapsed().as_secs_f64() <= BENCH_DURATION {
-        let size = fastrand::usize((1 << 6)..(1 << 16));
+        let size = fastrand::usize((1 << 6)..(1 << 15));
         let align = 8 << fastrand::u16(..).trailing_zeros() / 2;
         let layout = Layout::from_size_align(size, align).unwrap();
 
@@ -209,13 +223,14 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
             any_alloc_failed = true;
         }
 
-        all_alloc_measurements.push(alloc_ticks);
         if !any_alloc_failed {
             nofail_alloc_measurements.push(alloc_ticks);
+        } else {
+            high_pressure_alloc_measurements.push(alloc_ticks);
         }
 
         if active_allocations.len() > 10 && fastrand::usize(..10) == 0 {
-            for _ in 0..7 {
+            for _ in 0..8 {
                 let index = fastrand::usize(..active_allocations.len());
                 let allocation = active_allocations.swap_remove(index);
 
@@ -232,7 +247,7 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
     }
 
     // sort
-    all_alloc_measurements.sort();
+    high_pressure_alloc_measurements.sort();
     nofail_alloc_measurements.sort();
     dealloc_measurements.sort();
 
@@ -242,7 +257,7 @@ fn benchmark_allocator(allocator: &dyn Allocator) -> BenchRunResults {
         pre_fail_allocations,
         deallocations,
 
-        all_alloc_measurements,
+        high_pressure_alloc_measurements,
         nofail_alloc_measurements,
         dealloc_measurements,
     }
@@ -259,14 +274,14 @@ fn print_bench_results(bench_name: &str, res: &BenchRunResults) {
     );
 
     println!(
-        "            CATEGORY | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE"
+        "{:>20} | OCTILE 0       1       2       3       4       5       6       7       8 | AVERAGE", "CATEGORY"
     );
     println!(
         "---------------------|--------------------------------------------------------------------------|---------"
     );
-    print_measurement_set(&res.all_alloc_measurements, "All Allocations");
-    print_measurement_set(&res.nofail_alloc_measurements, "Pre-Fail Allocations");
-    print_measurement_set(&res.dealloc_measurements, "Deallocations");
+    print_measurement_set(&res.nofail_alloc_measurements, "Normal Allocs");
+    print_measurement_set(&res.high_pressure_alloc_measurements, "High-Pressure Allocs");
+    print_measurement_set(&res.dealloc_measurements, "Deallocs");
 }
 
 fn print_measurement_set(measurements: &Vec<u64>, set_name: &str) {
@@ -275,7 +290,7 @@ fn print_measurement_set(measurements: &Vec<u64>, set_name: &str) {
         print!("{:>8}", measurements[(measurements.len() / 8 * i).min(measurements.len() - 1)]);
     }
 
-    print!(" | {:>7}   ticks\n", measurements.iter().sum::<u64>() / measurements.len() as u64);
+    print!(" | {:>7}   (ticks)\n", measurements.iter().sum::<u64>() / measurements.len() as u64);
 }
 
 /// Result of a bench run.
@@ -285,9 +300,9 @@ struct BenchRunResults {
     pre_fail_allocations: usize,
     deallocations: usize,
 
-    /// Sorted vector of the amount of clock ticks per successful allocation.
-    all_alloc_measurements: Vec<u64>,
     /// Sorted vector of the amount of clock ticks per successful allocation under heap pressure.
+    high_pressure_alloc_measurements: Vec<u64>,
+    /// Sorted vector of the amount of clock ticks per successful allocation.
     nofail_alloc_measurements: Vec<u64>,
     /// Sorted vector of the amount of clock ticks per deallocation.
     dealloc_measurements: Vec<u64>,

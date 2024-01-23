@@ -13,7 +13,7 @@ static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> =
     // claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
     Talc::new(unsafe {
         ClaimOnOom::new(
-            Span::from_base_size(&START_ARENA as *const _ as *mut _, 10000), 
+            Span::from_base_size(std::ptr::addr_of!(START_ARENA) as *mut _, 10000), 
             
             // A better alternative, but requires the unstable attribute #[feature(const_mut_refs)]
             // Span::from_array(&mut START_ARENA)

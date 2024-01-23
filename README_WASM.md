@@ -1,38 +1,46 @@
 # Talc on WASM
 
-`Talc` provides a good middleground by being faster than `lol_alloc` and `dlmalloc` while inbetweening them in size, although your mileage will vary.
-
-If you'd like to see comparisons to other allocators in this space, consider creating a pull request or opening an issue.
+`Talc` provides a decent middleground by being faster than `lol_alloc` and `dlmalloc` (Rust WASM default) while inbetweening them in size. Although your mileage will vary, comparison tables are laid out below.
 
 ## Usage
 Set the global allocator in your project after running `cargo add talc` as follows:
 
 ```rust
-#[global_allocator] static TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+/// SAFETY:
+/// The runtime environment must be single-threaded WASM.
+///
+/// Note: calls to memory.grow during use of the allocator is allowed.
+#[global_allocator]
+static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 ```
 
-Make sure that you have the `lock_api` feature enabled! 
-- e.g. using stable Rust, in your `Cargo.toml`: `talc = { version = "3", default-features = false, features = ["lock_api"] }`
+Config features:
+- If default features are disabled, make sure to enable `"lock_api"`.
+- Turn on `"counters"` for allocation statistics accessible via `ALLOCATOR.lock().get_counters()`
+- You can turn off default features to remove `"nightly_api"`, allowing stable Rust builds.
 
-Note, this disables `nightly_api`, which isn't used in this API, allowing use of stable Rust.
+    `default-features = false, features = ["lock_api"]`
 
 ## Relative WASM Binary Size
 
-Rough measurements of allocator size for relative comparison using `wasm_size.sh` and `wasm-size`.
+Rough measurements of allocator size for relative comparison using `wasm-size.sh` + `/wasm-size`.
 
 | Allocator | Size (bytes) - lower is better |
 | --------- | ----- |
-| lol_alloc | 18333 |
-| talc      | 22017 |
-| dlmalloc  | 23935 |
+| lol_alloc | 15689 |
+| talc      | 19228 |
+| dlmalloc (default) | 21316 |
 
 ## WASM Benchmarks
 
-Rough allocator benchmarks for comparison from [this project](https://github.com/SFBdragon/wasm-alloc-bench).
+Rough measurements of allocator speed for relative comparison using `wasm-bench.sh` + `/wasm-bench`.
 
 | Allocator | Average Time per 100000 actions (ms) - lower is better |
-|-----------|--------------|
-| talc      | 14.9         |
-| dlmalloc  | 17.6         |
-| lol_alloc | 35.4         |
+|-----------|-----|
+| talc | 15.86 |
+| dlmalloc (default) | 18.84 |
+| lol_alloc | 34.26 |
 
+
+
+If you'd like to see comparisons to other allocators in this space, consider creating a pull request or opening an issue.

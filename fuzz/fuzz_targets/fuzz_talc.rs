@@ -3,7 +3,7 @@
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 
-use std::alloc::{Layout, GlobalAlloc};
+use std::alloc::{alloc, dealloc, GlobalAlloc, Layout};
 use std::ptr;
 
 use talc::*;
@@ -30,11 +30,10 @@ enum Actions {
 use Actions::*;
 
 fuzz_target!(|actions: Vec<Actions>| {
-
     let allocator = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-    
+
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
-    let mut heaps: Vec<(Span, Span)> = vec![];
+    let mut heaps: Vec<(*mut u8, Layout, Span)> = vec![];
 
     for action in actions {
         match action {
@@ -82,18 +81,22 @@ fuzz_target!(|actions: Vec<Actions>| {
                 if capacity == 0 { continue; }
 
                 let capacity = capacity as usize;
-                let mem = Span::from(Box::leak(vec![0u8; capacity].into_boxed_slice()));
+
+                let mem_layout = Layout::from_size_align(capacity, 1).unwrap();
+                let mem = unsafe { alloc(mem_layout) };
+                assert!(!mem.is_null());
 
                 let size = size as usize % capacity;
                 let offset = if size == capacity { 0 } else { offset as usize % (capacity - size) };
 
-                let heap = mem.truncate(offset, capacity - size + offset);
+                let heap = Span::from_base_size(mem, mem_layout.size())
+                    .truncate(offset, capacity - size + offset);
                 let heap = unsafe { allocator.lock().claim(heap) };
 
                 if let Ok(heap) = heap {
-                    heaps.push((heap, mem));
+                    heaps.push((mem, mem_layout, heap));
                 } else {
-                    drop(unsafe { Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()) });
+                    unsafe { dealloc(mem, mem_layout); }
                 }
             },
             Extend { index, low, high } => {
@@ -102,12 +105,13 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let index = index as usize;
                 if index >= heaps.len() { continue; }
 
-                let (old_heap, mem) = heaps[index];
+                let (mem, mem_layout, old_heap) = heaps[index];
 
-                let new_heap = old_heap.extend(low as usize, high as usize).fit_within(mem);
+                let new_heap = old_heap.extend(low as usize, high as usize)
+                    .fit_within(Span::from_base_size(mem, mem_layout.size()));
                 let new_heap = unsafe { allocator.lock().extend(old_heap, new_heap) };
 
-                heaps[index].0 = new_heap;
+                heaps[index].2 = new_heap;
             },
             Truncate { index, low, high } => {
                 //eprintln!("TRUNCATE | low: {} high: {} old arena {}", low, high, allocator.talc().get_arena());
@@ -115,21 +119,20 @@ fuzz_target!(|actions: Vec<Actions>| {
                 let index = index as usize;
                 if index >= heaps.len() { continue; }
 
-                let (old_heap, _) = heaps[index];
+                let old_heap = heaps[index].2;
 
                 let mut talc = allocator.lock();
 
                 let new_heap = old_heap
                     .truncate(low as usize, high as usize)
                     .fit_over(unsafe { talc.get_allocated_span(old_heap) });
-
                 let new_heap = unsafe { talc.truncate(old_heap, new_heap) };
 
                 if new_heap.is_empty() {
-                    let (_, mem) = heaps.swap_remove(index);
-                    drop(unsafe { Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()) });
+                    let (mem, mem_layout, _) = heaps.swap_remove(index);
+                    unsafe { dealloc(mem, mem_layout); }
                 } else {
-                    heaps[index].0 = new_heap;
+                    heaps[index].2 = new_heap;
                 }
             }
         }
@@ -142,9 +145,7 @@ fuzz_target!(|actions: Vec<Actions>| {
     }
 
     // drop the remaining heaps
-    for (_, mem) in heaps {
-        unsafe {
-            drop(Vec::from_raw_parts(mem.get_base_acme().unwrap().0, 0, mem.size()));
-        }
+    for (mem, mem_layout, _) in heaps {
+        unsafe { dealloc(mem, mem_layout); }
     }
 });

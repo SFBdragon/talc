@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use crate::{align_down, align_up, ALIGN};
+use crate::ptr_utils::*;
 
 /// Represents an interval of memory `[base, acme)`
 ///
@@ -11,7 +11,7 @@ use crate::{align_down, align_up, ALIGN};
 /// the specific values of `base` and `acme` are considered meaningless.
 /// * Empty spans contain nothing and overlap with nothing.
 /// * Empty spans are contained by any sized span.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash)]
 pub struct Span {
     base: *mut u8,
     acme: *mut u8,
@@ -27,10 +27,7 @@ impl Default for Span {
 
 impl core::fmt::Debug for Span {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.get_base_acme() {
-            Some((base, acme)) => f.write_fmt(format_args!("{:p}..{:p}", base, acme)),
-            None => f.write_str("Empty Span"),
-        }
+        f.write_fmt(format_args!("{:p}..[{}]..{:p}", self.base, self.size(), self.acme))
     }
 }
 

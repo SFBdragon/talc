@@ -50,11 +50,18 @@ def plot_benchmark(filename):
     for k,v in data.items():
         plt.plot(xaxis, v, label=k)
         yvalues.append(v)
+
     plt.legend()
-    test_name = filename[len(BENCHMARK_RESULTS_DIR): filename.find('.csv')]    
-    plt.title(test_name)
+    test_name = filename[len(BENCHMARK_RESULTS_DIR): filename.find('.csv')]
+
+    if test_name == "random_actions":
+        plt.title("Random Actions Benchmark")
+    else:
+        plt.title(test_name)
+
     plt.xlabel('time (seconds)\n')
     plt.ylabel('score')
+    plt.gca().set_ylim(bottom=0)
     
     full_diff_str = ''
     

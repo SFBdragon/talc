@@ -2,16 +2,18 @@
 
 # This script calculates a weight heurisitic for WASM allocators.
 
-# run `./wasm_size.sh` to measure talc's size
-# run `./wasm_size.sh xyz`, where xyz is lol_alloc or dlmalloc 
-#  to measure their size contribution respectively.
-
 cd wasm-size
 
-if [ $# = 1 ]; then
-    cargo build --release --target wasm32-unknown-unknown --features $1
-else
-    cargo build --release --target wasm32-unknown-unknown
-fi
+echo "talc"
+cargo build --quiet --release --target wasm32-unknown-unknown
+wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
 
+echo ""
+echo "dlmalloc (default)"
+cargo build --quiet --release --target wasm32-unknown-unknown --features dlmalloc
+wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
+
+echo ""
+echo "lol_alloc"
+cargo build --quiet --release --target wasm32-unknown-unknown --features lol_alloc
 wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm

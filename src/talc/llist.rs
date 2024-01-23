@@ -10,7 +10,7 @@ use core::ptr::NonNull;
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
 #[derive(Debug)]
 #[repr(C)]
-pub(crate) struct LlistNode {
+pub struct LlistNode {
     pub next: Option<NonNull<LlistNode>>,
     pub next_of_prev: *mut Option<NonNull<LlistNode>>,
 }

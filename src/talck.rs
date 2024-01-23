@@ -1,9 +1,11 @@
-use crate::{OomHandler, Talc};
+//! Home of Talck, a mutex-locked wrapper of Talc.
+
+use crate::{talc::Talc, OomHandler};
 
 use core::{
     alloc::{GlobalAlloc, Layout},
     cmp::Ordering,
-    ptr::{self, NonNull},
+    ptr::{NonNull, null_mut},
 };
 
 #[cfg(feature = "allocator")]
@@ -22,29 +24,38 @@ pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
 /// let talc = Talc::new(ErrOnOom);
 /// let talck = talc.lock::<spin::Mutex<()>>();
 /// ```
-#[derive(Debug)]
-pub struct Talck<R: lock_api::RawMutex, O: OomHandler>(lock_api::Mutex<R, Talc<O>>);
+// #[derive(Debug)] TODO
+pub struct Talck<R: lock_api::RawMutex, O: OomHandler> {
+    mutex: lock_api::Mutex<R, Talc<O>>
+}
 
 impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
     /// Create a new `Talck`.
     pub const fn new(talc: Talc<O>) -> Self {
-        Self(lock_api::Mutex::new(talc))
+        Self {
+            mutex: lock_api::Mutex::new(talc),
+        }
     }
 
     /// Lock the mutex and access the inner `Talc`.
-    pub fn lock(&self) -> lock_api::MutexGuard<'_, R, Talc<O>> {
-        self.0.lock()
+    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<O>> {
+        self.mutex.lock()
+    }
+
+    /// Try to lock the mutex and access the inner `Talc`.
+    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<O>>> {
+        self.mutex.try_lock()
     }
 
     /// Retrieve the inner `Talc`.
     pub fn into_inner(self) -> Talc<O> {
-        self.0.into_inner()
+        self.mutex.into_inner()
     }
 }
 
 unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.lock().malloc(layout).map_or(ptr::null_mut(), |nn: _| nn.as_ptr())
+        self.lock().malloc(layout).map_or(null_mut(), |nn| nn.as_ptr())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -56,7 +67,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
             Ordering::Less => self
                 .lock()
                 .grow(NonNull::new_unchecked(ptr), layout, new_size)
-                .map_or(ptr::null_mut(), |nn| nn.as_ptr()),
+                .map_or(null_mut(), |nn| nn.as_ptr()),
 
             Ordering::Greater => {
                 self.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
@@ -103,7 +114,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
             talc.free(ptr, old_layout);
             Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()))
         } else {
-            self.0
+            self.mutex
                 .lock()
                 .grow(ptr, old_layout, new_layout.size())
                 .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
@@ -156,3 +167,42 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }
 }
+
+impl<O: OomHandler> Talc<O> {
+    /// Wrap in `Talck`, a mutex-locked wrapper struct using [`lock_api`].
+    ///
+    /// This implements the [`GlobalAlloc`](core::alloc::GlobalAlloc) trait and provides
+    /// access to the [`Allocator`](core::alloc::Allocator) API.
+    ///
+    /// # Examples
+    /// ```
+    /// # use talc::*;
+    /// # use core::alloc::{GlobalAlloc, Layout};
+    /// use spin::Mutex;
+    /// let talc = Talc::new(ErrOnOom);
+    /// let talck = talc.lock::<Mutex<()>>();
+    ///
+    /// unsafe {
+    ///     talck.alloc(Layout::from_size_align_unchecked(32, 4));
+    /// }
+    /// ```
+    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O> {
+        Talck::new(self)
+    }
+}
+
+#[cfg(all(target_family = "wasm"))]
+impl TalckWasm {
+    /// Create a [`Talck`] instance that takes control of WASM memory management.
+    ///
+    /// # Safety
+    /// The runtime environment must be single-threaded WASM.
+    ///
+    /// Note: calls to memory.grow during use of the allocator is allowed.
+    pub const unsafe fn new_global() -> Self {
+        Talc::new(crate::WasmHandler::new()).lock()
+    }
+}
+
+#[cfg(all(target_family = "wasm"))]
+pub type TalckWasm = Talck<crate::locking::AssumeUnlockable, crate::WasmHandler>;

@@ -1,14 +1,19 @@
-//! Lock implementations for use with `Talck`.
-//!
-//! Note, at the moment this only contains [`AssumeUnlockable`] which is not recommended in general.
-//!
-//! Use of the `spin` crate's mutex with `Talck` is a good default.
+//! Note this only contains [`AssumeUnlockable`] which is not generally recommended.
+//! Use of the `spin` crate's mutex with [`Talck`](crate::Talc) is a good default.
 
-/// A dummy RawMutex implementation to skip synchronization on single threaded systems.
+/// #### WARNING: [`AssumeUnlockable`] may cause undefined behaviour without `unsafe` code!
+/// 
+/// A dummy [`RawMutex`](lock_api::RawMutex) implementation to skip synchronization on single threaded systems.
 ///
 /// # Safety
-/// This is very unsafe and may cause undefined behaviour if multiple threads enter
-/// a critical section syncronized by this, even without explicit unsafe code.
+/// [`AssumeUnlockable`] is highly unsafe and may cause undefined behaviour if multiple 
+/// threads enter a critical section it guards, even without explicit unsafe code.
+/// 
+/// Note that uncontended spin locks are cheap. Usage is only recommended on 
+/// platforms that don't have atomics or are exclusively single threaded.
+/// 
+/// Through no fault of its own, `lock_api`'s API does not allow for safe 
+/// encapsulation of this functionality. This is a hack for backwards compatibility.
 pub struct AssumeUnlockable;
 
 // SAFETY: nope
