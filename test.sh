@@ -39,6 +39,9 @@ cargo check --target wasm32-unknown-unknown
 cargo check --target wasm32-unknown-unknown --features lol_alloc
 cargo check --target wasm32-unknown-unknown --features dlmalloc
 
+# guard MSRV
+rustup run 1.68 cargo check --target wasm32-unknown-unknown
+
 cd -
 
 cd wasm-bench
@@ -46,5 +49,8 @@ cd wasm-bench
 wasm-pack --log-level warn build --dev --target web
 wasm-pack --log-level warn build --dev --target web --features talc
 wasm-pack --log-level warn build --dev --target web --features lol_alloc
+
+# guard MSRV
+rustup run 1.67.1 wasm-pack --log-level warn build --dev --target web
 
 cd -
