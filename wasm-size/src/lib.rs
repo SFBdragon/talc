@@ -7,9 +7,18 @@ use core::alloc::Layout;
 #[cfg(not(target_family = "wasm"))]
 compile_error!("Requires targetting WASM");
 
-#[cfg(not(any(feature = "dlmalloc", feature = "lol_alloc")))]
+#[cfg(not(any(feature = "dlmalloc", feature = "lol_alloc", feature = "talc_static")))]
 #[global_allocator]
 static TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+
+#[cfg(feature = "talc_static")]
+#[global_allocator]
+static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
+    static mut MEMORY: [core::mem::MaybeUninit<u8>; 128 * 1024 * 1024] =
+        [core::mem::MaybeUninit::uninit(); 128 * 1024 * 1024];
+    let span = talc::Span::from_base_size(unsafe { MEMORY.as_ptr() as *mut _ }, 128 * 1024 * 1024);
+    talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
+};
 
 #[cfg(feature = "lol_alloc")]
 #[global_allocator] 
