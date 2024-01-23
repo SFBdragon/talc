@@ -245,7 +245,7 @@ If you find the project useful, please consider donating: [Paypal](https://www.p
 
 - Added optional tracking of allocation metrics. Thanks [Ken Hoover](https://github.com/khoover) for the suggestion!
     - Enable the `"counters"` feature. Access the data via `talc.get_counters()`
-    - Metrics include allocation count, bytes available, fragmentation, overhead, and [more](https://docs.rs/talc/latest/talc/struct.Span.html)
+    - Metrics include allocation count, bytes available, fragmentation, overhead, and more.
 - Improvements to documentation
 - Improved and updated benchmarks
 - Integrated the WASM performance benchmark into the project. Use `wasm-bench.sh` to run (requires _wasm-pack_ and _deno_)
