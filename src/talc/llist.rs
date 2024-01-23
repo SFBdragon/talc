@@ -81,7 +81,7 @@ impl LlistNode {
 /// This `struct` is created by `LlistNode::iter_mut`. See its documentation for more.
 #[derive(Debug, Clone, Copy)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub(crate) struct IterMut(Option<NonNull<LlistNode>>);
+pub struct IterMut(Option<NonNull<LlistNode>>);
 
 impl IterMut {
     /// Create a new iterator over the linked list from `first`.

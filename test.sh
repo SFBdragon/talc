@@ -24,6 +24,9 @@ rustup default nightly
 cargo check
 cargo check --no-default-features
 
+# check whether MSRV has been broken
+rustup run 1.67.1 cargo check --no-default-features --features lock_api,counters
+
 # both examples and docs contain things that miri isn't a fan of
 # cargo miri test --doc
 

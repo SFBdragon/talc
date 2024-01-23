@@ -70,11 +70,11 @@ unsafe fn gap_acme_to_base_size(acme: *mut u8) -> (*mut u8, usize) {
 }
 #[inline]
 unsafe fn gap_node_to_base(node: NonNull<LlistNode>) -> *mut u8 {
-    node.as_ptr().byte_sub(GAP_NODE_OFFSET).cast()
+    node.as_ptr().cast::<u8>().sub(GAP_NODE_OFFSET).cast()
 }
 #[inline]
 unsafe fn gap_node_to_size(node: NonNull<LlistNode>) -> *mut usize {
-    node.as_ptr().byte_sub(GAP_NODE_OFFSET).byte_add(GAP_LOW_SIZE_OFFSET).cast()
+    node.as_ptr().cast::<u8>().sub(GAP_NODE_OFFSET).add(GAP_LOW_SIZE_OFFSET).cast()
 }
 #[inline]
 unsafe fn is_gap_below(acme: *mut u8) -> bool {

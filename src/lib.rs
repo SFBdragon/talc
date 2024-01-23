@@ -19,10 +19,9 @@ mod oom_handler;
 mod ptr_utils;
 
 #[cfg(feature = "lock_api")]
-pub mod locking;
-
-#[cfg(feature = "lock_api")]
 mod talck;
+#[cfg(feature = "lock_api")]
+pub mod locking;
 
 
 pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
