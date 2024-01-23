@@ -57,7 +57,6 @@ unsafe impl Allocator for BuddyAllocator {
     }
 }
 
-// Dlmalloc doesn't implement Allocator
 struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc<DlmallocArena>>);
 
 unsafe impl Allocator for DlMallocator {

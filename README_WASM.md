@@ -29,7 +29,7 @@ Rough measurements of allocator size for relative comparison using `wasm-size.sh
 | --------- | ----- |
 | lol_alloc | 15689 |
 | talc      | 19228 |
-| dlmalloc (default) | 21316 |
+| dlmalloc (default) | 21317 |
 
 ## WASM Benchmarks
 

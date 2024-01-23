@@ -4,12 +4,12 @@ extern crate alloc;
 
 use core::alloc::Layout;
 
-#[cfg(not(target_arch = "wasm32"))]
-compile_error!("Requires --target wasm32-unknown-unknown");
+#[cfg(not(target_family = "wasm"))]
+compile_error!("Requires targetting WASM");
 
 #[cfg(not(any(feature = "dlmalloc", feature = "lol_alloc")))]
 #[global_allocator]
-static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+static TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
 #[cfg(feature = "lol_alloc")]
 #[global_allocator] 
@@ -17,35 +17,8 @@ static LOL_ALLOC: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> 
     unsafe { lol_alloc::AssumeSingleThreaded::new(lol_alloc::FreeListAllocator::new()) };
 
 #[cfg(feature = "dlmalloc")]
-mod dlmalloc {
-    use alloc::alloc::Layout;
-    use dlmalloc::Dlmalloc;
-    use alloc::alloc::GlobalAlloc;
-
-    #[global_allocator]
-    static ALLOC: DlMallocator = DlMallocator(lock_api::Mutex::new(Dlmalloc::new()));
-    
-
-    struct DlMallocator(lock_api::Mutex::<talc::locking::AssumeUnlockable, Dlmalloc>);
-
-    unsafe impl GlobalAlloc for DlMallocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            self.0.lock().malloc(layout.size(), layout.align())
-        }
-    
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            self.0.lock().free(ptr, layout.size(), layout.align());
-        }
-    
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            self.0.lock().realloc(ptr, layout.size(), layout.align(), new_size)
-        }
-    
-        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            self.0.lock().calloc(layout.size(), layout.align())
-        }
-    }    
-}
+#[global_allocator]
+static DLMALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 // this is necessary, despite rust-analyzer's protests
 #[panic_handler]
