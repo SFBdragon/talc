@@ -133,7 +133,7 @@ High-Pressure Allocs |       63   13356   28938   47439   68985   93555  121443 
             Deallocs |       42    1701    4620    8589   13860   21609   35133   64554  210252 |   26608   (ticks)
 ```
 
-\* The reason Buddy Allocator appears so much better here than in Random Actions is that reallocation effeciency is not measured at all.
+\* The reason Buddy Allocator appears so much better here than in Random Actions is that reallocation efficiency is not measured at all.
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case, while in-place reallocations and deallocations are O(1). In practice, it's speedy.
