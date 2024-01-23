@@ -10,8 +10,8 @@ rustup run nightly wasm-pack --log-level warn build --release --quiet --target w
 deno run --allow-read bench.js
 
 echo ""
-echo "talc (static)"
-rustup run nightly wasm-pack --log-level warn build --release --quiet --target web --features talc_static
+echo "talc (static ClaimOnOom)"
+rustup run nightly wasm-pack --log-level warn build --release --quiet --target web --features talc_claim_oom
 deno run --allow-read bench.js
 
 echo ""
