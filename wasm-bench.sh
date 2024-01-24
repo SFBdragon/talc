@@ -10,6 +10,11 @@ wasm-pack --log-level warn build --release --quiet --target web --features talc
 deno run --allow-read bench.js
 
 echo ""
+echo "talc (static ClaimOnOom)"
+wasm-pack --log-level warn build --release --quiet --target web --features talc_claim_oom
+deno run --allow-read bench.js
+
+echo ""
 echo "dlmalloc (default)"
 wasm-pack --log-level warn build --release --quiet --target web
 deno run --allow-read bench.js

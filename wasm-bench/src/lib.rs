@@ -3,9 +3,19 @@ use std::alloc::Layout;
 use wasm_bindgen::prelude::*;
 
 
-#[cfg(feature = "talc")]
+#[cfg(all(feature = "talc", not(feature = "talc_claim_oom")))]
 #[global_allocator]
 static TALCK: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+
+#[cfg(feature = "talc_claim_oom")]
+#[global_allocator]
+static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
+    const MEMORY_SIZE: usize = 32 * 1024 * 1024;
+    static mut MEMORY: [std::mem::MaybeUninit<u8>; MEMORY_SIZE] =
+        [std::mem::MaybeUninit::uninit(); MEMORY_SIZE];
+    let span = talc::Span::from_base_size(unsafe { MEMORY.as_ptr() as *mut _ }, MEMORY_SIZE);
+    talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
+};
 
 #[cfg(feature = "lol_alloc")]
 #[global_allocator] static ALLOC: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> = 

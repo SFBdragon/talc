@@ -9,6 +9,11 @@ cargo build --quiet --release --target wasm32-unknown-unknown
 wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
 
 echo ""
+echo "talc (static)"
+cargo build --quiet --release --target wasm32-unknown-unknown --features talc_static
+wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
+
+echo ""
 echo "dlmalloc (default)"
 cargo build --quiet --release --target wasm32-unknown-unknown --features dlmalloc
 wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm

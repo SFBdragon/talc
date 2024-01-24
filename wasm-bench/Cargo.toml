@@ -28,3 +28,6 @@ wasm-bindgen-test = "0.3.34"
 # be realistic about the optimization configuration, even if it's a benchmark
 [profile.release]
 opt-level = "z"
+
+[features]
+talc_claim_oom = ["talc"]
