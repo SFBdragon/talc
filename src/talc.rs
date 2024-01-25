@@ -501,13 +501,41 @@ impl<O: OomHandler> Talc<O> {
     pub unsafe fn grow(
         &mut self,
         ptr: NonNull<u8>,
-        layout: Layout,
+        old_layout: Layout,
         new_size: usize,
     ) -> Result<NonNull<u8>, ()> {
-        debug_assert!(new_size >= layout.size());
+
+        match self.grow_in_place(ptr, old_layout, new_size) {
+            Err(_) => {
+                // grow in-place failed; reallocate the slow way
+                let new_layout = Layout::from_size_align_unchecked(new_size, old_layout.align());
+                let allocation = self.malloc(new_layout)?;
+                allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), old_layout.size());
+                self.free(ptr, old_layout);
+    
+                Ok(allocation)
+            }
+            res => res,
+        }
+    }
+
+    /// Attempt to grow a previously allocated/reallocated region of memory to `new_size`.
+    /// 
+    /// Returns `Err` if reallocation could not occur in-place. 
+    /// Ownership of the memory remains with the caller.
+    /// # Safety
+    /// `ptr` must have been previously allocated or reallocated given `layout`.
+    /// `new_size` must be larger or equal to `layout.size()`.
+    pub unsafe fn grow_in_place(
+        &mut self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_size: usize,
+    ) -> Result<NonNull<u8>, ()> {
+        debug_assert!(new_size >= old_layout.size());
         self.scan_for_errors();
 
-        let old_post_alloc_ptr = align_up(ptr.as_ptr().add(layout.size()));
+        let old_post_alloc_ptr = align_up(ptr.as_ptr().add(old_layout.size()));
         let new_post_alloc_ptr = align_up(ptr.as_ptr().add(new_size));
 
         if old_post_alloc_ptr == new_post_alloc_ptr {
@@ -517,12 +545,12 @@ impl<O: OomHandler> Talc<O> {
             // min alloc size (1) rounded up to (WORD) + post_alloc_ptr (WORD) + new_tag_ptr (WORD) >= MIN_CHUNK_SIZE
 
             #[cfg(feature = "counters")]
-            self.counters.account_grow_in_place(layout.size(), new_size);
+            self.counters.account_grow_in_place(old_layout.size(), new_size);
 
             return Ok(ptr);
         }
 
-        let (tag_ptr, tag) = tag_from_alloc_ptr(ptr.as_ptr(), layout.size());
+        let (tag_ptr, tag) = tag_from_alloc_ptr(ptr.as_ptr(), old_layout.size());
 
         // tag_ptr may be greater where extra free space needed to be reserved
         if new_post_alloc_ptr <= tag_ptr {
@@ -531,7 +559,7 @@ impl<O: OomHandler> Talc<O> {
             }
 
             #[cfg(feature = "counters")]
-            self.counters.account_grow_in_place(layout.size(), new_size);
+            self.counters.account_grow_in_place(old_layout.size(), new_size);
 
             return Ok(ptr);
         }
@@ -567,20 +595,13 @@ impl<O: OomHandler> Talc<O> {
                 }
 
                 #[cfg(feature = "counters")]
-                self.counters.account_grow_in_place(layout.size(), new_size);
+                self.counters.account_grow_in_place(old_layout.size(), new_size);
 
                 return Ok(ptr);
             }
         }
 
-        // grow in-place failed; reallocate the slow way
-
-        let new_layout = Layout::from_size_align_unchecked(new_size, layout.align());
-        let allocation = self.malloc(new_layout)?;
-        allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), layout.size());
-        self.free(ptr, layout);
-
-        Ok(allocation)
+        Err(())
     }
 
     /// Shrink a previously allocated/reallocated region of memory to `new_size`.

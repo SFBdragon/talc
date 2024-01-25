@@ -6,20 +6,15 @@ use talc::*;
 
 static mut START_ARENA: [u8; 10000] = [0; 10000];
 
-#[global_allocator]
 // The mutex provided by the `spin` crate is used here as it's a sensible choice
-static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> =
-    // Allocations may occur prior to the execution of `main()`, thus support for
-    // claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
-    Talc::new(unsafe {
-        ClaimOnOom::new(
-            Span::from_base_size(std::ptr::addr_of!(START_ARENA) as *mut _, 10000), 
-            
-            // A better alternative, but requires the unstable attribute #[feature(const_mut_refs)]
-            // Span::from_array(&mut START_ARENA)
-        )
-    })
-    .lock();
+
+// Allocations may occur prior to the execution of `main()`, thus support for
+// claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
+
+#[global_allocator]
+static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
+        ClaimOnOom::new(Span::from_const_array(std::ptr::addr_of!(START_ARENA)))
+    }).lock();
 
 fn main() {
     let mut vec = Vec::with_capacity(100);

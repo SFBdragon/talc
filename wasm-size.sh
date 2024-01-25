@@ -2,23 +2,24 @@
 
 # This script calculates a weight heurisitic for WASM allocators.
 
+
+COMMAND=""
+if [[ $1 == "check" ]]; then
+    COMMAND="check"
+else
+    COMMAND="build"
+fi
+
 cd wasm-size
 
-echo "talc"
-cargo build --quiet --release --target wasm32-unknown-unknown
-wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
+ALLOCATORS="talc talc_arena dlmalloc lol_alloc"
+for ALLOCATOR in ${ALLOCATORS}; do
+    echo "${ALLOCATOR}"
+    cargo $COMMAND --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
 
-echo ""
-echo "talc (static)"
-cargo build --quiet --release --target wasm32-unknown-unknown --features talc_static
-wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
-
-echo ""
-echo "dlmalloc (default)"
-cargo build --quiet --release --target wasm32-unknown-unknown --features dlmalloc
-wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
-
-echo ""
-echo "lol_alloc"
-cargo build --quiet --release --target wasm32-unknown-unknown --features lol_alloc
-wc -c ./target/wasm32-unknown-unknown/release/wasm_size.wasm
+    if [[ $1 != "check" ]]; then
+        wasm-opt -Oz -o target/wasm32-unknown-unknown/release/wasm_size_opt.wasm target/wasm32-unknown-unknown/release/wasm_size.wasm
+        echo -n "  "
+        wc -c ./target/wasm32-unknown-unknown/release/wasm_size_opt.wasm
+    fi
+done

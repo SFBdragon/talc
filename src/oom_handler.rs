@@ -84,14 +84,15 @@ impl OomHandler for WasmHandler {
         let mut delta_pages = (required + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
         let prev = 'prev: {
-            // this performs a scan, trying to find a smaller possible
-            // growth if the previous one was unsuccessful. return
-            // any successful allocated to memory, and try again.
+            // This performs a scan, trying to find a smaller possible
+            // growth if the previous one was unsuccessful. Return
+            // any successful allocated to memory.
+            // If not quite enough, talc will invoke handle_oom again.
 
             // if we're about to fail because of allocation failure
             // we may as well try as hard as we can to probe what's permissable
             // which can be done with a log2(n)-ish algorithm
-            // (factoring in repeated called to oom_handler)
+            // (factoring in repeated called to handle_oom)
             while delta_pages != 0 {
                 // use `core::arch::wasm` instead once it doesn't
                 // require the unstable feature wasm_simd64?

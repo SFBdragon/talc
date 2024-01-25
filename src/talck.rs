@@ -16,6 +16,8 @@ pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
     (ptr as usize).trailing_zeros() >= align.trailing_zeros()
 }
 
+const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x10000;
+
 /// Talc lock, contains a mutex-locked [`Talc`].
 ///
 /// # Example
@@ -24,7 +26,7 @@ pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
 /// let talc = Talc::new(ErrOnOom);
 /// let talck = talc.lock::<spin::Mutex<()>>();
 /// ```
-// #[derive(Debug)] TODO
+#[derive(Debug)]
 pub struct Talck<R: lock_api::RawMutex, O: OomHandler> {
     mutex: lock_api::Mutex<R, Talc<O>>
 }
@@ -62,15 +64,41 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
         self.lock().free(NonNull::new_unchecked(ptr), layout)
     }
 
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        match layout.size().cmp(&new_size) {
-            Ordering::Less => self
-                .lock()
-                .grow(NonNull::new_unchecked(ptr), layout, new_size)
-                .map_or(null_mut(), |nn| nn.as_ptr()),
+    unsafe fn realloc(&self, ptr: *mut u8, old_layout: Layout, new_size: usize) -> *mut u8 {
+        let nn_ptr = NonNull::new_unchecked(ptr);
 
+        match new_size.cmp(&old_layout.size()) {
             Ordering::Greater => {
-                self.lock().shrink(NonNull::new_unchecked(ptr), layout, new_size);
+                // first try to grow in-place before manually re-allocating
+
+                if let Ok(nn) = self.lock().grow_in_place(nn_ptr, old_layout, new_size) {
+                    return nn.as_ptr();
+                }
+
+                // grow in-place failed, reallocate manually
+
+                let new_layout = Layout::from_size_align_unchecked(new_size, old_layout.align());
+
+                let mut lock = self.lock();
+                let allocation = match lock.malloc(new_layout) {
+                    Ok(ptr) => ptr,
+                    Err(_) => return null_mut(),
+                };
+                
+                if old_layout.size() > RELEASE_LOCK_ON_REALLOC_LIMIT {
+                    drop(lock);
+                    allocation.as_ptr().copy_from_nonoverlapping(ptr, old_layout.size());
+                    lock = self.lock();
+                } else {
+                    allocation.as_ptr().copy_from_nonoverlapping(ptr, old_layout.size());
+                }
+
+                lock.free(nn_ptr, old_layout);
+                allocation.as_ptr()
+            }
+
+            Ordering::Less => {
+                self.lock().shrink(NonNull::new_unchecked(ptr), old_layout, new_size);
                 ptr
             }
 
@@ -107,19 +135,29 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
 
         if old_layout.size() == 0 {
             return self.allocate(new_layout);
-        } else if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let mut talc = self.lock();
-            let allocation = talc.malloc(new_layout).map_err(|_| AllocError)?;
-            allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            talc.free(ptr, old_layout);
-            Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()))
-        } else {
-            self.mutex
-                .lock()
-                .grow(ptr, old_layout, new_layout.size())
-                .map(|nn| NonNull::slice_from_raw_parts(nn, new_layout.size()))
-                .map_err(|_| AllocError)
+        } else if is_aligned_to(ptr.as_ptr(), new_layout.align()) {
+            // alignment is fine, try to allocate in-place
+            if let Ok(nn) = self.lock().grow_in_place(ptr, old_layout, new_layout.size()) {
+                return Ok(NonNull::slice_from_raw_parts(nn, new_layout.size()));
+            }
         }
+
+        // can't grow in place, reallocate manually
+
+        let mut lock = self.lock();
+        let allocation = lock.malloc(new_layout).map_err(|_| AllocError)?;
+
+        if old_layout.size() > RELEASE_LOCK_ON_REALLOC_LIMIT {
+            drop(lock);
+            allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), old_layout.size());
+            lock = self.lock();
+        } else {
+            allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), old_layout.size());
+        }
+
+        lock.free(ptr, old_layout);
+
+        Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()))
     }
 
     unsafe fn grow_zeroed(
@@ -131,7 +169,9 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         let res = self.grow(ptr, old_layout, new_layout);
 
         if let Ok(allocation) = res {
-            (allocation.as_ptr() as *mut u8)
+            allocation
+                .as_ptr()
+                .cast::<u8>()
                 .add(old_layout.size())
                 .write_bytes(0, new_layout.size() - old_layout.size());
         }
@@ -156,9 +196,18 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         }
 
         if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
-            let allocation = self.lock().malloc(new_layout).map_err(|_| AllocError)?;
-            allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
-            self.lock().free(ptr, old_layout);
+            let mut lock = self.lock();
+            let allocation = lock.malloc(new_layout).map_err(|_| AllocError)?;
+
+            if new_layout.size() > RELEASE_LOCK_ON_REALLOC_LIMIT {
+                drop(lock);
+                allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
+                lock = self.lock();
+            } else {
+                allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), new_layout.size());
+            }
+
+            lock.free(ptr, old_layout);
             return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
         }
 

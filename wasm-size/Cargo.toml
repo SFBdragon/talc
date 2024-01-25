@@ -10,16 +10,15 @@ crate-type = ["cdylib"]
 [dependencies]
 lol_alloc = { version = "0.4.0", optional = true }
 dlmalloc = { version = "0.2.4", features = ["global"], optional = true }
-lock_api = "0.4.10"
 
 [dependencies.talc]
 path = ".."
 default-features = false
 features = ["lock_api"]
+optional = true
 
 [features]
-default = []
-talc_static = []
+talc_arena = ["talc"]
 
 [profile.release]
 opt-level = "z"

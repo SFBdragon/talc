@@ -3,17 +3,17 @@ use std::alloc::Layout;
 use wasm_bindgen::prelude::*;
 
 
-#[cfg(all(feature = "talc", not(feature = "talc_claim_oom")))]
+#[cfg(all(feature = "talc", not(feature = "talc_arena")))]
 #[global_allocator]
 static TALCK: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
-#[cfg(feature = "talc_claim_oom")]
+
+#[cfg(feature = "talc_arena")]
 #[global_allocator]
 static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
-    const MEMORY_SIZE: usize = 32 * 1024 * 1024;
-    static mut MEMORY: [std::mem::MaybeUninit<u8>; MEMORY_SIZE] =
-        [std::mem::MaybeUninit::uninit(); MEMORY_SIZE];
-    let span = talc::Span::from_base_size(unsafe { MEMORY.as_ptr() as *mut _ }, MEMORY_SIZE);
+    static mut MEMORY: [std::mem::MaybeUninit<u8>; 32 * 1024 * 1024]
+        = [std::mem::MaybeUninit::uninit(); 32 * 1024 * 1024];
+    let span = talc::Span::from_const_array(unsafe { std::ptr::addr_of!(MEMORY) });
     talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
 };
 
@@ -28,31 +28,37 @@ extern "C" {
     fn log(s: &str);
 }
 
+const ACTIONS: usize = 100000;
+const ITERATIONS: usize = 100;
+
 #[wasm_bindgen]
 pub fn bench() {
     console_error_panic_hook::set_once();
 
-    let iterations = 100;
     let timer = web_sys::window().unwrap().performance().unwrap();
 
     // warm up
-    random_actions_10_000_000();
+    random_actions();
 
     // go!
     let start = timer.now();
-    for _ in 0..iterations { random_actions_10_000_000(); }
+    for _ in 0..ITERATIONS { random_actions(); }
     let end = timer.now();
 
     // log durations
-    log(format!("total time: {} ms", end - start).as_str());
-    log(format!("average time: {} ms", (end - start) / iterations as f64).as_str());
+    let total_ms = end - start;
+    let average_ms = total_ms / ITERATIONS as f64;
+    let apms = ACTIONS as f64 / average_ms / 1000.0;
+    log(format!("  total time: {} ms", total_ms).as_str());
+    log(format!("  average time: {} ms", average_ms).as_str());
+    log(format!("  average actions/s: {:.1}", apms).as_str());
 }
 
-fn random_actions_10_000_000() {
+fn random_actions() {
     let mut score = 0;
     let mut v = Vec::with_capacity(10000);
 
-    while score < 100_000 {
+    while score < 100000 {
         let action = fastrand::usize(0..3);
 
         match action {

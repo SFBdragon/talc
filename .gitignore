@@ -4,6 +4,7 @@ target
 Cargo.lock
 
 pkg
+benchmark_results
 
 *.asm
 perf*

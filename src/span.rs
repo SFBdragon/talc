@@ -46,15 +46,33 @@ impl<T> From<Range<*mut T>> for Span {
     }
 }
 
+impl<T> From<Range<*const T>> for Span {
+    fn from(value: Range<*const T>) -> Self {
+        Self { base: value.start.cast_mut().cast(), acme: value.end.cast_mut().cast() }
+    }
+}
+
 impl<T> From<&mut [T]> for Span {
     fn from(value: &mut [T]) -> Self {
         Self::from(value.as_mut_ptr_range())
     }
 }
 
+impl<T> From<&[T]> for Span {
+    fn from(value: &[T]) -> Self {
+        Self::from(value.as_ptr_range())
+    }
+}
+
 impl<T, const N: usize> From<&mut [T; N]> for Span {
     fn from(value: &mut [T; N]) -> Self {
         Self::from(value as *mut [T; N])
+    }
+}
+
+impl<T, const N: usize> From<&[T; N]> for Span {
+    fn from(value: &[T; N]) -> Self {
+        Self::from(value as *const [T; N])
     }
 }
 
@@ -65,9 +83,22 @@ impl<T> From<*mut [T]> for Span {
     }
 }
 
+#[cfg(feature = "nightly_api")]
+impl<T> From<*const [T]> for Span {
+    fn from(value: *const [T]) -> Self {
+        Self::from_const_slice(value)
+    }
+}
+
 impl<T, const N: usize> From<*mut [T; N]> for Span {
     fn from(value: *mut [T; N]) -> Self {
         Self::from_array(value)
+    }
+}
+
+impl<T, const N: usize> From<*const [T; N]> for Span {
+    fn from(value: *const [T; N]) -> Self {
+        Self::from_array(value.cast_mut())
     }
 }
 
@@ -130,12 +161,33 @@ impl Span {
             base: slice as *mut T as *mut u8,
             // SAFETY: pointing directly after an object is considered
             // within the same object
-            acme: unsafe { (slice as *mut T as *mut u8).add(slice.len()).cast() },
+            acme: unsafe { (slice as *mut T).add(slice.len()).cast() },
+        }
+    }
+
+    #[cfg(feature = "nightly_api")]
+    #[inline]
+    pub const fn from_const_slice<T>(slice: *const [T]) -> Self {
+        Self {
+            base: slice as *mut T as *mut u8,
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { (slice as *mut T).add(slice.len()).cast() },
         }
     }
 
     #[inline]
     pub const fn from_array<T, const N: usize>(array: *mut [T; N]) -> Self {
+        Self {
+            base: array as *mut T as *mut u8,
+            // SAFETY: pointing directly after an object is considered
+            // within the same object
+            acme: unsafe { (array as *mut T).add(N).cast() },
+        }
+    }
+
+    #[inline]
+    pub const fn from_const_array<T, const N: usize>(array: *const [T; N]) -> Self {
         Self {
             base: array as *mut T as *mut u8,
             // SAFETY: pointing directly after an object is considered
