@@ -196,7 +196,7 @@ impl OomHandler for MyOomHandler {
 ## Stable Rust and MSRV
 Talc can be built on stable Rust by disabling `"allocator"` and `"nightly_api"`. The MSRV is 1.67.1.
 
-Disabling `"nightly_api"` makes `Span::from(*mut [T])` and `Span::from_slice` unavailable. See the [`std_global_allocator` example](examples/std_global_allocator.rs) for how to get around this restriction in certain contexts.
+Disabling `"nightly_api"` disables `Span::from(*mut [T])`, `Span::from(*const [T])`, `Span::from_const_slice` and `Span::from_slice`.
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
