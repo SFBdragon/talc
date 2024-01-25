@@ -2,7 +2,7 @@
 
 <sep>
 
-<sub>_If you'd like to support my work, a tip would be greatly appreciated via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!_</sub>
+<sub><i>If you'd like to support my work, a tip would be greatly appreciated via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!</i></sub>
 
 #### What is this for?
 - Embedded systems, OS kernels, and other `no_std` environments
@@ -10,11 +10,10 @@
 - Subsystems in normal programs that need especially quick arena allocation
 
 #### Why Talc?
-- First class support for **`no_std`** and **WebAssembly**
 - Generally faster and/or more memory efficient than alternatives \*
 - Scales better to multiple cores for some workloads than alternatives \*
 - Custom Out-Of-Memory handlers for just-in-time heap management and recovery
-- Supports arbitrarily many heaps, not just one arena
+- Supports creating and resizing arbitrarily many heaps
 - Optional allocation statistics
 - Partial validation in debug mode
 
