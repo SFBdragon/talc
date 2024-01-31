@@ -84,7 +84,9 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
         let has_data = self.0.fetch_and(false, core::sync::atomic::Ordering::SeqCst);
 
         if has_data {
-            unsafe { (HEAP_MEMORY.as_mut_ptr(), HEAP_SIZE, 1) }
+            let align = std::mem::align_of::<usize>();
+            let heap_align_offset = unsafe { HEAP_MEMORY.as_mut_ptr() }.align_offset(align);
+            unsafe { (HEAP_MEMORY.as_mut_ptr().add(heap_align_offset), (HEAP_SIZE - heap_align_offset) / align * align, 1) }
         } else {
             (core::ptr::null_mut(), 0, 0)
         }

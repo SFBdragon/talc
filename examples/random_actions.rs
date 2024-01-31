@@ -100,7 +100,7 @@ fn main() {
         init_talc,
         init_dlmalloc,
         init_buddy_alloc,
-        // init_galloc,
+        init_galloc,
         init_linked_list_allocator
     );
 
@@ -180,8 +180,8 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
 
             match action {
                 0 => {
-                    let size = rng.usize(0..RA_MAX_ALLOC_SIZE);
-                    let alignment = 8 << rng.u16(..).trailing_zeros() / 2;
+                    let size = rng.usize(1..RA_MAX_ALLOC_SIZE);
+                    let alignment =  std::mem::align_of::<usize>() << rng.u16(..).trailing_zeros() / 2;
                     if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
                         v.push(allocation);
                         score += 1;
@@ -198,7 +198,7 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
                     if !v.is_empty() {
                         let index = rng.usize(0..v.len());
                         if let Some(random_allocation) = v.get_mut(index) {
-                            let size = rng.usize(0..RA_MAX_REALLOC_SIZE);
+                            let size = rng.usize(1..RA_MAX_REALLOC_SIZE);
                             random_allocation.realloc(size);
                         }
                         score += 1;
@@ -223,8 +223,8 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
 
             match action {
                 0..=4 => {
-                    let size = fastrand::usize(0..(RA_MAX_ALLOC_SIZE*10));
-                    let align = 8 << fastrand::u16(..).trailing_zeros() / 2;
+                    let size = fastrand::usize(1..(RA_MAX_ALLOC_SIZE*10));
+                    let align = std::mem::align_of::<usize>() << fastrand::u16(..).trailing_zeros() / 2;
 
                     if let Some(allocation) = AllocationWrapper::new(size, align, allocator) {
                         //used += allocation.layout.size();
@@ -249,7 +249,7 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
 
                         if let Some(random_allocation) = v.get_mut(index) {
                             //let old_size = random_allocation.layout.size();
-                            let new_size = fastrand::usize(0..(RA_MAX_REALLOC_SIZE*10));
+                            let new_size = fastrand::usize(1..(RA_MAX_REALLOC_SIZE*10));
                             random_allocation.realloc(new_size);
                             //used = used + new_size - old_size;
                         } else {
@@ -389,7 +389,9 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
             (core::ptr::null_mut(), 0, 0)
         } else {
             *lock = true;
-            unsafe { (HEAP.as_mut_ptr(), HEAP_SIZE, 1) }
+            let align = std::mem::align_of::<usize>();
+            let heap_align_offset = unsafe { HEAP.as_mut_ptr() }.align_offset(align);
+            (unsafe { HEAP.as_mut_ptr().add(heap_align_offset) }, (HEAP_SIZE - heap_align_offset) / align * align, 1)
         }
     }
 
