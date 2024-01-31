@@ -127,7 +127,14 @@ fn main() {
     let allocs_file = File::create(BENCHMARK_RESULTS_DIR.to_owned() + "allocs.csv").unwrap();
     let mut csvs = Csvs { allocs_file, deallocs_file };
 
-    /* let linked_list_allocator =
+    // warm up the memory caches, avoid demand paging issues, etc.
+    for i in 0..HEAP_SIZE {
+        unsafe {
+            HEAP_MEMORY.as_mut_ptr().add(i).write(0xAE);
+        }
+    }
+
+    /* let linked_list_allocator =ptr.read_volatile()
         unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
     
     benchmark_allocator(&linked_list_allocator, "Linked List Allocator", &mut csvs); */
@@ -152,7 +159,7 @@ fn main() {
     
     benchmark_allocator(&DlMallocator(spin::Mutex::new(dlmalloc)), "Dlmalloc", &mut csvs);
 
-    let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+    let talc = Talc::new(ErrOnOom).lock::<talc::locking::AssumeUnlockable/* spin::Mutex<()> */>();
     unsafe { talc.lock().claim(HEAP_MEMORY.as_mut().into()) }.unwrap();
     
     benchmark_allocator(&talc, "Talc", &mut csvs);
