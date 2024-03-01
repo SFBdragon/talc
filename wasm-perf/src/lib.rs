@@ -7,6 +7,9 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static TALCK: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
+#[cfg(all(feature = "rlsf"))]
+#[global_allocator]
+static RLSF: rlsf::SmallGlobalTlsf = rlsf::SmallGlobalTlsf::new();
 
 #[cfg(feature = "talc_arena")]
 #[global_allocator]
@@ -50,15 +53,15 @@ pub fn bench() {
     let average_ms = total_ms / ITERATIONS as f64;
     let apms = ACTIONS as f64 / average_ms / 1000.0;
     log(format!("  total time: {} ms", total_ms).as_str());
-    log(format!("  average time: {} ms", average_ms).as_str());
-    log(format!("  average actions/s: {:.1}", apms).as_str());
+    log(format!("  average time for {} actions: {} ms",  ACTIONS, average_ms).as_str());
+    log(format!("  average actions/us: {:.1}", apms).as_str());
 }
 
 fn random_actions() {
     let mut score = 0;
     let mut v = Vec::with_capacity(10000);
 
-    while score < 100000 {
+    while score < ACTIONS {
         let action = fastrand::usize(0..3);
 
         match action {

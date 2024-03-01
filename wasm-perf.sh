@@ -5,7 +5,7 @@
 
 cd wasm-perf
 
-ALLOCATORS="talc talc_arena dlmalloc lol_alloc"
+ALLOCATORS="talc talc_arena rlsf dlmalloc lol_alloc"
 for ALLOCATOR in ${ALLOCATORS}; do
     echo "${ALLOCATOR}"
     wasm-pack --log-level warn build --release --quiet --target web --features ${ALLOCATOR}

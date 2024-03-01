@@ -13,13 +13,17 @@ unsafe impl GlobalAlloc for NoAlloc {
     unsafe fn dealloc(&self, _: *mut u8, _: Layout) { }
 }
 
-#[cfg(all(not(feature = "talc"), not(feature = "dlmalloc"), not(feature = "lol_alloc")))]
+#[cfg(all(not(feature = "talc"), not(feature = "dlmalloc"), not(feature = "lol_alloc"), not(feature = "rlsf")))]
 #[global_allocator]
 static NOALLOC: NoAlloc = NoAlloc;
 
 #[cfg(all(feature = "talc", not(feature = "talc_arena")))]
 #[global_allocator]
 static TALC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+
+#[cfg(all(feature = "rlsf"))]
+#[global_allocator]
+static RLSF: rlsf::SmallGlobalTlsf = rlsf::SmallGlobalTlsf::new();
 
 #[cfg(all(feature = "talc", feature = "talc_arena"))]
 #[global_allocator]

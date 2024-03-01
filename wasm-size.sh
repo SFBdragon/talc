@@ -12,7 +12,7 @@ fi
 
 cd wasm-size
 
-ALLOCATORS="talc talc_arena dlmalloc lol_alloc"
+ALLOCATORS="talc talc_arena rlsf dlmalloc lol_alloc"
 for ALLOCATOR in ${ALLOCATORS}; do
     echo "${ALLOCATOR}"
     cargo $COMMAND --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}

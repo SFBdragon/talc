@@ -115,6 +115,26 @@ impl Counters {
     }
 }
 
+impl core::fmt::Display for Counters {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(r#"Stat                 | Running Total       | Accumulative Total
+---------------------|---------------------|--------------------
+# of Allocations     | {:>19} | {:>19}
+# of Allocated Bytes | {:>19} | {:>19}
+# of Available Bytes | {:>19} |                 N/A
+# of Claimed Bytes   | {:>19} | {:>19}
+# of Heaps           | {:>19} | {:>19}
+# of Fragments       | {:>19} |                 N/A"#, 
+            self.allocation_count, self.total_allocation_count,
+            self.allocated_bytes, self.total_allocated_bytes,
+            self.available_bytes,
+            self.claimed_bytes, self.total_claimed_bytes,
+            self.heap_count, self.total_heap_count,
+            self.fragment_count
+        ))
+    }
+}
+
 impl<O: super::OomHandler> super::Talc<O> {
     pub fn get_counters(&self) -> &Counters {
         &self.counters

@@ -22,89 +22,55 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 // Modified by Shaun Beautement
 
-#![feature(allocator_api)]
-#![feature(slice_ptr_get)]
 #![feature(iter_intersperse)]
 #![feature(const_mut_refs)]
 
 use std::{
-    alloc::{GlobalAlloc, Layout}, sync::{Arc, Barrier}, time::{Duration, Instant}
+    alloc::{GlobalAlloc, Layout}, 
+    ptr::NonNull, 
+    sync::{Arc, Barrier}, 
+    time::{Duration, Instant}, 
+    fmt::Write
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 
-const THREAD_COUNT: usize = 1;
-const RA_MAX_ALLOC_SIZE: usize = 2000;
-const RA_MAX_REALLOC_SIZE: usize = 20000;
+const THREAD_COUNT: usize = 4;
+
+const RA_TRIALS_AMOUNT: usize = 7;
+const RA_TIME: Duration = Duration::from_millis(200);
+const RA_MAX_ALLOC_SIZES: &[usize] = &[1000, 5000, 10000, 50000, 100000];
+const RA_MAX_REALLOC_SIZE_MULTI: usize = 10;
+const RA_TARGET_MIN_ALLOCATIONS: usize = 300;
+
+const HE_MAX_ALLOC_SIZE: usize = 100000;
+const HE_MAX_REALLOC_SIZE_MULTI: usize = 1000000;
 
 const HEAP_SIZE: usize = 1 << 29;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
-const TIME_STEPS_AMOUNT: usize = 5;
-const TIME_STEP_MILLIS: usize = 200;
-
-const MIN_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS;
-const MAX_MILLIS_AMOUNT: usize = TIME_STEP_MILLIS * TIME_STEPS_AMOUNT;
-
 const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
-const TRIALS_AMOUNT: usize = 15;
-
-struct NamedBenchmark {
-    benchmark_fn: fn(Duration, &dyn GlobalAlloc, Arc<Barrier>) -> usize,
-    name: &'static str,
-}
-
-macro_rules! benchmark_list {
-    ($($benchmark_fn: path),+) => {
-        &[
-            $(
-                NamedBenchmark {
-                    benchmark_fn: $benchmark_fn,
-                    name: stringify!($benchmark_fn),
-                }
-            ),+
-        ]
-    }
-}
 
 struct NamedAllocator {
     name: &'static str,
     init_fn: unsafe fn() -> Box<dyn GlobalAlloc + Sync>,
 }
 
-macro_rules! allocator_list {
-    ($($init_fn: path),+) => {
-        &[
-            $(
-                NamedAllocator {
-                    init_fn: $init_fn,
-                    name: {
-                        const INIT_FN_NAME: &'static str = stringify!($init_fn);
-                        &INIT_FN_NAME["init_".len()..]
-                    },
-                }
-            ),+
-        ]
-    }
-}
-
 fn main() {
     // create a directory for the benchmark results.
     let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
 
-    let benchmarks = benchmark_list!(
-        random_actions
-    );
+    let allocators = &[
+        NamedAllocator { name: "Talc", init_fn: init_talc },
+        NamedAllocator { name: "RLSF", init_fn: init_rlsf },
+        NamedAllocator { name: "Frusa", init_fn: init_frusa },
+        NamedAllocator { name: "Dlmalloc", init_fn: init_dlmalloc },
+        NamedAllocator { name: "System", init_fn: init_system },
+        NamedAllocator { name: "Buddy Alloc", init_fn: init_buddy_alloc },
+        NamedAllocator { name: "Linked List", init_fn: init_linked_list_allocator },
+    ];
 
-    let allocators = allocator_list!(
-        init_talc,
-        init_dlmalloc,
-        init_buddy_alloc,
-        init_galloc,
-        init_linked_list_allocator
-    );
-
-    print!("Run heap efficiency microbenchmarks? y/N: ");
+    print!("Run heap efficiency benchmarks? y/N: ");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
@@ -115,96 +81,101 @@ fn main() {
         println!("| --------------------- | -------------------------------------- |");
 
         for allocator in allocators {
+            // these request memory from the OS on-demand, instead of being arena-allocated
+            if matches!(allocator.name, "Frusa" | "System") { continue; }
+
             let efficiency = heap_efficiency(unsafe {(allocator.init_fn)() }.as_ref());
 
             println!("|{:>22} | {:>38} |", allocator.name, format!("{:2.2}%", efficiency));
         }
     }
 
-    for benchmark in benchmarks {
-        let mut csv = String::new();
-        for allocator in allocators {
-            let scores_as_strings = (MIN_MILLIS_AMOUNT..=MAX_MILLIS_AMOUNT)
-                .step_by(TIME_STEP_MILLIS)
-                .map(|i| {
-                    eprintln!("benchmarking...");
+    let mut csv = String::new();
 
-                    let duration = Duration::from_millis(i as _);
+    write!(csv, ",").unwrap();
+    csv.extend(RA_MAX_ALLOC_SIZES.iter().map(|i| i.to_string()).intersperse(",".to_owned()));
+    writeln!(csv).unwrap();
 
-                    (0..TRIALS_AMOUNT)
-                        .map(|_| {
-                            let allocator = unsafe { (allocator.init_fn)() };
-                            let allocator_ref = allocator.as_ref();
-
-                            std::thread::scope(|scope| {
-                                let barrier = Arc::new(Barrier::new(THREAD_COUNT));
-                                let mut handles = vec![];
-
-                                for _ in 0..THREAD_COUNT {
-                                    let bi = barrier.clone();
-                                    handles.push(scope.spawn(move || (benchmark.benchmark_fn)(duration, allocator_ref, bi)));
-                                }
-
-                                handles.into_iter().map(|h| h.join().unwrap()).sum::<usize>()
-                            })
-                        }).sum::<usize>() / TRIALS_AMOUNT
-                })
-                .map(|score| score.to_string());
-
-            let csv_line = std::iter::once(allocator.name.to_owned())
-                .chain(scores_as_strings)
-                .intersperse(",".to_owned())
-                .chain(std::iter::once("\n".to_owned()));
-            csv.extend(csv_line);
+    for &NamedAllocator { name, init_fn } in allocators {
+        write!(csv, "{}", name).unwrap();
+        
+        for &max_alloc_size in RA_MAX_ALLOC_SIZES.iter() {
+            eprintln!("benchmarking {} - max alloc size {}B ...", name, max_alloc_size);
+    
+            let score = (0..RA_TRIALS_AMOUNT)
+                .map(|_| {
+                    let allocator = unsafe { (init_fn)() };
+                    let allocator_ref = allocator.as_ref();
+    
+                    std::thread::scope(|scope| {
+                        let barrier = Arc::new(Barrier::new(THREAD_COUNT));
+                        let mut handles = vec![];
+    
+                        for _ in 0..THREAD_COUNT {
+                            let bi = barrier.clone();
+                            handles.push(scope.spawn(move || random_actions( allocator_ref, max_alloc_size, bi)));
+                        }
+    
+                        handles.into_iter().map(|h| h.join().unwrap()).sum::<usize>()
+                    })
+                }).sum::<usize>() / RA_TRIALS_AMOUNT;
+    
+            write!(csv, ",{}", score).unwrap();
         }
-        // remove the last newline.
-        csv.pop();
 
-        std::fs::write(format!("{}/{}.csv", BENCHMARK_RESULTS_DIR, benchmark.name), csv).unwrap();
+        writeln!(csv).unwrap();
     }
+    // remove the last newline.
+    csv.pop();
+
+    std::fs::write(format!("{}/Random Actions Benchmark.csv", BENCHMARK_RESULTS_DIR), csv).unwrap();
 }
 
 
-pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: Arc<Barrier>) -> usize {
-    barrier.wait();
-
+pub fn random_actions(allocator: &dyn GlobalAlloc, max_alloc_size: usize, barrier: Arc<Barrier>) -> usize {
     let mut score = 0;
-    let mut v = Vec::with_capacity(100000);
-
+    let mut v: Vec<AllocationWrapper<'_>> = Vec::with_capacity(100000);
     let rng = fastrand::Rng::new();
 
+    barrier.wait();
     let start = Instant::now();
-    while start.elapsed() < duration {
+    while start.elapsed() < RA_TIME {
         for _ in 0..100 {
-            let action = rng.usize(0..3);
+            let action = rng.usize(0..5);
 
-            match action {
-                0 => {
-                    let size = rng.usize(1..RA_MAX_ALLOC_SIZE);
-                    let alignment =  std::mem::align_of::<usize>() << rng.u16(..).trailing_zeros() / 2;
-                    if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
-                        v.push(allocation);
-                        score += 1;
+            // 20% reallocate
+            // 40% if there are enough allocations, deallocate
+            // 40% if enough allocations else 80%, allocate
+
+            // this avoids staying close to zero allocations
+            // while also avoiding growing the heap unboundedly
+            // as benchmarking high heap contention isn't usually relavent
+            // but having a very low number of allocations isn't realistic either
+
+            if action == 4 {
+                if !v.is_empty() {
+                    let index = rng.usize(0..v.len());
+                    if let Some(random_allocation) = v.get_mut(index) {
+                        let size = rng.usize(1..(max_alloc_size * RA_MAX_REALLOC_SIZE_MULTI));
+                        random_allocation.realloc(size);
+                    } else {
+                        eprintln!("Reallocation failure!");
                     }
+                    score += 1;
                 }
-                1 => {
-                    if !v.is_empty() {
-                        let index = rng.usize(0..v.len());
-                        v.swap_remove(index);
-                        score += 1;
-                    }
+            } else if action < 2 || v.len() < RA_TARGET_MIN_ALLOCATIONS {
+                let size = rng.usize(1..max_alloc_size);
+                let alignment =  std::mem::align_of::<usize>() << rng.u16(..).trailing_zeros() / 2;
+                if let Some(allocation) = AllocationWrapper::new(size, alignment, allocator) {
+                    v.push(allocation);
+                    score += 1;
+                } else {
+                    eprintln!("Allocation failure!");
                 }
-                2 => {
-                    if !v.is_empty() {
-                        let index = rng.usize(0..v.len());
-                        if let Some(random_allocation) = v.get_mut(index) {
-                            let size = rng.usize(1..RA_MAX_REALLOC_SIZE);
-                            random_allocation.realloc(size);
-                        }
-                        score += 1;
-                    }
-                }
-                _ => unreachable!(),
+            } else {
+                let index = rng.usize(0..v.len());
+                v.swap_remove(index);
+                score += 1;
             }
         }
     }
@@ -215,19 +186,18 @@ pub fn random_actions(duration: Duration, allocator: &dyn GlobalAlloc, barrier: 
 pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
     let mut v = Vec::with_capacity(100000);
     let mut used = 0;
-    let mut total = HEAP_SIZE;
+    let mut total = 0;
 
-    for _ in 0..500 {
+    for _ in 0..300 {
         loop {
             let action = fastrand::usize(0..10);
 
             match action {
                 0..=4 => {
-                    let size = fastrand::usize(1..(RA_MAX_ALLOC_SIZE*10));
+                    let size = fastrand::usize(1..HE_MAX_ALLOC_SIZE);
                     let align = std::mem::align_of::<usize>() << fastrand::u16(..).trailing_zeros() / 2;
 
                     if let Some(allocation) = AllocationWrapper::new(size, align, allocator) {
-                        //used += allocation.layout.size();
                         v.push(allocation);
                     } else {
                         used += v.iter().map(|a| a.layout.size()).sum::<usize>();
@@ -239,7 +209,6 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
                 5 => {
                     if !v.is_empty() {
                         let index = fastrand::usize(0..v.len());
-                        //used -= v[index].layout.size();
                         v.swap_remove(index);
                     }
                 }
@@ -248,10 +217,8 @@ pub fn heap_efficiency(allocator: &dyn GlobalAlloc) -> f64 {
                         let index = fastrand::usize(0..v.len());
 
                         if let Some(random_allocation) = v.get_mut(index) {
-                            //let old_size = random_allocation.layout.size();
-                            let new_size = fastrand::usize(1..(RA_MAX_REALLOC_SIZE*10));
+                            let new_size = fastrand::usize(1..(HE_MAX_ALLOC_SIZE*HE_MAX_REALLOC_SIZE_MULTI));
                             random_allocation.realloc(new_size);
-                            //used = used + new_size - old_size;
                         } else {
                             used += v.iter().map(|a| a.layout.size()).sum::<usize>();
                             total += HEAP_SIZE;
@@ -319,6 +286,14 @@ unsafe fn init_linked_list_allocator() -> Box<dyn GlobalAlloc + Sync> {
     Box::new(lla)
 }
 
+unsafe fn init_system() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(std::alloc::System)
+}
+
+unsafe fn init_frusa() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(frusa::Frusa2M::new(&std::alloc::System))
+}
+
 #[allow(unused)]
 unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
     let galloc = good_memory_allocator::SpinLockedAllocator
@@ -326,6 +301,32 @@ unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
         ::empty();
     galloc.init(HEAP.as_ptr() as usize, HEAP_SIZE);
     Box::new(galloc)
+}
+
+unsafe fn init_rlsf() -> Box<dyn GlobalAlloc + Sync> {
+    let tlsf = GlobalRLSF(spin::Mutex::new(rlsf::Tlsf::new()));
+    tlsf.0.lock().insert_free_block(unsafe { std::mem::transmute(&mut HEAP[..]) });
+    Box::new(tlsf)
+}
+
+unsafe fn init_buddy_alloc() -> Box<dyn GlobalAlloc + Sync> {
+    let ba = BuddyAllocWrapper(spin::Mutex::new(NonThreadsafeAlloc::new(
+        FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8),
+        BuddyAllocParam::new(
+            HEAP.as_ptr().cast::<u8>().add(HEAP.len() / 8),
+            HEAP.len() / 8 * 7,
+            64,
+        ),
+    )));
+    
+    Box::new(ba)
+}
+
+unsafe fn init_dlmalloc() -> Box<dyn GlobalAlloc + Sync> {
+    let dl = DlMallocator(spin::Mutex::new(
+        dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
+    ));
+    Box::new(dl)
 }
 
 struct BuddyAllocWrapper(pub spin::Mutex<NonThreadsafeAlloc>);
@@ -343,19 +344,6 @@ unsafe impl GlobalAlloc for BuddyAllocWrapper {
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         self.0.lock().realloc(ptr, layout, new_size)
     }
-}
-
-unsafe fn init_buddy_alloc() -> Box<dyn GlobalAlloc + Sync> {
-    let ba = BuddyAllocWrapper(spin::Mutex::new(NonThreadsafeAlloc::new(
-        FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8),
-        BuddyAllocParam::new(
-            HEAP.as_ptr().cast::<u8>().add(HEAP.len() / 8),
-            HEAP.len() / 8 * 7,
-            64,
-        ),
-    )));
-    
-    Box::new(ba)
 }
 
 struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc<DlmallocArena>>);
@@ -420,9 +408,18 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
     }
 }
 
-unsafe fn init_dlmalloc() -> Box<dyn GlobalAlloc + Sync> {
-    let dl = DlMallocator(spin::Mutex::new(
-        dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(spin::Mutex::new(false))),
-    ));
-    Box::new(dl)
+struct GlobalRLSF<'p>(spin::Mutex<rlsf::Tlsf<'p, usize, usize, {usize::BITS as usize - 12}, {usize::BITS as _}>>);
+unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.0.lock().allocate(layout).map_or(std::ptr::null_mut(), |nn| nn.as_ptr())
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        self.0.lock().deallocate(NonNull::new_unchecked(ptr), layout.align());
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        self.0.lock().reallocate(NonNull::new_unchecked(ptr), Layout::from_size_align_unchecked(new_size, layout.align()))
+            .map_or(std::ptr::null_mut(), |nn| nn.as_ptr())
+    }
 }

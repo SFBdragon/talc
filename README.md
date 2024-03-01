@@ -2,7 +2,7 @@
 
 <sep>
 
-<sub><i>If you'd like to support my work, a tip would be greatly appreciated via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ). Thanks!</i></sub>
+<sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ).</i></sub>
 
 #### What is this for?
 - Embedded systems, OS kernels, and other `no_std` environments
@@ -34,6 +34,7 @@ Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](./
 - [Conditional Features](#conditional-features)
 - [Stable Rust and MSRV](#stable-rust-and-msrv)
 - [Algorithm](#algorithm)
+- [Future Development](#future-development-v5)
 - [Changelog](#changelog)
 
 
@@ -86,21 +87,21 @@ The average occupied capacity upon first allocation failure when randomly alloca
 
 |             Allocator | Average Random Actions Heap Efficiency |
 | --------------------- | -------------------------------------- |
-|              dlmalloc |                                 99.07% |
-|              **talc** |                                 98.87% |
-| linked_list_allocator |                                 98.28% |
-|                galloc |                                 95.86% |
-|           buddy_alloc |                                 58.75% |
+|              Dlmalloc |                                 99.14% |
+|                  Rlsf |                                 99.06% |
+|                  Talc |                                 98.97% |
+|           Linked List |                                 98.36% |
+|           Buddy Alloc |                              **63.14%** |
 
 ### Random Actions Benchmark
 
 The number of successful allocations, deallocations, and reallocations within the allotted time.
 
-#### Single Threaded
+#### 1 Thread
 
 ![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
 
-#### 4 Threads, Increased Allocation Sizes
+#### 4 Threads
 
 ![Random Actions Multi Benchmark Results](/benchmark_graphs/random_actions_multi.png)
 
@@ -108,7 +109,7 @@ The number of successful allocations, deallocations, and reallocations within th
 
 ![Microbenchmark Results](/benchmark_graphs/microbench.png)
 
-Whiskers represent the interval from the 5th to 95th percentile.
+Label indicates the maximum within 50 standard deviations from the median. Max allocation size is 0x10000.
 
 ## General Usage
 
@@ -203,7 +204,22 @@ This is a dlmalloc-style linked list allocator with boundary tagging and bucketi
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation. This is more efficient than `dlmalloc` and `galloc`, despite using a similar algorithm.
 
+## Future Development
+- Support better concurrency, as it's the main deficit of the allocator
+- Change the default features to be stable by default
+- Add out-of-the-box support for more systems
+- Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
+
 ## Changelog
+
+#### v4.3.0
+
+- Added an implementation for `Display` for the counters. Hopefully this makes your logs a bit prettier. 
+    - Bug me if you have opinions about the current layout, I'm open to changing it.
+
+- Added Frusa and RLSF to the benchmarks. 
+    - Good showing by RLSF all around, and Frusa has particular workloads it excels at.
+- Changed random actions benchmark to measure over various allocation sizes.
 
 #### v4.2.0
 

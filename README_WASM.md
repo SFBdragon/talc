@@ -34,11 +34,12 @@ static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom>
 Rough measurements of allocator size for relative comparison using `/wasm-size`.
 
 | Allocator | WASM Size/bytes |
-| --------- | ----- |
-| lol_alloc | 11662 |
-| **talc** (arena\*) | 13546 |
-| **talc** | 14470 |
-| dlmalloc (default) | 16079 |
+| --------- | --------------- |
+| lol_alloc | 11655 |
+| rlsf | 12242 |
+| **talc** (arena\*) | 13543 |
+| **talc** | 14467 |
+| dlmalloc (default) | 16767 |
 
 \* uses a static arena instead of dynamically managing the heap
 
@@ -46,12 +47,13 @@ Rough measurements of allocator size for relative comparison using `/wasm-size`.
 
 Rough measurements of allocator speed for relative comparison using `/wasm-bench`.
 
-| Allocator | Average Actions/s |
-|-----------|-----|
+| Allocator | Average Actions/us |
+|-----------|--------------------|
 | **talc** | 6.3 |
-| **talc** (arena\*) | 6.2 |
-| dlmalloc (default) | 5.8 |
-| lol_alloc | 2.9 |
+| **talc** (arena\*) | 6.3 |
+| rlsf | 5.7 |
+| dlmalloc (default) | 5.9 |
+| lol_alloc | 4.1 |
 
 \* uses a static arena instead of dynamically managing the heap
 

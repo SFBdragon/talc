@@ -1,6 +1,6 @@
 [package]
 name = "talc"
-version = "4.2.0"
+version = "4.3.0"
 rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"
@@ -37,7 +37,9 @@ spin = { version = "0.9.8", default-features = false, features = ["lock_api", "s
 linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
 good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
 buddy-alloc = "0.5"
-dlmalloc = { version =  "0.2.4", default-features = false, features = ["global"] }
+dlmalloc = { version = "0.2.4", default-features = false, features = ["global"] }
+frusa = "0.1.2"
+rlsf = "0.2.1"
 
 [profile.release]
 lto = true

@@ -10,56 +10,52 @@ def get_benchmark_data(filename):
     with open(filename, 'r') as f:
         rows = f.readlines()
     
-    allocators = {}
+    allocators = []
     for row in rows:
         lst = row.strip().split(',')
         if lst[1] != "":
-            allocators[lst[0]] = [float(i) for i in lst[1:]]
+            allocators.append((lst[0], [float(i) for i in lst[1:]]))
     return allocators
 
-def plot_data():
-    fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(14, 6))
+def plot_data(filename, filepath):
+    allocators = get_benchmark_data(filepath)
+    if len(allocators) == 0:
+        return
+    
+    # sort by median
+    allocators.sort(key=lambda a: -a[1][2])
 
-    plot_count = 0
-    for filename in os.listdir(BENCHMARK_RESULTS_DIR):
-        filepath = BENCHMARK_RESULTS_DIR + filename
-        if not os.path.isfile(filepath):
-            continue
+    print("plotting", filename)
 
-        allocators = get_benchmark_data(filepath)
-        if len(allocators) == 0:
-            continue
+    rightlim = max([x[1][3] for x in allocators])*1.2
 
-        print("plotting", filename)
+    plt.boxplot([x[1] for x in allocators], sym="", vert=False, showmeans=False, meanline=False, whis=(0, 100))
 
-        ax = axs[plot_count]
+    i = 1
+    for al in allocators:
+        plt.annotate(str(int(al[1][4])), (rightlim - 50, i), )
+        i += 1
 
-        ax.boxplot([allocators[x] for x in allocators], 
-            sym="", vert=False, showmeans=True, meanline=False, whis=(5, 95), 
-            meanprops=dict(marker="D", markerfacecolor="black", markeredgecolor="black"))
+    plt.title(filename.split(".")[0])
+    plt.xlim(left=0, right=rightlim)
+    plt.yticks(range(1, len(allocators) + 1), [x[0] for x in allocators])
+    plt.xlabel("Ticks")
 
-        ax.set_title(filename.split(".")[0].title())
-        ax.set_xlim(left=0)
-        ax.set_yticks(range(1, len(allocators) + 1))
-        ax.set_yticklabels([x for x in allocators], rotation=45, ha="right")
-        ax.set_xlabel("Ticks")
-
-        legend_elements = [
-            Line2D([0], [0], color="orange", lw=1, label="median"),
-            Line2D([0], [0], marker="D", color="white", markerfacecolor="black", markeredgecolor="black", label="average")
-        ]
-        ax.legend(handles=legend_elements, loc="upper right")
-
-        plot_count += 1
-
-    fig.tight_layout()
+    plt.tight_layout()
     plt.show()
 
 
 def main():
     if not os.path.exists(BENCHMARK_RESULTS_DIR):
-        os.mkdir(BENCHMARK_RESULTS_DIR)
-    plot_data()
+        print("No results dir. Has the benchmark been run?")
+        return
+    
+    for filename in os.listdir(BENCHMARK_RESULTS_DIR):
+        filepath = BENCHMARK_RESULTS_DIR + filename
+        if not os.path.isfile(filepath):
+            continue
+
+        plot_data(filename, filepath)
 
     print("complete")
 
