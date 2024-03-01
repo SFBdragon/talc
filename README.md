@@ -1,4 +1,4 @@
-# Talc Allocator [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/) [![License](https://img.shields.io/crates/l/talc?style=flat-square)](https://github.com/SFBdragon/talc/blob/master/LICENSE.md)
+# Talc Allocator [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) ![Downloads](https://img.shields.io/crates/d/talc?style=flat-square) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/)
 
 <sep>
 
@@ -10,18 +10,17 @@
 - Subsystems in normal programs that need especially quick arena allocation
 
 #### Why Talc?
-- Generally faster and/or more memory efficient than alternatives \*
-- Scales better to multiple cores for some workloads than alternatives \*
+- Performance is the primary focus, while retaining generality
 - Custom Out-Of-Memory handlers for just-in-time heap management and recovery
 - Supports creating and resizing arbitrarily many heaps
 - Optional allocation statistics
-- Partial validation in debug mode
-
-_\* Of those I know of, at time of writing, depending on workload. See [benchmarks](#benchmarks) below._
+- Partial validation with debug assertions enabled
+- Conforms to MIRI's stacked borrows checker
 
 #### Why not Talc?
-- Doesn't integrate with operating systems' dynamic memory facilities out-of-the-box
-- Doesn't scale well to allocation-heavy concurrent processing
+- Doesn't integrate with operating systems' dynamic memory facilities out-of-the-box yet
+- Doesn't scale well to allocation/deallocation-heavy concurrent processing
+    - However, it's especially good at concurrent reallocation
 
 ## Table of Contents
 
@@ -211,6 +210,10 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 - Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
 
 ## Changelog
+
+#### v4.3.1
+
+- Updated the README a little
 
 #### v4.3.0
 
