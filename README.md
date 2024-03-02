@@ -20,7 +20,7 @@
 #### Why not Talc?
 - Doesn't integrate with operating systems' dynamic memory facilities out-of-the-box yet
 - Doesn't scale well to allocation/deallocation-heavy concurrent processing
-    - However, it's especially good at concurrent reallocation
+    - Though it's particularly good at concurrent reallocation.
 
 ## Table of Contents
 
@@ -90,7 +90,7 @@ The average occupied capacity upon first allocation failure when randomly alloca
 |                  Rlsf |                                 99.06% |
 |                  Talc |                                 98.97% |
 |           Linked List |                                 98.36% |
-|           Buddy Alloc |                              **63.14%** |
+|           Buddy Alloc |                                 63.14% |
 
 ### Random Actions Benchmark
 
@@ -126,6 +126,7 @@ Here is the list of important `Talc` methods:
     * `malloc`
     * `free`
     * `grow`
+    * `grow_in_place`
     * `shrink`
 
 Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
