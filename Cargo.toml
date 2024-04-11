@@ -29,6 +29,7 @@ default = ["lock_api", "allocator", "nightly_api"]
 
 
 [dependencies]
+allocator-api2 = { version = "0.2", optional = true, default-features = false }
 lock_api = { version = "0.4", optional = true, default-features = false }
 
 [dev-dependencies]

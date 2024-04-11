@@ -9,9 +9,12 @@ use core::{
 };
 
 #[cfg(feature = "allocator")]
-use core::alloc::AllocError;
+use core::alloc::{Allocator, AllocError};
 
-#[cfg(feature = "allocator")]
+#[cfg(all(feature = "allocator-api2", not(feature = "allocator")))]
+use allocator_api2::alloc::{Allocator, AllocError};
+
+#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
 pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
     (ptr as usize).trailing_zeros() >= align.trailing_zeros()
 }
@@ -107,9 +110,9 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     }
 }
 
-#[cfg(feature = "allocator")]
-unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Talck<R, O> {
-    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
+unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {
             return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
         }
@@ -130,7 +133,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+    ) -> Result<NonNull<[u8]>, AllocError> {
         debug_assert!(new_layout.size() >= old_layout.size());
 
         if old_layout.size() == 0 {
@@ -165,7 +168,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+    ) -> Result<NonNull<[u8]>, AllocError> {
         let res = self.grow(ptr, old_layout, new_layout);
 
         if let Ok(allocation) = res {
@@ -184,7 +187,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> core::alloc::Allocator for Tal
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+    ) -> Result<NonNull<[u8]>, AllocError> {
         debug_assert!(new_layout.size() <= old_layout.size());
 
         if new_layout.size() == 0 {
