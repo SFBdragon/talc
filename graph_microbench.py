@@ -3,7 +3,7 @@ from matplotlib.lines import Line2D
 import os
 
 BENCHMARK_RESULTS_DIR = 'benchmark_results/micro/'
-BENCHMARK_RESULT_GRAPHS_DIR = 'benchmark_result_graphs/'
+BENCHMARK_RESULT_GRAPHS_DIR = 'benchmark_graphs/'
 
 def get_benchmark_data(filename):
     print("reading", filename)

@@ -2,7 +2,7 @@ use talc::*;
 
 // note: miri thinks this violates stacked borrows upon program termination.
 // This only occurs if #[global_allocator] is used.
-// Use the allocator API if you can't have that.
+// Use the allocator API if you can't have that. Perhaps checck out `std_allocator_api.rs`?
 
 static mut START_ARENA: [u8; 10000] = [0; 10000];
 

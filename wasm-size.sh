@@ -10,12 +10,10 @@ else
     COMMAND="build"
 fi
 
-cd wasm-size
-
 ALLOCATORS="talc talc_arena rlsf dlmalloc lol_alloc"
 for ALLOCATOR in ${ALLOCATORS}; do
     echo "${ALLOCATOR}"
-    cargo $COMMAND --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
+    cargo $COMMAND -p wasm-size --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
 
     if [[ $1 != "check" ]]; then
         wasm-opt -Oz -o target/wasm32-unknown-unknown/release/wasm_size_opt.wasm target/wasm32-unknown-unknown/release/wasm_size.wasm
