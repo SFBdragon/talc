@@ -1,0 +1,16 @@
+[package]
+name = "stable_examples"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+allocator-api2 = "0.2.18"
+spin = "0.9.8"
+
+# put talc into a stable-compatible configuration
+# TODO: make talc's features stable-by-default
+[dev-dependencies.talc]
+path = "../talc"
+default-features = false
+features = ["lock_api", "allocator-api2"]

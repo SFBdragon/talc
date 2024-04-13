@@ -3,6 +3,9 @@ use allocator_api2::vec::Vec;
 
 // This uses the `allocator-api2` crate to compile successfully on stable Rust.
 
+// Run with:
+// `cargo +stable run -p stable_examples --example stable_allocator_api`
+
 fn main() {
     // Establish some memory for the allocator.
     let mut arena = [0u8; 10000];

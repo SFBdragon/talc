@@ -5,7 +5,7 @@ members = [
     "talc",
     "benchmarks",
     "fuzz",
-    "std_examples",
+    "stable_examples",
     "wasm-perf",
     "wasm-size",
 ]
