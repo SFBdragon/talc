@@ -2,7 +2,7 @@
 
 <sep>
 
-<sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ).</i></sub>
+<sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ)</i></sub>
 
 #### What is this for?
 - Embedded systems, OS kernels, and other `no_std` environments
@@ -193,6 +193,7 @@ impl OomHandler for MyOomHandler {
 * `"allocator"` (default, requires nightly): Provides an `Allocator` trait implementation via `Talck`.
 * `"nightly_api"` (default, requires nightly): Provides the `Span::from(*mut [T])` and `Span::from_slice` functions.
 * `"counters"`: `Talc` will track heap and allocation metrics. Use `Talc::get_counters` to access them.
+* `"allocator-api2"`: `Talck` will implement `allocator_api2::alloc::Allocator` if `"allocator"` is not active.
 
 ## Stable Rust and MSRV
 Talc can be built on stable Rust by disabling `"allocator"` and `"nightly_api"`. The MSRV is 1.67.1.
@@ -211,6 +212,10 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 - Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
 
 ## Changelog
+
+#### v4.4.0
+
+- Added feature `allocator-api2` which allows using the `Allocator` trait on stable via the [`allocator-api2`](https://github.com/zakarumych/allocator-api2) crate. Thanks [jess-sol](https://github.com/jess-sol)!
 
 #### v4.3.1
 

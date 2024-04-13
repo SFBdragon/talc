@@ -11,13 +11,18 @@ members = [
 ]
 
 [profile.release]
-lto = "fat"
-codegen-units = 1
 panic = "abort"
 
 [profile.release.package.wasm-size]
 opt-level = "z"
+codegen-units = 1
 
 # be realistic about the optimization configuration, even if it's a benchmark
 [profile.release.package.wasm-perf]
 opt-level = "z"
+codegen-units = 1
+
+# the fuzzer needs debuginfo
+[profile.release.package.talc-fuzz]
+debug = 1
+

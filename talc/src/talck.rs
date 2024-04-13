@@ -110,16 +110,24 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
     }
 }
 
+/// Convert a nonnull and length to a nonnull slice.
+#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
+fn nonnull_slice_from_raw_parts(ptr: NonNull<u8>, len: usize) -> NonNull<[u8]> {
+    unsafe {
+        NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), len))
+    }
+}
+
 #[cfg(any(feature = "allocator", feature = "allocator-api2"))]
 unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {
-            return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
+            return Ok(nonnull_slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
         unsafe { self.lock().malloc(layout) }
-            .map(|nn| NonNull::slice_from_raw_parts(nn, layout.size()))
-            .map_err(|_| AllocError)
+        .map(|nn| nonnull_slice_from_raw_parts(nn, layout.size()))
+        .map_err(|_| AllocError)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
@@ -141,7 +149,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
         } else if is_aligned_to(ptr.as_ptr(), new_layout.align()) {
             // alignment is fine, try to allocate in-place
             if let Ok(nn) = self.lock().grow_in_place(ptr, old_layout, new_layout.size()) {
-                return Ok(NonNull::slice_from_raw_parts(nn, new_layout.size()));
+                return Ok(nonnull_slice_from_raw_parts(nn, new_layout.size()));
             }
         }
 
@@ -160,7 +168,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
 
         lock.free(ptr, old_layout);
 
-        Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()))
+        Ok(nonnull_slice_from_raw_parts(allocation, new_layout.size()))
     }
 
     unsafe fn grow_zeroed(
@@ -195,7 +203,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
                 self.lock().free(ptr, old_layout);
             }
 
-            return Ok(NonNull::slice_from_raw_parts(NonNull::dangling(), 0));
+            return Ok(nonnull_slice_from_raw_parts(NonNull::dangling(), 0));
         }
 
         if !is_aligned_to(ptr.as_ptr(), new_layout.align()) {
@@ -211,12 +219,12 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
             }
 
             lock.free(ptr, old_layout);
-            return Ok(NonNull::slice_from_raw_parts(allocation, new_layout.size()));
+            return Ok(nonnull_slice_from_raw_parts(allocation, new_layout.size()));
         }
 
         self.lock().shrink(ptr, old_layout, new_layout.size());
 
-        Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
+        Ok(nonnull_slice_from_raw_parts(ptr, new_layout.size()))
     }
 }
 

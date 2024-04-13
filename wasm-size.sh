@@ -13,6 +13,9 @@ fi
 ALLOCATORS="talc talc_arena rlsf dlmalloc lol_alloc"
 for ALLOCATOR in ${ALLOCATORS}; do
     echo "${ALLOCATOR}"
+    
+    # turn on LTO via RUSTFLAGS
+    RUSTFLAGS="-C lto -C embed-bitcode=yes -C linker-plugin-lto" \
     cargo $COMMAND -p wasm-size --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
 
     if [[ $1 != "check" ]]; then

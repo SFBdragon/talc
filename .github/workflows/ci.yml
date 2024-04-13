@@ -64,5 +64,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: |
-          rustup toolchain add 1.70.0 --profile minimal
-          rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose
+          rustup toolchain add 1.67.1 --profile minimal
+          rustup run 1.67.1 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose

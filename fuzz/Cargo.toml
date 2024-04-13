@@ -17,9 +17,6 @@ rand = "0.8.5"
 path = "../talc"
 features = ["fuzzing", "counters"]
 
-# [profile.release]
-# debug = 1
-
 [[bin]]
 name = "fuzz_talc"
 path = "fuzz_targets/fuzz_talc.rs"

@@ -18,7 +18,7 @@ rustup run stable cargo check -p stable_examples --example stable_allocator_api
 rustup run stable cargo check -p stable_examples --example std_global_allocator
 
 # check whether MSRV has been broken
-rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters
+rustup run 1.67.1 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters
 
 
 # NIGHTLY CONFIGURATIONS
@@ -42,7 +42,7 @@ rustup run nightly cargo check -p benchmarks --bin random_actions
 # check wasm size benches
 ./wasm-size.sh check
 # check wasm size MSRV
-rustup run 1.70.0 cargo check -p wasm-size --target wasm32-unknown-unknown
+rustup run 1.68 cargo check -p wasm-size --target wasm32-unknown-unknown
 
 # check wasm perf benches
 ./wasm-perf.sh check
