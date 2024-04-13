@@ -14,7 +14,7 @@ env:
 
 jobs:
   job1:
-    name: nightly + miri tests
+    name: Nightly + MIRI tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           rustup run nightly cargo check -p benchmarks --bin random_actions --verbose
 
   job2:
-      name: check stable
+      name: Check Stable
       runs-on: ubuntu-latest
       steps:
       - uses: actions/checkout@v4
@@ -56,4 +56,14 @@ jobs:
           rustup run stable cargo check -p std_examples --bin std_allocator_api --verbose
           rustup run stable cargo check -p std_examples --bin std_global_allocator --verbose
 
+  job3:
+      name: Check MSRV
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: 1.70.0-x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - run: |
           rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose
