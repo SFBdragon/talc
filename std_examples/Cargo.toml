@@ -1,0 +1,22 @@
+[package]
+name = "std_examples"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+allocator-api2 = "0.2.18"
+spin = "*"
+
+[dependencies.talc]
+path = "../talc"
+default-features = false
+features = ["lock_api", "allocator-api2"]
+
+[[bin]]
+name = "std_allocator_api"
+path = "std_allocator_api.rs"
+
+[[bin]]
+name = "std_global_allocator"
+path = "std_global_allocator.rs"

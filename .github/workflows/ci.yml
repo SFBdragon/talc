@@ -24,12 +24,17 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo test --verbose
-          cargo test --tests --no-default-features --verbose
-          cargo test --tests --no-default-features --features=lock_api --verbose
-          
-          cargo miri test --tests --verbose
-          cargo miri test --tests --target i686-unknown-linux-gnu --verbose
+          rustup run nightly cargo check -p talc --verbose
+
+          rustup run nightly cargo test -p talc --features=counters --verbose
+          rustup run nightly cargo test -p talc --tests --no-default-features --verbose
+          rustup run nightly cargo test -p talc --tests --no-default-features --features=lock_api,allocator-api2,counters --verbose
+
+          rustup run nightly cargo miri test -p talc --tests --verbose
+          rustup run nightly cargo miri test -p talc --tests --target i686-unknown-linux-gnu --verbose
+
+          rustup run nightly cargo check -p benchmarks --bin microbench --verbose
+          rustup run nightly cargo check -p benchmarks --bin random_actions --verbose
 
   job2:
       name: check stable
@@ -41,6 +46,14 @@ jobs:
           targets: x86_64-unknown-linux-gnu, wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo check --no-default-features
-          cargo check --no-default-features --target wasm32-unknown-unknown
-          cargo check --no-default-features --features=lock_api --target wasm32-unknown-unknown
+          rustup run stable cargo check --no-default-features -p talc --verbose
+          rustup run stable cargo check --no-default-features -p talc --features=lock_api --verbose
+          rustup run stable cargo check --no-default-features -p talc --features=lock_api,allocator-api2,counters --verbose
+
+          rustup run stable cargo check -p talc --no-default-features --target wasm32-unknown-unknown --verbose
+          rustup run stable cargo check -p talc --no-default-features --features=lock_api,counters --target wasm32-unknown-unknown --verbose
+
+          rustup run stable cargo check -p std_examples --bin std_allocator_api --verbose
+          rustup run stable cargo check -p std_examples --bin std_global_allocator --verbose
+
+          rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose

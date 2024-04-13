@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// Heavily modified by Shaun Beautement. All errors are probably my own.
+// Heavily modified by Shaun Beautement.
 
 #![feature(iter_intersperse)]
 
@@ -123,7 +123,7 @@ unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
 fn main() {
     const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results/micro/";
     // create a directory for the benchmark results.
-    let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
+    let _ = std::fs::create_dir_all(BENCHMARK_RESULTS_DIR).unwrap();
 
     let sum_file = File::create(BENCHMARK_RESULTS_DIR.to_owned() + "Alloc Plus Dealloc.csv").unwrap();
     let mut csvs = Csvs { sum_file };

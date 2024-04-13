@@ -14,15 +14,11 @@ spin = "0.9.8"
 rand = "0.8.5"
 
 [dependencies.talc]
-path = ".."
+path = "../talc"
 features = ["fuzzing", "counters"]
 
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
-
-[profile.release]
-debug = 1
+# [profile.release]
+# debug = 1
 
 [[bin]]
 name = "fuzz_talc"

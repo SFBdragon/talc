@@ -49,11 +49,11 @@ Rough measurements of allocator speed for relative comparison using `/wasm-bench
 
 | Allocator | Average Actions/us |
 |-----------|--------------------|
-| **talc** | 6.3 |
-| **talc** (arena\*) | 6.3 |
+| **talc** | 6.7|
+| **talc** (arena\*) | 6.8 |
 | rlsf | 5.7 |
 | dlmalloc (default) | 5.9 |
-| lol_alloc | 4.1 |
+| lol_alloc | 4.4 |
 
 \* uses a static arena instead of dynamically managing the heap
 
