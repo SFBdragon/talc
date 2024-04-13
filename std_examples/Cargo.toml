@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 allocator-api2 = "0.2.18"
-spin = "*"
+spin = "0.9.8"
 
 [dependencies.talc]
 path = "../talc"

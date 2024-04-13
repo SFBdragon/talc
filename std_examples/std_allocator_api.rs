@@ -1,4 +1,4 @@
-use talc::{ErrOnOom, Span, Talc};
+use talc::{ErrOnOom, Talc};
 use allocator_api2::vec::Vec;
 
 // This uses the `allocator-api2` crate to compile successfully on stable Rust.
@@ -38,22 +38,16 @@ fn main() {
     // Let's say we want to leave only a little bit of memory on either side,
     // and free the rest of the heap. 
     // Additionally, make sure we don't "truncate" to beyond the original heap's boundary.
-    let new_heap = allocated_span.truncate(100, 100).fit_within(heap);
+    let new_heap = allocated_span.extend(200, 200).fit_within(heap);
 
     // Finally, truncate the heap!
-    let heap2 = unsafe {
+    let _heap2 = unsafe {
         talc.truncate(heap, new_heap)
     };
 
     // and we're done!
     drop(talc);
 
-    // final reallocation and then deallocate
-    vec.extend(0..50);
+    // deallocate vec
     drop(vec);
-
-    // We can manually clean up the allocator state if we want.
-    unsafe {
-        talck.lock().truncate(heap2, Span::empty());
-    }
 }
