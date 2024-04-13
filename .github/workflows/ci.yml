@@ -53,8 +53,8 @@ jobs:
           rustup run stable cargo check -p talc --no-default-features --target wasm32-unknown-unknown --verbose
           rustup run stable cargo check -p talc --no-default-features --features=lock_api,counters --target wasm32-unknown-unknown --verbose
 
-          rustup run stable cargo check -p std_examples --bin std_allocator_api --verbose
-          rustup run stable cargo check -p std_examples --bin std_global_allocator --verbose
+          rustup run stable cargo check -p stable_examples --example stable_allocator_api --verbose
+          rustup run stable cargo check -p stable_examples --example std_global_allocator --verbose
 
   job3:
       name: Check MSRV

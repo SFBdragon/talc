@@ -14,8 +14,8 @@ rustup run stable cargo check -p talc --no-default-features --target wasm32-unkn
 rustup run stable cargo check -p talc --no-default-features --features=lock_api,counters --target wasm32-unknown-unknown
 
 # check that the examples work
-rustup run stable cargo check -p std_examples --bin std_allocator_api
-rustup run stable cargo check -p std_examples --bin std_global_allocator
+rustup run stable cargo check -p stable_examples --example stable_allocator_api
+rustup run stable cargo check -p stable_examples --example std_global_allocator
 
 # check whether MSRV has been broken
 rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters
