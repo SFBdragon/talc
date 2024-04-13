@@ -5,14 +5,14 @@ use crate::{talc::Talc, OomHandler};
 use core::{
     alloc::{GlobalAlloc, Layout},
     cmp::Ordering,
-    ptr::{NonNull, null_mut},
+    ptr::{null_mut, NonNull},
 };
 
 #[cfg(feature = "allocator")]
-use core::alloc::{Allocator, AllocError};
+use core::alloc::{AllocError, Allocator};
 
 #[cfg(all(feature = "allocator-api2", not(feature = "allocator")))]
-use allocator_api2::alloc::{Allocator, AllocError};
+use allocator_api2::alloc::{AllocError, Allocator};
 
 #[cfg(any(feature = "allocator", feature = "allocator-api2"))]
 pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
@@ -31,15 +31,13 @@ const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x10000;
 /// ```
 #[derive(Debug)]
 pub struct Talck<R: lock_api::RawMutex, O: OomHandler> {
-    mutex: lock_api::Mutex<R, Talc<O>>
+    mutex: lock_api::Mutex<R, Talc<O>>,
 }
 
 impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
     /// Create a new `Talck`.
     pub const fn new(talc: Talc<O>) -> Self {
-        Self {
-            mutex: lock_api::Mutex::new(talc),
-        }
+        Self { mutex: lock_api::Mutex::new(talc) }
     }
 
     /// Lock the mutex and access the inner `Talc`.
@@ -87,7 +85,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
                     Ok(ptr) => ptr,
                     Err(_) => return null_mut(),
                 };
-                
+
                 if old_layout.size() > RELEASE_LOCK_ON_REALLOC_LIMIT {
                     drop(lock);
                     allocation.as_ptr().copy_from_nonoverlapping(ptr, old_layout.size());
@@ -113,9 +111,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
 /// Convert a nonnull and length to a nonnull slice.
 #[cfg(any(feature = "allocator", feature = "allocator-api2"))]
 fn nonnull_slice_from_raw_parts(ptr: NonNull<u8>, len: usize) -> NonNull<[u8]> {
-    unsafe {
-        NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), len))
-    }
+    unsafe { NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), len)) }
 }
 
 #[cfg(any(feature = "allocator", feature = "allocator-api2"))]
@@ -126,8 +122,8 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
         }
 
         unsafe { self.lock().malloc(layout) }
-        .map(|nn| nonnull_slice_from_raw_parts(nn, layout.size()))
-        .map_err(|_| AllocError)
+            .map(|nn| nonnull_slice_from_raw_parts(nn, layout.size()))
+            .map_err(|_| AllocError)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {

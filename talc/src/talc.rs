@@ -504,7 +504,6 @@ impl<O: OomHandler> Talc<O> {
         old_layout: Layout,
         new_size: usize,
     ) -> Result<NonNull<u8>, ()> {
-
         match self.grow_in_place(ptr, old_layout, new_size) {
             Err(_) => {
                 // grow in-place failed; reallocate the slow way
@@ -512,7 +511,7 @@ impl<O: OomHandler> Talc<O> {
                 let allocation = self.malloc(new_layout)?;
                 allocation.as_ptr().copy_from_nonoverlapping(ptr.as_ptr(), old_layout.size());
                 self.free(ptr, old_layout);
-    
+
                 Ok(allocation)
             }
             res => res,
@@ -520,8 +519,8 @@ impl<O: OomHandler> Talc<O> {
     }
 
     /// Attempt to grow a previously allocated/reallocated region of memory to `new_size`.
-    /// 
-    /// Returns `Err` if reallocation could not occur in-place. 
+    ///
+    /// Returns `Err` if reallocation could not occur in-place.
     /// Ownership of the memory remains with the caller.
     /// # Safety
     /// `ptr` must have been previously allocated or reallocated given `layout`.
@@ -746,7 +745,7 @@ impl<O: OomHandler> Talc<O> {
                     // register the free memory
                     let chunk_base = base.wrapping_add(TAG_SIZE);
                     self.register_gap(chunk_base, acme);
-                    
+
                     self.scan_for_errors();
 
                     #[cfg(feature = "counters")]

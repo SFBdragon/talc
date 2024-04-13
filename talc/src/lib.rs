@@ -13,16 +13,15 @@
 #![cfg_attr(feature = "nightly_api", feature(slice_ptr_len))]
 #![cfg_attr(feature = "nightly_api", feature(const_slice_ptr_len))]
 
-mod talc;
-mod span;
 mod oom_handler;
 mod ptr_utils;
+mod span;
+mod talc;
 
-#[cfg(feature = "lock_api")]
-mod talck;
 #[cfg(feature = "lock_api")]
 pub mod locking;
-
+#[cfg(feature = "lock_api")]
+mod talck;
 
 pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
 pub use span::Span;

@@ -10,7 +10,7 @@ pub struct Counters {
     /// Sum of active allocations' layouts' size.
     pub allocated_bytes: usize,
     /// Sum of all allocations' layouts' maximum size.
-    /// 
+    ///
     /// In-place reallocations's unchanged bytes are not recounted.
     pub total_allocated_bytes: u64,
 
@@ -117,19 +117,24 @@ impl Counters {
 
 impl core::fmt::Display for Counters {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!(r#"Stat                 | Running Total       | Accumulative Total
+        f.write_fmt(format_args!(
+            r#"Stat                 | Running Total       | Accumulative Total
 ---------------------|---------------------|--------------------
 # of Allocations     | {:>19} | {:>19}
 # of Allocated Bytes | {:>19} | {:>19}
 # of Available Bytes | {:>19} |                 N/A
 # of Claimed Bytes   | {:>19} | {:>19}
 # of Heaps           | {:>19} | {:>19}
-# of Fragments       | {:>19} |                 N/A"#, 
-            self.allocation_count, self.total_allocation_count,
-            self.allocated_bytes, self.total_allocated_bytes,
+# of Fragments       | {:>19} |                 N/A"#,
+            self.allocation_count,
+            self.total_allocation_count,
+            self.allocated_bytes,
+            self.total_allocated_bytes,
             self.available_bytes,
-            self.claimed_bytes, self.total_claimed_bytes,
-            self.heap_count, self.total_heap_count,
+            self.claimed_bytes,
+            self.total_claimed_bytes,
+            self.heap_count,
+            self.total_heap_count,
             self.fragment_count
         ))
     }
@@ -147,7 +152,7 @@ mod tests {
 
     use ptr_utils::{WORD_BITS, WORD_SIZE};
 
-    use crate::{*, talc::TAG_SIZE};
+    use crate::{talc::TAG_SIZE, *};
 
     #[test]
     fn test_claim_alloc_free_truncate() {
@@ -157,9 +162,7 @@ mod tests {
 
         let low = 99;
         let high = 10001;
-        let heap1 = unsafe {
-            talc.claim(arena.get_mut(low..high).unwrap().into()).unwrap()
-        };
+        let heap1 = unsafe { talc.claim(arena.get_mut(low..high).unwrap().into()).unwrap() };
 
         let pre_alloc_claimed_bytes = talc.get_counters().claimed_bytes;
         assert!(talc.get_counters().claimed_bytes == heap1.size());
@@ -182,9 +185,7 @@ mod tests {
         assert!(talc.get_counters().overhead_bytes() <= TAG_SIZE + WORD_SIZE * WORD_BITS * 2 + 64);
 
         let alloc_layout = Layout::new::<[u128; 3]>();
-        let alloc = unsafe {
-            talc.malloc(alloc_layout).unwrap()
-        };
+        let alloc = unsafe { talc.malloc(alloc_layout).unwrap() };
 
         assert!(talc.get_counters().claimed_bytes == pre_alloc_claimed_bytes);
         assert!(talc.get_counters().available_bytes < pre_alloc_avl_bytes - alloc_layout.size());
@@ -197,7 +198,7 @@ mod tests {
         assert!(matches!(talc.get_counters().fragment_count, 1..=2));
 
         assert!(talc.get_counters().overhead_bytes() >= 2 * TAG_SIZE);
-        
+
         unsafe {
             talc.free(alloc, alloc_layout);
         }
@@ -211,9 +212,7 @@ mod tests {
         assert!(talc.get_counters().total_allocation_count == 1);
         assert!(talc.get_counters().fragment_count == 1);
 
-        let heap1 = unsafe {
-            talc.truncate(heap1, talc.get_allocated_span(heap1))
-        };
+        let heap1 = unsafe { talc.truncate(heap1, talc.get_allocated_span(heap1)) };
 
         assert!(heap1.size() <= TAG_SIZE + WORD_SIZE * WORD_BITS * 2 + 64);
 
