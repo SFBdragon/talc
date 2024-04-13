@@ -62,8 +62,7 @@ jobs:
       steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: 1.70.0-x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
       - run: |
+          rustup toolchain add 1.70.0 --profile minimal
           rustup run 1.70.0 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose
