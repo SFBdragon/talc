@@ -98,15 +98,15 @@ The number of successful allocations, deallocations, and reallocations within th
 
 #### 1 Thread
 
-![Random Actions Benchmark Results](/benchmark_graphs/random_actions.png)
+![Random Actions Benchmark Results](./benchmark_graphs/random_actions.png)
 
 #### 4 Threads
 
-![Random Actions Multi Benchmark Results](/benchmark_graphs/random_actions_multi.png)
+![Random Actions Multi Benchmark Results](./benchmark_graphs/random_actions_multi.png)
 
 ## Allocations & Deallocations Microbenchmark
 
-![Microbenchmark Results](/benchmark_graphs/microbench.png)
+![Microbenchmark Results](./benchmark_graphs/microbench.png)
 
 Label indicates the maximum within 50 standard deviations from the median. Max allocation size is 0x10000.
 
@@ -117,6 +117,7 @@ Here is the list of important `Talc` methods:
     * `new`
 * Information:
     * `get_allocated_span` - returns the minimum heap span containing all allocated memory in an established heap
+    * `get_counters` - if feature `"counters"` is enabled, this returns a struct with allocation statistics
 * Management:
     * `claim` - claim memory to establishing a new heap
     * `extend` - extend an established heap
@@ -212,6 +213,10 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 - Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
 
 ## Changelog
+
+#### v4.4.1
+
+- Added utility function `except` to `Span`, which takes the set difference, potentially splitting the `Span`. Thanks [bjorn3](https://github.com/bjorn3) for the suggestion!
 
 #### v4.4.0
 

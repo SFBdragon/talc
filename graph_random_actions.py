@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import os
 
 BENCHMARK_RESULTS_DIR = 'benchmark_results/'
-BENCHMARK_RESULT_GRAPHS_DIR = 'benchmark_graphs/'
+BENCHMARK_RESULT_GRAPHS_DIR = 'talc/benchmark_graphs/'
 
 def get_benchmark_data(filename):
     with open(filename, 'r') as f:

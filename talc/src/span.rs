@@ -266,6 +266,19 @@ impl Span {
     pub fn below(self, max: *mut u8) -> Self {
         Self { base: self.base, acme: if max < self.acme { max } else { self.acme } }
     }
+
+    /// Returns the [`Span`]s of `self` below and above the `exclude` span, respectively.
+    /// Alternatively worded, the set difference `self`\\`exclude`.
+    /// 
+    /// If `exclude` is empty, `self` and an empty `Span` are returned.
+    #[inline]
+    pub fn except(self, exclude: Span) -> (Self, Self) {
+        match exclude.get_base_acme() {
+            Some((base, acme)) => (self.below(base), self.above(acme)),
+            None => (self, Span::empty()),
+        }
+    }
+
     /// Returns a span that `other` contains by raising `base` or lowering `acme`.
     ///
     /// If `other` is empty, returns `other`.
@@ -374,11 +387,25 @@ mod test {
                 )
         );
 
-        assert!(span.above(ptr(2345)) == Span::new(ptr(2345), aptr));
-        assert!(span.below(ptr(7890)) == Span::new(bptr, aptr));
-        assert!(span.below(ptr(3456)) == Span::new(bptr, ptr(3456)));
-        assert!(span.below(ptr(0123)).is_empty());
-        assert!(span.above(ptr(7890)).is_empty());
+        assert_eq!(span.above(ptr(2345)), Span::new(ptr(2345), aptr));
+        assert_eq!(span.below(ptr(7890)), Span::new(bptr, aptr));
+        assert_eq!(span.below(ptr(3456)), Span::new(bptr, ptr(3456)));
+        assert_eq!(span.below(ptr(0123)), Span::empty());
+        assert_eq!(span.above(ptr(7890)), Span::empty());
+
+        assert_eq!(
+            span.except(Span::new(ptr(base + 1111), ptr(acme - 1111))),
+            (Span::new(bptr, ptr(base + 1111)), Span::new(ptr(acme - 1111), aptr))
+        );
+        assert_eq!(
+            span.except(Span::new(ptr(base + 1111), ptr(acme + 1111))),
+            (Span::new(bptr, ptr(base + 1111)), Span::empty())
+        );
+        assert_eq!(
+            span.except(Span::new(ptr(base - 1111), ptr(acme + 1111))),
+            (Span::empty(), Span::empty())
+        );
+        assert_eq!(span.except(Span::empty()), (span, Span::empty()));
 
         assert!(span.fit_over(Span::empty()) == span);
         assert!(span.fit_within(Span::empty()).is_empty());
