@@ -212,6 +212,8 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 - Add out-of-the-box support for more systems
 - Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
 
+Update: All of this is currently in the works. No guarantees on when it will be done, but significant progress has been made.
+
 ## Changelog
 
 #### v4.4.1
