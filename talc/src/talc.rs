@@ -1053,6 +1053,34 @@ impl<O: OomHandler> Talc<O> {
             assert!(self.availability_high == 0);
         }
     }
+
+    /// Recover the Talc state from an existing heap. This will assume the given heap span was
+    /// previously worked on by Talc and therefore retains a valid state. The `counters` feature is
+    /// not supported by this method because counters are not self-contained within the heap that
+    /// talc works on (but an auxiliary statistical data) so it cannot be recovered.
+    #[cfg(not(feature = "counters"))]
+    pub unsafe fn recover_from_existing_heap(&mut self, heap: Span) -> Result<Span, ()> {
+        let aligned_heap = heap.word_align_inward();
+        match aligned_heap.get_base_acme() {
+            Some((base, _)) => {
+                // code adapted from `claim`
+                // align the metadata pointer against the base of the heap
+                let metadata_ptr = base.add(TAG_SIZE);
+
+                // initialize the bins
+                for i in 0..BIN_COUNT {
+                    if let Some(_) = *metadata_ptr.cast::<Bin>().add(i) {
+                        self.set_avails(i);
+                    }
+                }
+
+                self.bins = metadata_ptr.cast::<Bin>();
+
+                Ok(aligned_heap)
+            }
+            None => Err(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1178,6 +1206,54 @@ mod tests {
 
         unsafe {
             drop(Box::from_raw(big_heap));
+        }
+    }
+
+    #[cfg(not(feature = "counters"))]
+    #[test]
+    fn recover_from_existing_heap() {
+        use std::alloc::Allocator;
+
+        const ARENA_SIZE: usize = 10000000;
+        const VEC_SIZE: usize = 128;
+        const NVEC: usize = 100;
+
+        let arena = Box::leak(vec![0u8; ARENA_SIZE].into_boxed_slice()) as *mut [_];
+
+        let talc = Talc::new(crate::ErrOnOom).lock::<spin::Mutex<()>>();
+        unsafe {
+            let mut talc = talc.lock();
+            talc.claim(arena.as_mut().unwrap().into()).unwrap();
+        }
+
+        let mut allocated_vecs = Vec::new();
+        for i in 0..NVEC {
+            let talc = Talc::new(crate::ErrOnOom).lock::<spin::Mutex<()>>();
+            let talc = unsafe {
+                // tested method
+                talc.lock().recover_from_existing_heap(arena.into()).unwrap();
+
+                // trick the lifetime because talc is only available in this scope whereas we know the
+                // allocated vectors are still available across the whole test (because they're
+                // allocated in arena.
+                &*(&talc as *const crate::Talck<_, _>)
+            };
+            // allocate a vector using talc
+            let mut v = Box::new_in(Vec::new_in(talc.by_ref()), talc.by_ref());
+            for idx in 0..VEC_SIZE {
+                v.push(i * VEC_SIZE + idx)
+            }
+            // prevent deallocation, just leak the memory into a pointer
+            allocated_vecs.push(Box::into_raw(v));
+
+            // check previously allocated vectors and see if they still exist and have the right state
+            for (j, ptr) in allocated_vecs.iter().enumerate() {
+                let vec = unsafe { Box::from_raw_in(*ptr, talc) };
+                for (idx, val) in vec.iter().enumerate() {
+                    assert_eq!(j * VEC_SIZE + idx, *val);
+                }
+                Box::into_raw(vec);
+            }
         }
     }
 }
