@@ -24,7 +24,7 @@
 
 ## Table of Contents
 
-Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](./README_WASM.md).
+Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](https://github.com/SFBdragon/talc/README_WASM.md).
 
 - [Setup](#setup)
 - [Benchmarks](#benchmarks)
@@ -98,15 +98,15 @@ The number of successful allocations, deallocations, and reallocations within th
 
 #### 1 Thread
 
-![Random Actions Benchmark Results](./benchmark_graphs/random_actions.png)
+![Random Actions Benchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/random_actions.png)
 
 #### 4 Threads
 
-![Random Actions Multi Benchmark Results](./benchmark_graphs/random_actions_multi.png)
+![Random Actions Multi Benchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/random_actions_multi.png)
 
 ## Allocations & Deallocations Microbenchmark
 
-![Microbenchmark Results](./benchmark_graphs/microbench.png)
+![Microbenchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/microbench.png)
 
 Label indicates the maximum within 50 standard deviations from the median. Max allocation size is 0x10000.
 
@@ -319,7 +319,7 @@ To migrate from v2 to v3, keep in mind that you must keep track of the heaps if 
 #### v2.2.0
 - Added `dlmalloc` to the benchmarks.
 - WASM should now be fully supported via `TalckWasm`. Let me know what breaks ;)
-    - Find more details [here](./README_WASM.md).
+    - Find more details [here](https://github.com/SFBdragon/talc/README_WASM.md).
 
 
 #### v2.1.0
