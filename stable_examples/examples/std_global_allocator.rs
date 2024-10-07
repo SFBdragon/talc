@@ -1,20 +1,21 @@
 use talc::*;
 
-// note: miri thinks this violates stacked borrows upon program termination.
-// This only occurs if #[global_allocator] is used.
-// Use the allocator API if you can't have that. Perhaps checck out `std_allocator_api.rs`?
+// note:
+// - Miri thinks this violates stacked borrows upon program termination.
+//   - This only occurs with `#[global_allocator]`.
+//   - Use the allocator API if you can't have that. Perhaps check out `examples/stable_allocator_api.rs`?
+// - `spin::Mutex<()>`
+//   The `spin` crate provides a mutex that is a sensible choice to use.
+// - `ClaimOnOom`
+//   An OOM handler with support for claiming memory on-demand is required, as allocations may
+//   occur prior to the execution of `main()`.
 
 static mut START_ARENA: [u8; 10000] = [0; 10000];
 
-// The mutex provided by the `spin` crate is used here as it's a sensible choice
-
-// Allocations may occur prior to the execution of `main()`, thus support for
-// claiming memory on-demand is required, such as the ClaimOnOom OOM handler.
-
 #[global_allocator]
 static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
-        ClaimOnOom::new(Span::from_const_array(std::ptr::addr_of!(START_ARENA)))
-    }).lock();
+    ClaimOnOom::new(Span::from_const_array(std::ptr::addr_of!(START_ARENA)))
+}).lock();
 
 fn main() {
     let mut vec = Vec::with_capacity(100);
