@@ -1,6 +1,5 @@
 [package]
 name = "wasm-perf"
-rust-version = "1.67.1"
 version = "0.0.0"
 authors = ["Shaun Beautement <sf.beautement@protonmail.com>"]
 edition = "2021"

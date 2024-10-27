@@ -23,19 +23,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Modified by Shaun Beautement
 
 #![feature(iter_intersperse)]
-#![feature(const_mut_refs)]
 
 use std::{
-    alloc::{GlobalAlloc, Layout}, 
-    ptr::NonNull, 
-    sync::{Arc, Barrier}, 
-    time::{Duration, Instant}, 
-    fmt::Write
+    alloc::{GlobalAlloc, Layout}, fmt::Write, ptr::{addr_of_mut, NonNull}, sync::{Arc, Barrier}, time::{Duration, Instant}
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 
-const THREAD_COUNT: usize = 4;
+const THREAD_COUNT: usize = 12;
 
 const RA_TRIALS_AMOUNT: usize = 7;
 const RA_TIME: Duration = Duration::from_millis(200);
@@ -275,14 +270,14 @@ impl<'a> Drop for AllocationWrapper<'a> {
 unsafe fn init_talc() -> Box<dyn GlobalAlloc + Sync> {
     unsafe {
         let talck: _ = talc::Talc::new(talc::ErrOnOom).lock::<spin::Mutex<()>>();
-        talck.lock().claim(HEAP.as_mut_slice().into()).unwrap();
+        talck.lock().claim(addr_of_mut!(HEAP).into()).unwrap();
         Box::new(talck)
     }
 }
 
 unsafe fn init_linked_list_allocator() -> Box<dyn GlobalAlloc + Sync> {
-    let lla = linked_list_allocator::LockedHeap::new(HEAP.as_mut_ptr(), HEAP_SIZE);
-    lla.lock().init(HEAP.as_mut_ptr().cast(), HEAP_SIZE);
+    let lla = linked_list_allocator::LockedHeap::new(addr_of_mut!(HEAP).cast(), HEAP_SIZE);
+    lla.lock().init(addr_of_mut!(HEAP).cast(), HEAP_SIZE);
     Box::new(lla)
 }
 
@@ -299,7 +294,7 @@ unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
     let galloc = good_memory_allocator::SpinLockedAllocator
         ::<{good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT}, {good_memory_allocator::DEFAULT_ALIGNMENT_SUB_BINS_AMOUNT}>
         ::empty();
-    galloc.init(HEAP.as_ptr() as usize, HEAP_SIZE);
+    galloc.init(addr_of_mut!(HEAP) as usize, HEAP_SIZE);
     Box::new(galloc)
 }
 
@@ -311,10 +306,10 @@ unsafe fn init_rlsf() -> Box<dyn GlobalAlloc + Sync> {
 
 unsafe fn init_buddy_alloc() -> Box<dyn GlobalAlloc + Sync> {
     let ba = BuddyAllocWrapper(spin::Mutex::new(NonThreadsafeAlloc::new(
-        FastAllocParam::new(HEAP.as_ptr().cast(), HEAP.len() / 8),
+        FastAllocParam::new(addr_of_mut!(HEAP).cast(), HEAP_SIZE / 8),
         BuddyAllocParam::new(
-            HEAP.as_ptr().cast::<u8>().add(HEAP.len() / 8),
-            HEAP.len() / 8 * 7,
+            addr_of_mut!(HEAP).cast::<u8>().add(HEAP_SIZE / 8),
+            HEAP_SIZE / 8 * 7,
             64,
         ),
     )));
@@ -378,8 +373,8 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
         } else {
             *lock = true;
             let align = std::mem::align_of::<usize>();
-            let heap_align_offset = unsafe { HEAP.as_mut_ptr() }.align_offset(align);
-            (unsafe { HEAP.as_mut_ptr().add(heap_align_offset) }, (HEAP_SIZE - heap_align_offset) / align * align, 1)
+            let heap_align_offset = addr_of_mut!(HEAP).align_offset(align);
+            (unsafe { addr_of_mut!(HEAP).cast::<u8>().add(heap_align_offset) }, (HEAP_SIZE - heap_align_offset) / align * align, 1)
         }
     }
 

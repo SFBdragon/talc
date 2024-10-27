@@ -16,7 +16,7 @@ for ALLOCATOR in ${ALLOCATORS}; do
     
     # turn on LTO via RUSTFLAGS
     RUSTFLAGS="-C lto -C embed-bitcode=yes -C linker-plugin-lto" \
-    cargo $COMMAND -p wasm-size --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
+    cargo +nightly $COMMAND -p wasm-size --quiet --release --target wasm32-unknown-unknown --features ${ALLOCATOR}
 
     if [[ $1 != "check" ]]; then
         wasm-opt -Oz -o target/wasm32-unknown-unknown/release/wasm_size_opt.wasm target/wasm32-unknown-unknown/release/wasm_size.wasm

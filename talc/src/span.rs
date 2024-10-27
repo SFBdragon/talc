@@ -46,6 +46,9 @@ impl<T> From<Range<*mut T>> for Span {
     }
 }
 
+// NOTE: This should be removed in a future release as it encouraged UB.
+//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+//   See: https://github.com/SFBdragon/talc/issues/33
 impl<T> From<Range<*const T>> for Span {
     fn from(value: Range<*const T>) -> Self {
         Self { base: value.start.cast_mut().cast(), acme: value.end.cast_mut().cast() }
@@ -58,6 +61,9 @@ impl<T> From<&mut [T]> for Span {
     }
 }
 
+// NOTE: This should be removed in a future release as it encouraged UB.
+//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+//   See: https://github.com/SFBdragon/talc/issues/33
 impl<T> From<&[T]> for Span {
     fn from(value: &[T]) -> Self {
         Self::from(value.as_ptr_range())
@@ -70,6 +76,9 @@ impl<T, const N: usize> From<&mut [T; N]> for Span {
     }
 }
 
+// NOTE: This should be removed in a future release as it encouraged UB.
+//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+//   See: https://github.com/SFBdragon/talc/issues/33
 impl<T, const N: usize> From<&[T; N]> for Span {
     fn from(value: &[T; N]) -> Self {
         Self::from(value as *const [T; N])
@@ -83,9 +92,13 @@ impl<T> From<*mut [T]> for Span {
     }
 }
 
+// NOTE: This should be removed in a future release as it encouraged UB.
+//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+//   See: https://github.com/SFBdragon/talc/issues/33
 #[cfg(feature = "nightly_api")]
 impl<T> From<*const [T]> for Span {
     fn from(value: *const [T]) -> Self {
+        #[expect(deprecated)] // This impl is 'deprecated' too.
         Self::from_const_slice(value)
     }
 }
@@ -96,6 +109,9 @@ impl<T, const N: usize> From<*mut [T; N]> for Span {
     }
 }
 
+// NOTE: This should be removed in a future release as it encouraged UB.
+//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+//   See: https://github.com/SFBdragon/talc/issues/33
 impl<T, const N: usize> From<*const [T; N]> for Span {
     fn from(value: *const [T; N]) -> Self {
         Self::from_array(value.cast_mut())
@@ -165,6 +181,10 @@ impl Span {
         }
     }
 
+    // NOTE: This should be removed in a future release as it encouraged UB.
+    //   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+    //   See: https://github.com/SFBdragon/talc/issues/33
+    #[deprecated = "Conversion from const references encourages UB. This will be removed in a future release."]
     #[cfg(feature = "nightly_api")]
     #[inline]
     pub const fn from_const_slice<T>(slice: *const [T]) -> Self {
@@ -186,6 +206,10 @@ impl Span {
         }
     }
 
+    // NOTE: This should be removed in a future release as it encouraged UB.
+    //   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
+    //   See: https://github.com/SFBdragon/talc/issues/33
+    #[deprecated = "Conversion from const references encourages UB. This will be removed in a future release."]
     #[inline]
     pub const fn from_const_array<T, const N: usize>(array: *const [T; N]) -> Self {
         Self {

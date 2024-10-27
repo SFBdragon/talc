@@ -41,10 +41,6 @@ rustup run nightly cargo check -p benchmarks --bin random_actions
 
 # check wasm size benches
 ./wasm-size.sh check
-# check wasm size MSRV
-rustup run 1.68 cargo check -p wasm-size --target wasm32-unknown-unknown
 
 # check wasm perf benches
 ./wasm-perf.sh check
-# check wasm perf MSRV
-rustup run 1.73 wasm-pack --log-level warn build wasm-perf --dev --target web

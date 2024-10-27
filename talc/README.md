@@ -15,7 +15,7 @@
 - Supports creating and resizing arbitrarily many heaps
 - Optional allocation statistics
 - Partial validation with debug assertions enabled
-- Conforms to MIRI's stacked borrows checker
+- Verified with MIRI
 
 #### Why not Talc?
 - Doesn't integrate with operating systems' dynamic memory facilities out-of-the-box yet
@@ -24,7 +24,7 @@
 
 ## Table of Contents
 
-Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](https://github.com/SFBdragon/talc/README_WASM.md).
+Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](https://github.com/SFBdragon/talc/blob/master/talc/README_WASM.md).
 
 - [Setup](#setup)
 - [Benchmarks](#benchmarks)
@@ -98,15 +98,15 @@ The number of successful allocations, deallocations, and reallocations within th
 
 #### 1 Thread
 
-![Random Actions Benchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/random_actions.png)
+![Random Actions Benchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/random_actions.png?raw=true)
 
 #### 4 Threads
 
-![Random Actions Multi Benchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/random_actions_multi.png)
+![Random Actions Multi Benchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/random_actions_multi.png?raw=true)
 
 ## Allocations & Deallocations Microbenchmark
 
-![Microbenchmark Results](https://github.com/SFBdragon/talc/benchmark_graphs/microbench.png)
+![Microbenchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/microbench.png?raw=true)
 
 Label indicates the maximum within 50 standard deviations from the median. Max allocation size is 0x10000.
 
@@ -215,6 +215,16 @@ Additionally, the layout of chunk metadata is rearranged to allow for smaller mi
 Update: All of this is currently in the works. No guarantees on when it will be done, but significant progress has been made.
 
 ## Changelog
+
+
+#### v4.4.2
+
+- [polarathene](https://github.com/polarathene): Replace README relative links with fully-qualified links.
+- [polarathene](https://github.com/polarathene): Improve docs for `stable_examples/examples/std_global_allocator.rs`.
+
+- Improved docs for `stable_examples/examples/stable_allocator_api.rs` and `stable_examples/examples/std_global_allocator.rs`.
+- Deprecated the `Span::from*` function for converting from shared references and const pointers, as they make committing UB easy. These will be removed in v5.
+- Fixed up a bunch of warnings all over the project.
 
 #### v4.4.1
 

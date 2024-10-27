@@ -1,1 +1,0 @@
-talc/README_WASM.md

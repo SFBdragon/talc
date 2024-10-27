@@ -5,6 +5,12 @@ use allocator_api2::vec::Vec;
 
 // Run with:
 // `cargo +stable run -p stable_examples --example stable_allocator_api`
+// `cargo miri run -p stable_examples --example stable_allocator_api`
+
+// TODO: Change talc's configuration to be stable-by-default, which will
+// avoid `rust-analyzer` complaining here about `Talck` not implementing
+// `allocator_api2::alloc::Allocator` if `rust-analyzer` is using a nightly
+// toolchain.
 
 fn main() {
     // Establish some memory for the allocator.

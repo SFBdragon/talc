@@ -1004,7 +1004,7 @@ impl<O: OomHandler> Talc<O> {
     #[cfg(debug_assertions)]
     /// Debugging function for checking various assumptions.
     fn scan_for_errors(&self) {
-        #[cfg(any(test, fuzzing))]
+        #[cfg(any(test, feature = "fuzzing"))]
         let mut vec = std::vec::Vec::<Span>::new();
 
         if !self.bins.is_null() {
@@ -1028,7 +1028,7 @@ impl<O: OomHandler> Talc<O> {
                         assert!(lower_tag.is_allocated());
                         assert!(lower_tag.is_above_free());
 
-                        #[cfg(any(test, fuzzing))]
+                        #[cfg(any(test, feature = "fuzzing"))]
                         {
                             let span = Span::new(base, acme);
                             //dbg!(span);

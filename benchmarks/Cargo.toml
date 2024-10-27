@@ -23,6 +23,6 @@ talc = { path = "../talc" }
 linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
 good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
 buddy-alloc = "0.5"
-dlmalloc = { version = "0.2.4", default-features = false, features = ["global"] }
-frusa = "0.1.2"
-rlsf = "0.2.1"
+dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
+frusa = "0.1"
+rlsf = "0.2"

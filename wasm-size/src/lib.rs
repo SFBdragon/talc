@@ -1,21 +1,25 @@
 #![no_std]
 
-extern crate alloc;
+use core::alloc::Layout;
 
-use core::alloc::{GlobalAlloc, Layout};
+extern crate alloc;
 
 #[cfg(not(target_family = "wasm"))]
 compile_error!("Requires targetting WASM");
 
-struct NoAlloc;
-unsafe impl GlobalAlloc for NoAlloc {
-    unsafe fn alloc(&self, _: Layout) -> *mut u8 { core::ptr::null_mut() }
-    unsafe fn dealloc(&self, _: *mut u8, _: Layout) { }
-}
-
 #[cfg(all(not(feature = "talc"), not(feature = "dlmalloc"), not(feature = "lol_alloc"), not(feature = "rlsf")))]
-#[global_allocator]
-static NOALLOC: NoAlloc = NoAlloc;
+mod no_alloc {
+    use core::alloc::{GlobalAlloc, Layout};
+
+    struct NoAlloc;
+    unsafe impl GlobalAlloc for NoAlloc {
+        unsafe fn alloc(&self, _: Layout) -> *mut u8 { core::ptr::null_mut() }
+        unsafe fn dealloc(&self, _: *mut u8, _: Layout) { }
+    }
+
+    #[global_allocator]
+    static NOALLOC: NoAlloc = NoAlloc;
+}
 
 #[cfg(all(feature = "talc", not(feature = "talc_arena")))]
 #[global_allocator]
@@ -28,11 +32,13 @@ static RLSF: rlsf::SmallGlobalTlsf = rlsf::SmallGlobalTlsf::new();
 #[cfg(all(feature = "talc", feature = "talc_arena"))]
 #[global_allocator]
 static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
+    use core::{mem::MaybeUninit, ptr::addr_of_mut};
+
     const MEMORY_SIZE: usize = 128 * 1024 * 1024;
-    static mut MEMORY: [core::mem::MaybeUninit<u8>; MEMORY_SIZE] =
-        [core::mem::MaybeUninit::uninit(); MEMORY_SIZE];
-    let span = talc::Span::from_base_size(unsafe { MEMORY.as_ptr() as *mut _ }, MEMORY_SIZE);
-    talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
+    static mut MEMORY: [MaybeUninit<u8>; MEMORY_SIZE] = [MaybeUninit::uninit(); MEMORY_SIZE];
+    let span = talc::Span::from_array(addr_of_mut!(MEMORY));
+    let oom_handler = unsafe { talc::ClaimOnOom::new(span) };
+    talc::Talc::new(oom_handler).lock()
 };
 
 #[cfg(feature = "lol_alloc")]

@@ -32,7 +32,7 @@ use talc::{ErrOnOom, Talc};
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::fs::File;
-use std::ptr::NonNull;
+use std::ptr::{addr_of_mut, NonNull};
 use std::time::Instant;
 
 const BENCH_DURATION: f64 = 1.0;
@@ -50,8 +50,8 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
 
         if has_data {
             let align = std::mem::align_of::<usize>();
-            let heap_align_offset = unsafe { HEAP_MEMORY.as_mut_ptr() }.align_offset(align);
-            unsafe { (HEAP_MEMORY.as_mut_ptr().add(heap_align_offset), (HEAP_SIZE - heap_align_offset) / align * align, 1) }
+            let heap_align_offset = addr_of_mut!(HEAP_MEMORY).align_offset(align);
+            unsafe { (addr_of_mut!(HEAP_MEMORY).cast::<u8>().add(heap_align_offset), (HEAP_SIZE - heap_align_offset) / align * align, 1) }
         } else {
             (core::ptr::null_mut(), 0, 0)
         }
@@ -131,7 +131,7 @@ fn main() {
     // warm up the memory caches, avoid demand paging issues, etc.
     for i in 0..HEAP_SIZE {
         unsafe {
-            HEAP_MEMORY.as_mut_ptr().add(i).write(0xAE);
+            addr_of_mut!(HEAP_MEMORY).cast::<u8>().add(i).write(0xAE);
         }
     }
 
@@ -143,15 +143,15 @@ fn main() {
     let mut galloc_allocator =
         good_memory_allocator::SpinLockedAllocator::<DEFAULT_SMALLBINS_AMOUNT>::empty();
     unsafe {
-        galloc_allocator.init(HEAP_MEMORY.as_ptr() as usize, HEAP_SIZE);
+        galloc_allocator.init(addr_of_mut!(HEAP_MEMORY) as usize, HEAP_SIZE);
     }
 
     benchmark_allocator(&mut galloc_allocator, "Galloc", &mut csvs);
 
     let buddy_alloc = unsafe {
         buddy_alloc::NonThreadsafeAlloc::new(
-            FastAllocParam::new(HEAP_MEMORY.as_ptr(), HEAP_SIZE / 8),
-            BuddyAllocParam::new(HEAP_MEMORY.as_ptr().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
+            FastAllocParam::new(addr_of_mut!(HEAP_MEMORY).cast(), HEAP_SIZE / 8),
+            BuddyAllocParam::new(addr_of_mut!(HEAP_MEMORY).cast::<u8>().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
         )
     };
     benchmark_allocator(&buddy_alloc, "Buddy Allocator", &mut csvs);
@@ -162,7 +162,7 @@ fn main() {
     benchmark_allocator(&dlmalloc, "Dlmalloc", &mut csvs);
 
     let talc = Talc::new(ErrOnOom).lock::<talc::locking::AssumeUnlockable>();
-    unsafe { talc.lock().claim(HEAP_MEMORY.as_mut().into()) }.unwrap();
+    unsafe { talc.lock().claim(addr_of_mut!(HEAP_MEMORY).into()) }.unwrap();
 
     benchmark_allocator(&talc, "Talc", &mut csvs);
 

@@ -8,10 +8,8 @@
 //! Calling `Talc::lock()` on it will yield a `Talck` which implements
 //! [`GlobalAlloc`] and [`Allocator`] (if the appropriate feature flags are set).
 
-#![cfg_attr(not(any(test, fuzzing)), no_std)]
+#![cfg_attr(not(any(test, feature = "fuzzing")), no_std)]
 #![cfg_attr(feature = "allocator", feature(allocator_api))]
-#![cfg_attr(feature = "nightly_api", feature(slice_ptr_len))]
-#![cfg_attr(feature = "nightly_api", feature(const_slice_ptr_len))]
 
 mod oom_handler;
 mod ptr_utils;
