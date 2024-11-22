@@ -17,7 +17,7 @@ Or if your arena size is statically known, for example 16 MiB, `0x1000000`:
 #[global_allocator]
 static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
     static mut MEMORY: [u8; 0x1000000] = [0; 0x1000000];
-    let span = talc::Span::from_const_array(std::ptr::addr_of!(MEMORY));
+    let span = talc::Span::from_array(std::ptr::addr_of!(MEMORY).cast_mut());
     talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
 };
 ```
