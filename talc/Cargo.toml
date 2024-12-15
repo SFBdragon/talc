@@ -1,10 +1,10 @@
 [package]
 name = "talc"
-version = "4.4.2"
+version = "4.4.1"
 rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"
-authors = ["Shaun Beautement <sf.beautement@protonmail.com>"]
+authors = ["Shaun Beautement"]
 description = "A fast and flexible allocator for no_std and WebAssembly"
 repository = "https://github.com/SFBdragon/talc"
 keywords = ["allocator", "no_std", "memory", "heap", "wasm"]
@@ -14,13 +14,12 @@ license = "MIT"
 [features]
 fuzzing = []
 counters = []
-nightly_api = []
-allocator = ["lock_api"]
-default = ["lock_api", "allocator", "nightly_api"]
+allocator_api = []
 
 [dependencies]
+crossbeam-utils = { version = "0.8.20", default-features = false }
 allocator-api2 = { version = "0.2", optional = true, default-features = false }
-lock_api = { version = "0.4", optional = true, default-features = false }
+lock_api = "0.4.12"
 
 [dev-dependencies]
 spin = { version =  "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }

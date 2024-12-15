@@ -32,13 +32,18 @@ use talc::{ErrOnOom, Talc};
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::fs::File;
+use std::path::PathBuf;
 use std::ptr::{addr_of_mut, NonNull};
 use std::time::Instant;
 
 const BENCH_DURATION: f64 = 1.0;
 
 const HEAP_SIZE: usize = 0x10000000;
-static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
+
+#[repr(align(64))]
+struct Heap([u8; HEAP_SIZE]);
+static mut HEAP_MEMORY: Heap = Heap([0u8; HEAP_SIZE]);
+
 
 
 // Turn DlMalloc into an arena allocator
@@ -50,8 +55,9 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
 
         if has_data {
             let align = std::mem::align_of::<usize>();
-            let heap_align_offset = addr_of_mut!(HEAP_MEMORY).align_offset(align);
-            unsafe { (addr_of_mut!(HEAP_MEMORY).cast::<u8>().add(heap_align_offset), (HEAP_SIZE - heap_align_offset) / align * align, 1) }
+            let heap_base = addr_of_mut!(HEAP_MEMORY).cast::<u8>();
+            let heap_align_offset = heap_base.align_offset(align);
+            unsafe { (heap_base.add(heap_align_offset), (HEAP_SIZE - heap_align_offset) / align * align, 1) }
         } else {
             (core::ptr::null_mut(), 0, 0)
         }
@@ -121,12 +127,12 @@ unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
 
 
 fn main() {
-    const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results/micro/";
-    // create a directory for the benchmark results.
-    let _ = std::fs::create_dir_all(BENCHMARK_RESULTS_DIR).unwrap();
+    let cargo_manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let benchmark_results_dir = cargo_manifest_dir.join("benchmark_results/micro");
+    std::fs::create_dir_all(&benchmark_results_dir).unwrap();
 
-    let sum_file = File::create(BENCHMARK_RESULTS_DIR.to_owned() + "Alloc Plus Dealloc.csv").unwrap();
-    let mut csvs = Csvs { sum_file };
+    let benchmark_file_path = benchmark_results_dir.join("Alloc Plus Dealloc.csv");
+    let mut csv = File::create(benchmark_file_path).unwrap();
 
     // warm up the memory caches, avoid demand paging issues, etc.
     for i in 0..HEAP_SIZE {
@@ -135,10 +141,10 @@ fn main() {
         }
     }
 
+    // Way too slow.
     /* let linked_list_allocator =
-        unsafe { linked_list_allocator::LockedHeap::new(HEAP_MEMORY.as_mut_ptr() as _, HEAP_SIZE) };
-    
-    benchmark_allocator(&linked_list_allocator, "Linked List Allocator", &mut csvs); */
+        unsafe { linked_list_allocator::LockedHeap::new(addr_of_mut!(HEAP_MEMORY.0) as _, HEAP_SIZE) };
+    benchmark_allocator(&linked_list_allocator, "Linked List Allocator", &mut csv); */
 
     let mut galloc_allocator =
         good_memory_allocator::SpinLockedAllocator::<DEFAULT_SMALLBINS_AMOUNT>::empty();
@@ -146,7 +152,7 @@ fn main() {
         galloc_allocator.init(addr_of_mut!(HEAP_MEMORY) as usize, HEAP_SIZE);
     }
 
-    benchmark_allocator(&mut galloc_allocator, "Galloc", &mut csvs);
+    benchmark_allocator(&mut galloc_allocator, "Galloc", &mut csv);
 
     let buddy_alloc = unsafe {
         buddy_alloc::NonThreadsafeAlloc::new(
@@ -154,24 +160,27 @@ fn main() {
             BuddyAllocParam::new(addr_of_mut!(HEAP_MEMORY).cast::<u8>().add(HEAP_SIZE / 8), HEAP_SIZE / 8 * 7, 64),
         )
     };
-    benchmark_allocator(&buddy_alloc, "Buddy Allocator", &mut csvs);
+    benchmark_allocator(&buddy_alloc, "Buddy Allocator", &mut csv);
 
     let dlmalloc = DlMallocator(spin::Mutex::new(
         dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(true.into()))
     ));
-    benchmark_allocator(&dlmalloc, "Dlmalloc", &mut csvs);
+    benchmark_allocator(&dlmalloc, "Dlmalloc", &mut csv);
 
-    let talc = Talc::new(ErrOnOom).lock::<talc::locking::AssumeUnlockable>();
-    unsafe { talc.lock().claim(addr_of_mut!(HEAP_MEMORY).into()) }.unwrap();
+    let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+    unsafe { talc.lock().claim(addr_of_mut!(HEAP_MEMORY.0).into()) }.unwrap();
 
-    benchmark_allocator(&talc, "Talc", &mut csvs);
+    benchmark_allocator(&talc, "Talc", &mut csv);
 
     let tlsf = GlobalRLSF(spin::Mutex::new(rlsf::Tlsf::new()));
-    tlsf.0.lock().insert_free_block(unsafe { std::mem::transmute(&mut HEAP_MEMORY[..]) });
-    benchmark_allocator(&tlsf, "RLSF", &mut csvs);
+    tlsf.0.lock().insert_free_block(unsafe { std::mem::transmute(&mut HEAP_MEMORY.0[..]) });
+    benchmark_allocator(&tlsf, "RLSF", &mut csv);
     
-    // benchmark_allocator(&std::alloc::System, "System", &mut csvs);
-    // benchmark_allocator(&frusa::Frusa2M::new(&std::alloc::System), "Frusa", &mut csvs);
+    // The following run far too slowly under this benchmark to be worth testing.
+    // Thing is; these aren't slow allocators, either. Not sure what's wrong.
+
+    // benchmark_allocator(&std::alloc::System, "System", &mut csv);
+    // benchmark_allocator(&frusa::Frusa2M::new(&std::alloc::System), "Frusa", &mut csv);
 }
 
 fn now() -> u64 {
@@ -194,11 +203,7 @@ fn now() -> u64 {
     );
 }
 
-struct Csvs {
-    pub sum_file: File, 
-}
-
-fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csvs: &mut Csvs) {
+fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csv_file: &mut File) {
     eprintln!("Benchmarking: {name}...");
 
     let mut active_allocations = Vec::new();
@@ -271,7 +276,7 @@ fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csvs: &mut Csvs)
         String::from_iter(data.into_iter().map(|x| x.to_string()).intersperse(",".to_owned()));
 
     use std::io::Write;
-    writeln!(csvs.sum_file, "{name},{}", data_to_string(&sum_quartiles[..])).unwrap();
+    writeln!(csv_file, "{name},{}", data_to_string(&sum_quartiles[..])).unwrap();
 
 }
 

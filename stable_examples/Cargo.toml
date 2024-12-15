@@ -13,4 +13,4 @@ spin = "0.9.8"
 [dev-dependencies.talc]
 path = "../talc"
 default-features = false
-features = ["lock_api", "allocator-api2"]
+features = ["allocator-api2"] # "lock_api",

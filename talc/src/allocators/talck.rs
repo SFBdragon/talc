@@ -1,20 +1,20 @@
 //! Home of Talck, a mutex-locked wrapper of Talc.
 
-use crate::{talc::Talc, OomHandler};
+use crate::talc::{alignment::ChunkAlign, bucket_config::BucketConfig, oom_handler::OomHandler, Talc};
 
 use core::{
     alloc::{GlobalAlloc, Layout},
     cmp::Ordering,
-    ptr::{null_mut, NonNull},
+    ptr::null_mut,
 };
 
-#[cfg(feature = "allocator")]
+#[cfg(feature = "allocator_api")]
 use core::alloc::{AllocError, Allocator};
 
-#[cfg(all(feature = "allocator-api2", not(feature = "allocator")))]
+#[cfg(all(feature = "allocator-api2", not(feature = "allocator_api")))]
 use allocator_api2::alloc::{AllocError, Allocator};
 
-#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
+#[cfg(any(feature = "allocator_api", feature = "allocator-api2"))]
 pub(crate) fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
     (ptr as usize).trailing_zeros() >= align.trailing_zeros()
 }
@@ -30,49 +30,47 @@ const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x10000;
 /// let talck = talc.lock::<spin::Mutex<()>>();
 /// ```
 #[derive(Debug)]
-pub struct Talck<R: lock_api::RawMutex, O: OomHandler> {
-    mutex: lock_api::Mutex<R, Talc<O>>,
+pub struct Talck<R: lock_api::RawMutex, O: OomHandler<Cfg, A>, Cfg: BucketConfig, A: ChunkAlign> {
+    mutex: lock_api::Mutex<R, Talc<O, Cfg, A>>,
 }
 
-impl<R: lock_api::RawMutex, O: OomHandler> Talck<R, O> {
+impl<R: lock_api::RawMutex, O: OomHandler<Cfg, A>, Cfg: BucketConfig, A: ChunkAlign> Talck<R, O, Cfg, A> {
     /// Create a new `Talck`.
-    pub const fn new(talc: Talc<O>) -> Self {
+    pub const fn new(talc: Talc<O, Cfg, A>) -> Self {
         Self { mutex: lock_api::Mutex::new(talc) }
     }
 
     /// Lock the mutex and access the inner `Talc`.
-    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<O>> {
+    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<O, Cfg, A>> {
         self.mutex.lock()
     }
 
     /// Try to lock the mutex and access the inner `Talc`.
-    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<O>>> {
+    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<O, Cfg, A>>> {
         self.mutex.try_lock()
     }
 
     /// Retrieve the inner `Talc`.
-    pub fn into_inner(self) -> Talc<O> {
+    pub fn into_inner(self) -> Talc<O, Cfg, A> {
         self.mutex.into_inner()
     }
 }
 
-unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
+unsafe impl<R: lock_api::RawMutex, O: OomHandler<Cfg, A>, Cfg: BucketConfig, A: ChunkAlign> GlobalAlloc for Talck<R, O, Cfg, A> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.lock().malloc(layout).map_or(null_mut(), |nn| nn.as_ptr())
+        self.lock().alloc(layout).map_or(null_mut(), |nn| nn.as_ptr())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.lock().free(NonNull::new_unchecked(ptr), layout)
+        self.lock().dealloc(ptr, layout)
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, old_layout: Layout, new_size: usize) -> *mut u8 {
-        let nn_ptr = NonNull::new_unchecked(ptr);
-
         match new_size.cmp(&old_layout.size()) {
             Ordering::Greater => {
                 // first try to grow in-place before manually re-allocating
 
-                if let Ok(nn) = self.lock().grow_in_place(nn_ptr, old_layout, new_size) {
+                if let Ok(nn) = self.lock().grow_in_place(ptr, old_layout, new_size) {
                     return nn.as_ptr();
                 }
 
@@ -81,7 +79,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
                 let new_layout = Layout::from_size_align_unchecked(new_size, old_layout.align());
 
                 let mut lock = self.lock();
-                let allocation = match lock.malloc(new_layout) {
+                let allocation = match lock.alloc(new_layout) {
                     Ok(ptr) => ptr,
                     Err(_) => return null_mut(),
                 };
@@ -94,12 +92,12 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
                     allocation.as_ptr().copy_from_nonoverlapping(ptr, old_layout.size());
                 }
 
-                lock.free(nn_ptr, old_layout);
+                lock.dealloc(ptr, old_layout);
                 allocation.as_ptr()
             }
 
             Ordering::Less => {
-                self.lock().shrink(NonNull::new_unchecked(ptr), old_layout, new_size);
+                self.lock().shrink(ptr, old_layout, new_size);
                 ptr
             }
 
@@ -109,12 +107,12 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> GlobalAlloc for Talck<R, O> {
 }
 
 /// Convert a nonnull and length to a nonnull slice.
-#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
+#[cfg(any(feature = "allocator_api", feature = "allocator-api2"))]
 fn nonnull_slice_from_raw_parts(ptr: NonNull<u8>, len: usize) -> NonNull<[u8]> {
     unsafe { NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), len)) }
 }
 
-#[cfg(any(feature = "allocator", feature = "allocator-api2"))]
+#[cfg(any(feature = "allocator_api", feature = "allocator-api2"))]
 unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {
@@ -224,7 +222,7 @@ unsafe impl<R: lock_api::RawMutex, O: OomHandler> Allocator for Talck<R, O> {
     }
 }
 
-impl<O: OomHandler> Talc<O> {
+impl< O: OomHandler<Cfg, A>, Cfg: BucketConfig, A: ChunkAlign> Talc<O, Cfg, A> {
     /// Wrap in `Talck`, a mutex-locked wrapper struct using [`lock_api`].
     ///
     /// This implements the [`GlobalAlloc`](core::alloc::GlobalAlloc) trait and provides
@@ -242,7 +240,7 @@ impl<O: OomHandler> Talc<O> {
     ///     talck.alloc(Layout::from_size_align_unchecked(32, 4));
     /// }
     /// ```
-    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O> {
+    pub const fn lock<R: lock_api::RawMutex>(self) -> Talck<R, O, Cfg, A> {
         Talck::new(self)
     }
 }

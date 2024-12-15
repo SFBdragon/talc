@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import os
@@ -46,6 +48,9 @@ def plot_data(filename, filepath):
 
 
 def main():
+    # set the current directory to the script directory
+    os.chdir(os.path.dirname(__file__))
+
     if not os.path.exists(BENCHMARK_RESULTS_DIR):
         print("No results dir. Has the benchmark been run?")
         return

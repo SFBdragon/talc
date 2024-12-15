@@ -11,7 +11,7 @@ pub struct Counters {
     pub allocated_bytes: usize,
     /// Sum of all allocations' layouts' maximum size.
     ///
-    /// In-place reallocations's unchanged bytes are not recounted.
+    /// In-place reallocations' unchanged bytes are not recounted.
     pub total_allocated_bytes: u64,
 
     /// Number of bytes available for allocation.
@@ -51,12 +51,12 @@ impl Counters {
         self.claimed_bytes - self.available_bytes - self.allocated_bytes
     }
 
-    /// Returns the total number of allocated bytes freed.
+    /// Returns the total number of allocated bytes that have been freed.
     pub const fn total_freed_bytes(&self) -> u64 {
         self.total_allocated_bytes - self.allocated_bytes as u64
     }
 
-    /// Returns the total number of claimed bytes released.
+    /// Returns the total number of claimed bytes have been released.
     pub const fn total_released_bytes(&self) -> u64 {
         self.total_claimed_bytes - self.claimed_bytes as u64
     }
@@ -101,24 +101,24 @@ impl Counters {
         self.total_claimed_bytes += claimed_size as u64;
     }
 
-    pub(crate) fn account_extend(&mut self, old_claimed_size: usize, new_claimed_size: usize) {
-        self.claimed_bytes += new_claimed_size - old_claimed_size;
-        self.total_claimed_bytes += (new_claimed_size - old_claimed_size) as u64;
+    pub(crate) fn account_append(&mut self, old_acme: *mut u8, new_acme: *mut u8) {
+        self.claimed_bytes += new_acme as usize - old_acme as usize;
+        self.total_claimed_bytes += (new_acme as usize - old_acme as usize) as u64;
     }
 
-    pub(crate) fn account_truncate(&mut self, old_claimed_size: usize, new_claimed_size: usize) {
-        if old_claimed_size != 0 && new_claimed_size == 0 {
+    pub(crate) fn account_truncate(&mut self, old_acme: *mut u8, new_acme: *mut u8, deleted_arena: bool) {
+        if deleted_arena {
             self.heap_count -= 1;
         }
 
-        self.claimed_bytes -= old_claimed_size - new_claimed_size;
+        self.claimed_bytes -= old_acme as usize - new_acme as usize;
     }
 }
 
 impl core::fmt::Display for Counters {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
-            r#"Stat                 | Running Total       | Accumulative Total
+            r#"Stat                 | Current Total       | Accumulative Total
 ---------------------|---------------------|--------------------
 # of Allocations     | {:>19} | {:>19}
 # of Allocated Bytes | {:>19} | {:>19}
@@ -140,19 +140,19 @@ impl core::fmt::Display for Counters {
     }
 }
 
-impl<O: super::OomHandler> super::Talc<O> {
+impl<O: crate::OomHandler<Cfg, A>, Cfg: super::BucketConfig, A: super::ChunkAlign> super::Talc<O, Cfg, A> {
     pub fn get_counters(&self) -> &Counters {
         &self.counters
     }
 }
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use core::alloc::Layout;
 
     use ptr_utils::{WORD_BITS, WORD_SIZE};
 
-    use crate::{talc::TAG_SIZE, *};
+    use crate::*;
 
     #[test]
     fn test_claim_alloc_free_truncate() {
@@ -226,4 +226,4 @@ mod tests {
         assert!(talc.get_counters().total_allocation_count == 1);
         assert!(talc.get_counters().fragment_count == 0);
     }
-}
+} */

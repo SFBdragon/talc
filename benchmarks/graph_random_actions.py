@@ -1,8 +1,10 @@
+#!/usr/bin/python
+
 import matplotlib.pyplot as plt
 import os
 
 BENCHMARK_RESULTS_DIR = 'benchmark_results/'
-BENCHMARK_RESULT_GRAPHS_DIR = 'talc/benchmark_graphs/'
+BENCHMARK_RESULT_GRAPHS_DIR = 'benchmark_graphs/'
 
 def get_benchmark_data(filename):
     with open(filename, 'r') as f:
@@ -18,8 +20,12 @@ def get_benchmark_data(filename):
     return max_sizes, allocators
 
 def main():
+    # set the current directory to the script directory
+    os.chdir(os.path.dirname(__file__))
+    
     if not os.path.exists(BENCHMARK_RESULTS_DIR):
-        os.mkdir(BENCHMARK_RESULTS_DIR)
+        print("No results dir. Has the benchmark been run?")
+        return
 
     filename = "Random Actions Benchmark.csv"
 

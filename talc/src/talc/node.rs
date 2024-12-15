@@ -10,14 +10,15 @@ use core::ptr::NonNull;
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
 #[derive(Debug)]
 #[repr(C)]
-pub struct LlistNode {
-    pub next: Option<NonNull<LlistNode>>,
-    pub next_of_prev: *mut Option<NonNull<LlistNode>>,
+pub struct Node<T> {
+    pub(crate) next: Option<NonNull<Node<T>>>,
+    pub(crate) next_of_prev: *mut Option<NonNull<Node<T>>>,
+    pub(crate) payload: T,
 }
 
-impl LlistNode {
+impl<T> Node<T> {
     #[inline]
-    pub fn next_ptr(ptr: *mut Self) -> *mut Option<NonNull<LlistNode>> {
+    pub fn next_ptr(ptr: *mut Self) -> *mut Option<NonNull<Self>> {
         ptr.cast() /* .cast::<u8>().wrapping_add(core::mem::offset_of!(LlistNode, next)) */
     }
 
@@ -32,20 +33,19 @@ impl LlistNode {
     /// * `node` must be `ptr::write`-able.
     /// * `next_of_prev` must be dereferencable and valid.
     pub unsafe fn insert(
-        node: *mut Self,
-        next_of_prev: *mut Option<NonNull<LlistNode>>,
-        next: Option<NonNull<LlistNode>>,
+        ptr: *mut Self,
+        data: Self,
     ) {
-        debug_assert!(!node.is_null());
-        debug_assert!(!next_of_prev.is_null());
+        debug_assert!(!ptr.is_null());
+        debug_assert!(!data.next_of_prev.is_null());
 
-        node.write(Self { next_of_prev, next });
-
-        *next_of_prev = Some(NonNull::new_unchecked(node));
-
-        if let Some(next) = next {
-            (*next.as_ptr()).next_of_prev = Self::next_ptr(node);
+        *data.next_of_prev = Some(NonNull::new_unchecked(ptr));
+        
+        if let Some(next) = data.next {
+            (*next.as_ptr()).next_of_prev = Self::next_ptr(ptr);
         }
+
+        ptr.write(data);
     }
 
     /// Remove `node` from it's linked list.
@@ -54,9 +54,9 @@ impl LlistNode {
     ///
     /// # Safety
     /// * `self` must be dereferencable and valid.
-    pub unsafe fn remove(node: *mut Self) {
+    pub unsafe fn remove(node: *mut Self) -> T {
         debug_assert!(!node.is_null());
-        let LlistNode { next, next_of_prev } = node.read();
+        let Node { next, next_of_prev, payload } = node.read();
 
         debug_assert!(!next_of_prev.is_null());
         *next_of_prev = next;
@@ -64,6 +64,8 @@ impl LlistNode {
         if let Some(next) = next {
             (*next.as_ptr()).next_of_prev = next_of_prev;
         }
+
+        payload
     }
 
     /// Creates an iterator over the circular linked list, exclusive of
@@ -71,7 +73,7 @@ impl LlistNode {
     /// # Safety
     /// `start`'s linked list must remain in a valid state during iteration.
     /// Modifying `LlistNode`s already returned by the iterator is okay.
-    pub unsafe fn iter_mut(first: Option<NonNull<Self>>) -> IterMut {
+    pub unsafe fn iter_mut(first: Option<NonNull<Self>>) -> IterMut<T> {
         IterMut::new(first)
     }
 }
@@ -81,17 +83,17 @@ impl LlistNode {
 /// This `struct` is created by `LlistNode::iter_mut`. See its documentation for more.
 #[derive(Debug, Clone, Copy)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct IterMut(Option<NonNull<LlistNode>>);
+pub struct IterMut<T>(Option<NonNull<Node<T>>>);
 
-impl IterMut {
+impl<T> IterMut<T> {
     /// Create a new iterator over the linked list from `first`.
-    pub unsafe fn new(first: Option<NonNull<LlistNode>>) -> Self {
+    pub unsafe fn new(first: Option<NonNull<Node<T>>>) -> Self {
         Self(first)
     }
 }
 
-impl Iterator for IterMut {
-    type Item = NonNull<LlistNode>;
+impl<T> Iterator for IterMut<T> {
+    type Item = NonNull<Node<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.0?;
@@ -102,49 +104,49 @@ impl Iterator for IterMut {
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::null_mut;
+    use core::mem::MaybeUninit;
 
     use super::*;
 
     #[test]
-    fn test_llist() {
+    fn test_node() {
         unsafe {
-            let x = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
-            let y = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
-            let z = Box::into_raw(Box::new(LlistNode { next: None, next_of_prev: null_mut() }));
+            let x = Box::into_raw(Box::new(MaybeUninit::<Node<()>>::uninit())).cast::<Node<()>>();
+            let y = Box::into_raw(Box::new(MaybeUninit::<Node<()>>::uninit())).cast::<Node<()>>();
+            let z = Box::into_raw(Box::new(MaybeUninit::<Node<()>>::uninit())).cast::<Node<()>>();
 
-            LlistNode::insert(y, LlistNode::next_ptr(x), None);
-            LlistNode::insert(z, LlistNode::next_ptr(x), Some(NonNull::new(y).unwrap()));
+            Node::insert(y, Node { next: None, next_of_prev: Node::next_ptr(x), payload: () });
+            Node::insert(z,  Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::next_ptr(x), payload: () });
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x)).unwrap());
+            let mut iter = Node::iter_mut(Some(NonNull::new(x)).unwrap());
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == z));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::new(y).unwrap()));
+            let mut iter = Node::iter_mut(Some(NonNull::new(y).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::remove(z);
+            Node::remove(z);
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            let mut iter = Node::iter_mut(Some(NonNull::new(x).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::insert(z, LlistNode::next_ptr(x), Some(NonNull::new(y).unwrap()));
+            Node::insert(z, Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::next_ptr(x), payload: () });
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            let mut iter = Node::iter_mut(Some(NonNull::new(x).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == z));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            LlistNode::remove(z);
-            LlistNode::remove(y);
+            Node::remove(z);
+            Node::remove(y);
 
-            let mut iter = LlistNode::iter_mut(Some(NonNull::new(x).unwrap()));
+            let mut iter = Node::iter_mut(Some(NonNull::new(x).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
             assert!(iter.next().is_none());
 

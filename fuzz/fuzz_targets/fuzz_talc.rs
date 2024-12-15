@@ -125,7 +125,7 @@ fuzz_target!(|actions: Vec<Actions>| {
 
                 let new_heap = old_heap
                     .truncate(low as usize, high as usize)
-                    .fit_over(unsafe { talc.get_allocated_span(old_heap) });
+                    .fit_over(unsafe { talc.inspect_available(old_heap) });
                 let new_heap = unsafe { talc.truncate(old_heap, new_heap) };
 
                 if new_heap.is_empty() {

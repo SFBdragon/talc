@@ -25,7 +25,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #![feature(iter_intersperse)]
 
 use std::{
-    alloc::{GlobalAlloc, Layout}, fmt::Write, ptr::{addr_of_mut, NonNull}, sync::{Arc, Barrier}, time::{Duration, Instant}
+    alloc::{GlobalAlloc, Layout}, fmt::Write, path::PathBuf, ptr::{addr_of_mut, NonNull}, sync::{Arc, Barrier}, time::{Duration, Instant}
 };
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
@@ -44,20 +44,20 @@ const HE_MAX_REALLOC_SIZE_MULTI: usize = 1000000;
 const HEAP_SIZE: usize = 1 << 29;
 static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
-const BENCHMARK_RESULTS_DIR: &str = "./benchmark_results";
-
 struct NamedAllocator {
     name: &'static str,
     init_fn: unsafe fn() -> Box<dyn GlobalAlloc + Sync>,
 }
 
 fn main() {
-    // create a directory for the benchmark results.
-    let _ = std::fs::create_dir(BENCHMARK_RESULTS_DIR);
+    let cargo_manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let benchmark_results_dir = cargo_manifest_dir.join("benchmark_results");
+    std::fs::create_dir_all(&benchmark_results_dir).unwrap();
 
     let allocators = &[
-        NamedAllocator { name: "Talc", init_fn: init_talc },
         NamedAllocator { name: "RLSF", init_fn: init_rlsf },
+        NamedAllocator { name: "Talc", init_fn: init_talc },
+        // NamedAllocator { name: "Galloc", init_fn: init_galloc },
         NamedAllocator { name: "Frusa", init_fn: init_frusa },
         NamedAllocator { name: "Dlmalloc", init_fn: init_dlmalloc },
         NamedAllocator { name: "System", init_fn: init_system },
@@ -123,7 +123,8 @@ fn main() {
     // remove the last newline.
     csv.pop();
 
-    std::fs::write(format!("{}/Random Actions Benchmark.csv", BENCHMARK_RESULTS_DIR), csv).unwrap();
+    let csv_file_path = benchmark_results_dir.join("Random Actions Benchmark.csv");
+    std::fs::write(csv_file_path, csv).unwrap();
 }
 
 
@@ -131,6 +132,9 @@ pub fn random_actions(allocator: &dyn GlobalAlloc, max_alloc_size: usize, barrie
     let mut score = 0;
     let mut v: Vec<AllocationWrapper<'_>> = Vec::with_capacity(100000);
     let rng = fastrand::Rng::new();
+
+    let mut allocation_failure_count = 0usize;
+    let mut reallocation_failure_count = 0usize;
 
     barrier.wait();
     let start = Instant::now();
@@ -154,7 +158,7 @@ pub fn random_actions(allocator: &dyn GlobalAlloc, max_alloc_size: usize, barrie
                         let size = rng.usize(1..(max_alloc_size * RA_MAX_REALLOC_SIZE_MULTI));
                         random_allocation.realloc(size);
                     } else {
-                        eprintln!("Reallocation failure!");
+                        reallocation_failure_count += 1;
                     }
                     score += 1;
                 }
@@ -165,7 +169,7 @@ pub fn random_actions(allocator: &dyn GlobalAlloc, max_alloc_size: usize, barrie
                     v.push(allocation);
                     score += 1;
                 } else {
-                    eprintln!("Allocation failure!");
+                    allocation_failure_count += 1;
                 }
             } else {
                 let index = rng.usize(0..v.len());
@@ -173,6 +177,13 @@ pub fn random_actions(allocator: &dyn GlobalAlloc, max_alloc_size: usize, barrie
                 score += 1;
             }
         }
+    }
+
+    if allocation_failure_count != 0 {
+        eprintln!("Allocation failure count: {}", allocation_failure_count);
+    }
+    if reallocation_failure_count != 0 {
+        eprintln!("Allocation failure count: {}", reallocation_failure_count);
     }
 
     score
@@ -289,7 +300,7 @@ unsafe fn init_frusa() -> Box<dyn GlobalAlloc + Sync> {
     Box::new(frusa::Frusa2M::new(&std::alloc::System))
 }
 
-#[allow(unused)]
+#[allow(dead_code)]
 unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
     let galloc = good_memory_allocator::SpinLockedAllocator
         ::<{good_memory_allocator::DEFAULT_SMALLBINS_AMOUNT}, {good_memory_allocator::DEFAULT_ALIGNMENT_SUB_BINS_AMOUNT}>

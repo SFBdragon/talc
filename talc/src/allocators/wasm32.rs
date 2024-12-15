@@ -1,68 +1,35 @@
-use core::alloc::Layout;
+use core::{alloc::Layout, cell::UnsafeCell};
 
-use crate::{Span, Talc};
+use crate::{talc::{alignment::DefaultAlign, bitfield::U64BitField, bucket_config::BucketConfig, oom_handler::OomHandler, Talc}, Span};
 
-pub trait OomHandler: Sized {
-    /// Given the allocator and the `layout` of the allocation that caused
-    /// OOM, resize or claim and return `Ok(())` or fail by returning `Err(())`.
-    ///
-    /// This function is called repeatedly if the allocator is still out of memory.
-    /// Therefore an infinite loop will occur if `Ok(())` is repeatedly returned
-    /// without extending or claiming new memory.
-    fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()>;
+struct WasmBucketCfg;
+
+impl BucketConfig for WasmBucketCfg {
+    type Availability = U64BitField;
+    const INIT: Self = WasmBucketCfg;
 }
 
-/// Doesn't handle out-of-memory conditions, immediate allocation error occurs.
-pub struct ErrOnOom;
-
-impl OomHandler for ErrOnOom {
-    fn handle_oom(_: &mut Talc<Self>, _: Layout) -> Result<(), ()> {
-        Err(())
-    }
+pub struct WasmAlloc {
+    cell: UnsafeCell<Talc<WasmHandler, WasmBucketCfg, DefaultAlign>>,
 }
 
-/// An out-of-memory handler that attempts to claim the
-/// memory within the given [`Span`] upon OOM.
-///
-/// The contained span is then overwritten with an empty span.
-///
-/// If the span is empty or `claim` fails, allocation failure occurs.
-pub struct ClaimOnOom(Span);
-
-impl ClaimOnOom {
-    /// # Safety
-    /// The memory within the given [`Span`] must conform to
-    /// the requirements laid out by [`claim`](Talc::claim).
-    pub const unsafe fn new(span: Span) -> Self {
-        ClaimOnOom(span)
-    }
-}
-
-impl OomHandler for ClaimOnOom {
-    fn handle_oom(talc: &mut Talc<Self>, _: Layout) -> Result<(), ()> {
-        if !talc.oom_handler.0.is_empty() {
-            unsafe {
-                talc.claim(talc.oom_handler.0)?;
-            }
-
-            talc.oom_handler.0 = Span::empty();
-
-            Ok(())
-        } else {
-            Err(())
+impl WasmAlloc {
+    pub const fn new() -> Self {
+        Self {
+            cell: UnsafeCell::new(Talc::new(
+                unsafe { WasmHandler::new() }
+            )) 
         }
     }
 }
 
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
-pub struct WasmHandler {
+
+struct WasmHandler {
     prev_heap: Span,
 }
 
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 unsafe impl Send for WasmHandler {}
 
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
 impl WasmHandler {
     /// Create a new WASM handler.
     /// # Safety
@@ -73,9 +40,8 @@ impl WasmHandler {
     }
 }
 
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
-impl OomHandler for WasmHandler {
-    fn handle_oom(talc: &mut Talc<Self>, layout: Layout) -> Result<(), ()> {
+impl OomHandler<WasmBucketCfg, DefaultAlign> for WasmHandler {
+    fn handle_oom(talc: &mut Talc<Self, WasmBucketCfg, DefaultAlign>, layout: Layout) -> Result<(), ()> {
         /// WASM page size is 64KiB
         const PAGE_SIZE: usize = 1024 * 64;
 
@@ -117,7 +83,7 @@ impl OomHandler for WasmHandler {
         if let Some((prev_base, prev_acme)) = talc.oom_handler.prev_heap.get_base_acme() {
             if prev_acme == prev_heap_acme {
                 talc.oom_handler.prev_heap = unsafe {
-                    talc.extend(talc.oom_handler.prev_heap, Span::new(prev_base, new_heap_acme))
+                    talc.extend(talc.oom_handler.prev_heap, new_heap_acme)
                 };
 
                 return Ok(());

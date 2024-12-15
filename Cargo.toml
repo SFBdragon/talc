@@ -2,12 +2,12 @@
 resolver = "2"
 
 members = [
-    "talc",
     "benchmarks",
     "fuzz",
-    "stable_examples",
-    "wasm-perf",
-    "wasm-size",
+    # "stable_examples",
+    "talc",
+    # "wasm-perf",
+    # "wasm-size",
 ]
 
 [profile.release]

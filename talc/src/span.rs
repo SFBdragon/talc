@@ -1,13 +1,13 @@
 use core::ops::Range;
 
-use crate::ptr_utils::*;
+use crate::ptr_utils::{align_down_by, align_up_by};
 
 /// Represents an interval of memory `[base, acme)`
 ///
 /// Use `get_base_acme` to retrieve `base` and `acme` directly.
 ///
 /// # Empty Spans
-/// Note that where `base >= acme`, the [`Span`] is considered empty, in which case
+/// Note that where `base >= acme`, the [`Span`] is empty, in which case
 /// the specific values of `base` and `acme` are considered meaningless.
 /// * Empty spans contain nothing and overlap with nothing.
 /// * Empty spans are contained by any sized span.
@@ -46,9 +46,6 @@ impl<T> From<Range<*mut T>> for Span {
     }
 }
 
-// NOTE: This should be removed in a future release as it encouraged UB.
-//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-//   See: https://github.com/SFBdragon/talc/issues/33
 impl<T> From<Range<*const T>> for Span {
     fn from(value: Range<*const T>) -> Self {
         Self { base: value.start.cast_mut().cast(), acme: value.end.cast_mut().cast() }
@@ -61,60 +58,21 @@ impl<T> From<&mut [T]> for Span {
     }
 }
 
-// NOTE: This should be removed in a future release as it encouraged UB.
-//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-//   See: https://github.com/SFBdragon/talc/issues/33
-impl<T> From<&[T]> for Span {
-    fn from(value: &[T]) -> Self {
-        Self::from(value.as_ptr_range())
-    }
-}
-
 impl<T, const N: usize> From<&mut [T; N]> for Span {
     fn from(value: &mut [T; N]) -> Self {
         Self::from(value as *mut [T; N])
     }
 }
 
-// NOTE: This should be removed in a future release as it encouraged UB.
-//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-//   See: https://github.com/SFBdragon/talc/issues/33
-impl<T, const N: usize> From<&[T; N]> for Span {
-    fn from(value: &[T; N]) -> Self {
-        Self::from(value as *const [T; N])
-    }
-}
-
-#[cfg(feature = "nightly_api")]
 impl<T> From<*mut [T]> for Span {
     fn from(value: *mut [T]) -> Self {
         Self::from_slice(value)
     }
 }
 
-// NOTE: This should be removed in a future release as it encouraged UB.
-//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-//   See: https://github.com/SFBdragon/talc/issues/33
-#[cfg(feature = "nightly_api")]
-impl<T> From<*const [T]> for Span {
-    fn from(value: *const [T]) -> Self {
-        #[expect(deprecated)] // This impl is 'deprecated' too.
-        Self::from_const_slice(value)
-    }
-}
-
 impl<T, const N: usize> From<*mut [T; N]> for Span {
     fn from(value: *mut [T; N]) -> Self {
         Self::from_array(value)
-    }
-}
-
-// NOTE: This should be removed in a future release as it encouraged UB.
-//   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-//   See: https://github.com/SFBdragon/talc/issues/33
-impl<T, const N: usize> From<*const [T; N]> for Span {
-    fn from(value: *const [T; N]) -> Self {
-        Self::from_array(value.cast_mut())
     }
 }
 
@@ -170,7 +128,6 @@ impl Span {
         Self { base, acme: base.wrapping_add(size) }
     }
 
-    #[cfg(feature = "nightly_api")]
     #[inline]
     pub const fn from_slice<T>(slice: *mut [T]) -> Self {
         Self {
@@ -181,37 +138,8 @@ impl Span {
         }
     }
 
-    // NOTE: This should be removed in a future release as it encouraged UB.
-    //   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-    //   See: https://github.com/SFBdragon/talc/issues/33
-    #[deprecated = "Conversion from const references encourages UB. This will be removed in a future release."]
-    #[cfg(feature = "nightly_api")]
-    #[inline]
-    pub const fn from_const_slice<T>(slice: *const [T]) -> Self {
-        Self {
-            base: slice as *mut T as *mut u8,
-            // SAFETY: pointing directly after an object is considered
-            // within the same object
-            acme: unsafe { (slice as *mut T).add(slice.len()).cast() },
-        }
-    }
-
     #[inline]
     pub const fn from_array<T, const N: usize>(array: *mut [T; N]) -> Self {
-        Self {
-            base: array as *mut T as *mut u8,
-            // SAFETY: pointing directly after an object is considered
-            // within the same object
-            acme: unsafe { (array as *mut T).add(N).cast() },
-        }
-    }
-
-    // NOTE: This should be removed in a future release as it encouraged UB.
-    //   Once `const_mut_refs` is stabilized in Rust, this will no longer be useful anyway.
-    //   See: https://github.com/SFBdragon/talc/issues/33
-    #[deprecated = "Conversion from const references encourages UB. This will be removed in a future release."]
-    #[inline]
-    pub const fn from_const_array<T, const N: usize>(array: *const [T; N]) -> Self {
         Self {
             base: array as *mut T as *mut u8,
             // SAFETY: pointing directly after an object is considered
@@ -259,25 +187,6 @@ impl Span {
     #[inline]
     pub fn overlaps(self, other: Span) -> bool {
         self.is_sized() && other.is_sized() && !(other.base >= self.acme || self.base >= other.acme)
-    }
-
-    /// Aligns `base` upward and `acme` downward by `align_of::<usize>()`.
-    #[inline]
-    pub fn word_align_inward(self) -> Self {
-        if ALIGN > usize::MAX - self.base as usize {
-            Self::empty()
-        } else {
-            Self { base: align_up(self.base), acme: align_down(self.acme) }
-        }
-    }
-    /// Aligns `base` downward and `acme` upward by `align_of::<usize>()`.
-    #[inline]
-    pub fn word_align_outward(self) -> Self {
-        if ALIGN > usize::MAX - self.acme as usize {
-            panic!("aligning acme upward would overflow!");
-        }
-
-        Self { base: align_down(self.base), acme: align_up(self.acme) }
     }
 
     /// Raises `base` if `base` is smaller than `min`.
@@ -371,6 +280,19 @@ impl Span {
             }
         }
     }
+
+    /// Aligns the boundaries of the `Span` inwards.
+    #[inline]
+    pub fn align_inwards(self, alignment: usize) -> Span {
+        if (self.base as usize).checked_add(alignment - 1).is_none() {
+            Span::empty()
+        } else {
+            Span {
+                base: align_up_by(self.base, alignment - 1),
+                acme: align_down_by(self.acme, alignment - 1),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -393,23 +315,6 @@ mod test {
         let span = Span::from(bptr..aptr);
         assert!(!span.is_empty());
         assert!(span.size() == acme - base);
-
-        assert!(
-            span.word_align_inward()
-                == Span::new(
-                    bptr.wrapping_add(ALIGN - 1)
-                        .wrapping_sub(bptr.wrapping_add(ALIGN - 1) as usize & (ALIGN - 1)),
-                    aptr.wrapping_sub(acme & (ALIGN - 1))
-                )
-        );
-        assert!(
-            span.word_align_outward()
-                == Span::new(
-                    bptr.wrapping_sub(base & (ALIGN - 1)),
-                    aptr.wrapping_add(ALIGN - 1)
-                        .wrapping_sub(aptr.wrapping_add(ALIGN - 1) as usize & (ALIGN - 1))
-                )
-        );
 
         assert_eq!(span.above(ptr(2345)), Span::new(ptr(2345), aptr));
         assert_eq!(span.below(ptr(7890)), Span::new(bptr, aptr));
