@@ -1,0 +1,35 @@
+[package]
+name = "benches"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "microbench"
+path = "src/microbench.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "random_actions"
+path = "src/random_actions.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "heap_efficiency"
+path = "src/heap_efficiency.rs"
+test = false
+doc = false
+
+[dependencies]
+fastrand = "1.9"
+spin = { version = "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }
+talc = { path = "../talc", default-features = false }
+# prev-talc = { package = "talc", version = "4" }
+linked_list_allocator = { version = "0.10", features =  ["use_spin_nightly", "const_mut_refs", "alloc_ref"] }
+good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
+buddy-alloc = "0.6"
+dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
+frusa = "0.1"
+rlsf = "0.2"

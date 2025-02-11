@@ -1,17 +1,20 @@
 [workspace]
 resolver = "2"
+default-members = ["talc"]
 
 members = [
-    "benchmarks",
+    "benches",
     "fuzz",
-    # "stable_examples",
     "talc",
-    # "wasm-perf",
-    # "wasm-size",
+    "wasm-perf",
+    "wasm-size",
 ]
 
+[profile.dev]
+panic = "abort"
 [profile.release]
 panic = "abort"
+# panic for "bench" and "test" are automatically "unwind"
 
 [profile.release.package.wasm-size]
 opt-level = "z"

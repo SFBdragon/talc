@@ -1,56 +1,60 @@
-# Talc Allocator [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) [![Downloads](https://img.shields.io/crates/d/talc?style=flat-square)](https://crates.io/crates/talc) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/)
+# Talc Dynamic Memory Allocator 
 
-<sep>
-
-<sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ)</i></sub>
-
-#### What is this for?
-- Embedded systems, OS kernels, and other `no_std` environments
-- WebAssembly apps, as a drop-in replacement for the default allocator
-- Subsystems in normal programs that need especially quick arena allocation
-
-#### Why Talc?
-- Performance is the primary focus, while retaining generality
-- Custom Out-Of-Memory handlers for just-in-time heap management and recovery
-- Supports creating and resizing arbitrarily many heaps
-- Optional allocation statistics
-- Partial validation with debug assertions enabled
-- Verified with MIRI
-
-#### Why not Talc?
-- Doesn't integrate with operating systems' dynamic memory facilities out-of-the-box yet
-- Doesn't scale well to allocation/deallocation-heavy concurrent processing
-    - Though it's particularly good at concurrent reallocation.
+[![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) [![Downloads](https://img.shields.io/crates/d/talc?style=flat-square)](https://crates.io/crates/talc) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/)
 
 ## Table of Contents
 
-Targeting WebAssembly? You can find WASM-specific usage and benchmarks [here](https://github.com/SFBdragon/talc/blob/master/talc/README_WASM.md).
+Targeting WebAssembly? Check out [the WebAssembly README](https://github.com/SFBdragon/talc/blob/master/talc/README_WASM.md).
 
+- [Features](#features)
 - [Setup](#setup)
-- [Benchmarks](#benchmarks)
 - [General Usage](#general-usage)
 - [Advanced Usage](#advanced-usage)
-- [Conditional Features](#conditional-features)
-- [Stable Rust and MSRV](#stable-rust-and-msrv)
 - [Algorithm](#algorithm)
-- [Future Development](#future-development-v5)
 - [Changelog](#changelog)
 
 
+## Features
+- `"counters"`: `Talc` will track arena and allocation metrics. Use the `counters` associated function to access them.
+- `"nightly"`: Enable nightly-only APIs. Currently allows `Talck` and `TalcCell` to implement `core::alloc::Allocator`.
+- `"cache-aligned-allocation"`: `Talc` will align all of its chunks according to `crossbeam_utils::CachePadded`.
+    - This is intended to mitigate [false sharing](https://en.wikipedia.org/wiki/False_sharing) between different
+        allocations that will be used from different threads.
+    - Using this is strongly recommended as opposed to always demanding very-high alignments from Talc
+
+- `"disable-grow-in-place"`: Never uses the grow-in-place routine to implement `GlobalAlloc` or `Allocator`. Intended to reduce size for WebAssembly.
+- `"disable-realloc-in-place"`: Never uses grow- or shrink-in-place routines to implement `GlobalAlloc` or `Allocator`. Intended to reduce size for WebAssembly.
+
 ## Setup
 
-As a global allocator:
+`Talc` is the core, but usually not useful alone.
+- Use `TalcCell` for single-threaded allocation, e.g. using the `Allocator` interface.
+- Use `Talck` for multi-threaded allocation, e.g. as a `#[global_allocator]`
+    - Talck requires a locking mechanism implementing `lock_api::RawMutex`, e.g. `spin::Mutex<()>`
+
+Now you need to decide how you're going to establish arenas for `Talc` to allocate from.
+- You can manually do this using `claim` 
+- You can have an OOM (Out Of Memory) handler do this for you
+    - `ClaimOnOom` tries to `claim` a region of memory you specify.
+    - Platform-specific OOM handlers like `ClaimWasmMemOnOom` retrieve memory from the system as needed.
+    - TODO
+
+See the following two examples of how this looks in practice.
+
+#### As a global allocator
+
 ```rust
 use talc::*;
 
 static mut ARENA: [u8; 10000] = [0; 10000];
 
 #[global_allocator]
-static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
-    // if we're in a hosted environment, the Rust runtime may allocate before
-    // main() is called, so we need to initialize the arena automatically
-    ClaimOnOom::new(Span::from_array(core::ptr::addr_of!(ARENA).cast_mut()))
-}).lock();
+static TALCK: Talck<spin::Mutex<()>, ClaimOnOom> = Talck::new(unsafe {
+    // If we're in a hosted environment, the Rust runtime may allocate before
+    // main() is called, so we need to initialize the arena automatically.
+    // We use `ClaimOnOom` to claim `ARENA` when 
+    ClaimOnOom::new(Span::slice(&raw mut ARENA))
+});
 
 fn main() {
     let mut vec = Vec::with_capacity(100);
@@ -58,81 +62,54 @@ fn main() {
 }
 ```
 
-Or use it as an arena allocator via the `Allocator` API with `spin` as follows:
+See [examples/global_allocator.rs]((https://github.com/SFBdragon/talc/blob/master/talc/examples/global_allocator.rs) for a more detailed example.
+
+#### Using the `Allocator` API
+
 ```rust
-#![feature(allocator_api)]
+// if "nightly" is enabled, core::alloc::Allocator can be used instead
+// #![feature(allocator_api)]
+
+use allocator_api2::alloc::{Allocator, Layout}
 use talc::*;
-use core::alloc::{Allocator, Layout};
 
-static mut ARENA: [u8; 10000] = [0; 10000];
+fn main() {
+    let mut arena = [0u8; 10000];
 
-fn main () {
-    let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-    unsafe { talck.lock().claim(ARENA.as_mut().into()); }
+    let talc = TalcCell::new(ErrOnOom);
+    unsafe { talc.claim(arena.as_mut().into()); }
     
-    talck.allocate(Layout::new::<[u32; 16]>());
+    let my_vec = allocator_api2::vec::Vec::new_in(&talc);
+    let my_allocation = talc.allocate(Layout::new::<[u32; 16]>()).unwrap();
 }
 ```
 
-Note that while the `spin` crate's mutexes are used here, any lock implementing `lock_api` works.
+See [examples/allocator_api.rs]((https://github.com/SFBdragon/talc/blob/master/talc/examples/allocator_api.rs) for a more detailed example.
 
-See [General Usage](#general-usage) and [Advanced Usage](#advanced-usage) for more details.
+## API Overview
 
-## Benchmarks
+Whether you're using `Talc`, `Talck` (call `lock` to get the `Talc`), or `TalcCell` (re-exposes the API directly), usage is similar.
 
-### Heap Efficiency Benchmark Results
+#### Allocation
 
-The average occupied capacity upon first allocation failure when randomly allocating/deallocating/reallocating.
+`Talck` and `TalcCell` implement the `GlobalAlloc` and `Allocator` traits.
 
-|             Allocator | Average Random Actions Heap Efficiency |
-| --------------------- | -------------------------------------- |
-|              Dlmalloc |                                 99.14% |
-|                  Rlsf |                                 99.06% |
-|                  Talc |                                 98.97% |
-|           Linked List |                                 98.36% |
-|           Buddy Alloc |                                 63.14% |
+`Talc` exposes the allocation primitives
+- `allocate`
+- `deallocate`
+- `try_grow_in_place`
+- `shrink`
+- `try_resize_in_place`
 
-### Random Actions Benchmark
+#### Arena Management
+* `claim` - establish an `Arena`
+* `reserved` - query for the region of bytes reserved due to allocations
+* `extend`/`truncate`/`resize` - change the size of an existing `Arena`
 
-The number of successful allocations, deallocations, and reallocations within the allotted time.
-
-#### 1 Thread
-
-![Random Actions Benchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/random_actions.png?raw=true)
-
-#### 4 Threads
-
-![Random Actions Multi Benchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/random_actions_multi.png?raw=true)
-
-## Allocations & Deallocations Microbenchmark
-
-![Microbenchmark Results](https://github.com/SFBdragon/talc/blob/master/talc/benchmark_graphs/microbench.png?raw=true)
-
-Label indicates the maximum within 50 standard deviations from the median. Max allocation size is 0x10000.
-
-## General Usage
-
-Here is the list of important `Talc` methods:
-* Constructors:
-    * `new`
-* Information:
-    * `get_allocated_span` - returns the minimum heap span containing all allocated memory in an established heap
-    * `get_counters` - if feature `"counters"` is enabled, this returns a struct with allocation statistics
-* Management:
-    * `claim` - claim memory to establishing a new heap
-    * `extend` - extend an established heap
-    * `truncate` - reduce the extent of an established heap
-    * `lock` - wraps the `Talc` in a `Talck`, which supports the `GlobalAlloc` and `Allocator` APIs
-* Allocation:
-    * `malloc`
-    * `free`
-    * `grow`
-    * `grow_in_place`
-    * `shrink`
+#### Statistics - requires "counters" feature
+* `counter` - obtains the `Counters` struct which contains arena and allocation statistics
 
 Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
-
-[`Span`](https://docs.rs/talc/latest/talc/struct.Span.html) is a handy little type for describing memory regions, as trying to manipulate `Range<*mut u8>` or `*mut [u8]` or `base_ptr`-`size` pairs tends to be inconvenient or annoying.
 
 ## Advanced Usage
 
@@ -189,33 +166,41 @@ impl OomHandler for MyOomHandler {
 }
 ```
 
-## Conditional Features
-* `"lock_api"` (default): Provides the `Talck` locking wrapper type that implements `GlobalAlloc`.
-* `"allocator"` (default, requires nightly): Provides an `Allocator` trait implementation via `Talck`.
-* `"nightly_api"` (default, requires nightly): Provides the `Span::from(*mut [T])` and `Span::from_slice` functions.
-* `"counters"`: `Talc` will track heap and allocation metrics. Use `Talc::get_counters` to access them.
-* `"allocator-api2"`: `Talck` will implement `allocator_api2::alloc::Allocator` if `"allocator"` is not active.
-
-## Stable Rust and MSRV
-Talc can be built on stable Rust by disabling `"allocator"` and `"nightly_api"`. The MSRV is 1.67.1.
-
-Disabling `"nightly_api"` disables `Span::from(*mut [T])`, `Span::from(*const [T])`, `Span::from_const_slice` and `Span::from_slice`.
-
 ## Algorithm
-This is a dlmalloc-style linked list allocator with boundary tagging and bucketing, aimed at general-purpose use cases. Allocation is O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
+This is a dlmalloc-style linked list allocator with boundary tagging and binning, aimed at general-purpose use cases. Allocation is O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
 
 Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation. This is more efficient than `dlmalloc` and `galloc`, despite using a similar algorithm.
 
-## Future Development
-- Support better concurrency, as it's the main deficit of the allocator
-- Change the default features to be stable by default
-- Add out-of-the-box support for more systems
-- Allow for integrating with a backing allocator & (deferred) freeing of unused memory (e.g. better integration with mmap/paging)
+## Migrating from v4 to v5
 
-Update: All of this is currently in the works. No guarantees on when it will be done, but significant progress has been made.
+If you're using WebAssembly, check out the [guide](https://github.com/SFBdragon/talc/blob/master/talc/README_WASM.md).
+
+The allocator is now stable-by-default. The configurable features have changes significantly as well. See the [Features](#features) section.
+
+Don't use `Talc::new` anymore. Use `Talck::new` (global allocators, multi-threaded allocation) or `TalcCell::new` (single-threaded allocation).
+
+The arena management APIs (`Talc::claim`, `Talc::extend`, `Talc::reserved` (previously `get_allocated_span`), `Talc::truncate`, `Talc::resize` (new!)) changed in various ways. `Span` has been removed, but the functions should be easier to use. Please check their docs for more info.
 
 ## Changelog
 
+#### v5.0.0-beta
+
+Check out the [migration guide](#migrating-from-v4-to-v5) 
+
+In general, the allocator got a lot better at doing its job. Also took the opportunity to clean up the APIs, setup, and configuration.
+
+Here are some highlights:
+
+- The crate is now stable-by-default, and the MSRV has _dropped_ to Rust 1.63
+- The available features have changed, see [Features](#conditional-features)
+- `TalcCell` introduced: safe, `!Sync`, zero-runtime-overhead implementor of `GlobalAlloc` and `Allocator`
+- `Span` is gone, rest in peace. It's been sort-of-replaced by `Arena` but `Arena` has a more narrow focus.
+    - `Talc`'s arena-management APIs have changed in general. Notably the base of arenas are now fixed.
+- `AssumeUnlockable` is gone, good riddance. Use `TalcCellAssumeSingleThreaded` if you need something similar.
+- WebAssembly-specific things are all in `talc::wasm` now. `WasmHandler` became `ExtendWasmMemOnOom`. `ClaimWasmMemOnOom` is the default though.
+- Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly.
+
+A bunch of other things have changed.
 
 #### v4.4.2
 

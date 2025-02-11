@@ -1,61 +1,87 @@
 # Talc for WebAssembly
 
-Talc is also a drop-in replacement for the default Rust WebAssembly allocator, dlmalloc. The two main configurations's usage and benchmarks are below. Both provide a decent middleground by being faster than `lol_alloc` and `dlmalloc` while inbetweening them in size.
+Run `cargo add talc` and add the following lines somewhere in your code:
 
-## Usage
-Set the global allocator in your project after running `cargo add talc` as follows:
-
-```rust
-/// SAFETY: The runtime environment must be single-threaded WASM.
+```rust,no_run
+// SAFETY: The runtime environment must be single-threaded WASM.
 #[global_allocator]
-static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+static TALC: talc::wasm::WasmDynamicTalc = unsafe { talc::wasm::new_wasm_dynamic_allocator() };
 ```
 
-Or if your arena size is statically known, for example 16 MiB, `0x1000000`:
+---
+
+Talc is also a drop-in replacement for the default Rust WebAssembly allocator, DLmalloc.
+
+Talc is much faster than DLmalloc and much smaller. See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md).
+
+## Configuration features for WebAssembly
+
+Reducing WebAssembly module size:
+* `"disable-grow-in-place"` - disables grow-in-place, saving WebAssembly module bytes, but sacrifices some runtime speed
+* `"disable-realloc-in-place"` - disables realloc-in-place (grow and shrink), saving WebAssembly module bytes, but sacrifices some runtime speed
+    * `"disable-grow-in-place"` has no effect if `"disable-realloc-in-place"` is enabled
+
+See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md) to get a sense for the tradeoffs between performance and size, as a bunch of possible configuration are tested.
+
+Not WebAssembly-specific:
+- `"counters"`: `Talc` will track arena and allocation metrics. Use the `counters` associated function to access them.
+- `"nightly"`: Enable nightly-only APIs. Currently allows `Talck` and `TalcCell` to implement `core::alloc::Allocator`.
+- `"cache-aligned-allocation"`: `Talc` will align all of its chunks according to `crossbeam_utils::CachePadded`.
+    - This is intended to mitigate [false sharing](https://en.wikipedia.org/wiki/False_sharing) between different
+        allocations that will be used from different threads.
+    - Using this is strongly recommended as opposed to always demanding very-high alignments from Talc
+
+## Global Allocator for single-threaded WebAssembly
+
+Run `cargo add talc`
+
+Then add these lines into your source code somewhere...
+
+```rust,no_run
+use talc::wasm::*;
+
+// `WasmDynamicTalc` dynamically obtains memory from the WebAssembly
+// memory subsystem on-demand.
+// SAFETY: The runtime environment must be single-threaded WASM.
+#[global_allocator]
+static TALC: WasmDynamicTalc = unsafe { new_wasm_dynamic_allocator() };
+```
+
+Or if arena allocation is desired...
 
 ```rust
+use talc::wasm::*;
+
+// `WasmArenaTalc` reserves a fixed-width arena for allocation.
+// SAFETY: The runtime environment must be single-threaded WASM.
 #[global_allocator]
-static ALLOCATOR: talc::Talck<talc::locking::AssumeUnlockable, talc::ClaimOnOom> = {
-    static mut MEMORY: [u8; 0x1000000] = [0; 0x1000000];
-    let span = talc::Span::from_array(std::ptr::addr_of!(MEMORY).cast_mut());
-    talc::Talc::new(unsafe { talc::ClaimOnOom::new(span) }).lock()
+static TALC: WasmArenaTalc = {
+    use core::mem::MaybeUninit;
+    static mut MEMORY: [MaybeUninit<u8>; 0x8000000] = [MaybeUninit::uninit(); 0x8000000];
+    unsafe { new_wasm_arena_allocator(&raw mut MEMORY) }
 };
 ```
 
-## Configuration features for WebAssembly:
-- If default features are disabled, make sure to enable `"lock_api"`.
-- Turn on `"counters"` for allocation statistics accessible via `ALLOCATOR.lock().get_counters()`
-- You can turn off default features to remove `"nightly_api"`, allowing stable Rust builds.
+## Global Allocator for threaded WebAssembly
 
-    e.g. `default-features = false, features = ["lock_api", "counters"]`
+Using a dynamically-sized heap with WebAssembly memory integration...
 
-## Relative WASM Binary Size
+```rust,no_run
+use talc::{wasm::{ClaimWasmMemOnOom, WasmBinning}, sync::Talck};
 
-Rough measurements of allocator size for relative comparison using `/wasm-size`.
+#[global_allocator]
+static TALC: Talck<spin::Mutex<()>, ClaimWasmMemOnOom, WasmBinning> = Talck::new(ClaimWasmMemOnOom);
+```
 
-| Allocator | WASM Size/bytes |
-| --------- | --------------- |
-| lol_alloc | 11655 |
-| rlsf | 12242 |
-| **talc** (arena\*) | 13543 |
-| **talc** | 14467 |
-| dlmalloc (default) | 16767 |
+Simple arena allocation...
 
-\* uses a static arena instead of dynamically managing the heap
+```rust
+use talc::{wasm::WasmBinning, sync::Talck, ClaimOnOom};
 
-## WASM Benchmarks
-
-Rough measurements of allocator speed for relative comparison using `/wasm-bench`.
-
-| Allocator | Average Actions/us |
-|-----------|--------------------|
-| **talc** | 6.7|
-| **talc** (arena\*) | 6.8 |
-| rlsf | 5.7 |
-| dlmalloc (default) | 5.9 |
-| lol_alloc | 4.4 |
-
-\* uses a static arena instead of dynamically managing the heap
-
-
-If you'd like to see comparisons to other allocators in this space, consider creating a pull request or opening an issue.
+#[global_allocator]
+static TALC: Talck<spin::Mutex<()>, ClaimOnOom, WasmBinning> = {
+    use core::mem::MaybeUninit;
+    static mut MEMORY: [MaybeUninit<u8>; 0x8000000] = [MaybeUninit::uninit(); 0x8000000];
+    Talck::new(unsafe { ClaimOnOom::array(&raw mut MEMORY) })
+};
+```

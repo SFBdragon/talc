@@ -1,5 +1,5 @@
 [package]
-name = "fuzzing"
+name = "talc-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -15,10 +15,16 @@ rand = "0.8.5"
 
 [dependencies.talc]
 path = "../talc"
-features = ["fuzzing", "counters"]
+features = ["error-scanning-std", "counters"]
 
 [[bin]]
-name = "fuzz_talc"
-path = "fuzz_targets/fuzz_talc.rs"
+name = "arenas"
+path = "fuzz_targets/arenas.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "backed"
+path = "fuzz_targets/backed.rs"
 test = false
 doc = false
