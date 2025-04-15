@@ -11,29 +11,20 @@ use libfuzzer_sys::fuzz_target;
 #[derive(Arbitrary, Debug)]
 enum Actions {
     /// Allocate memory with the given size and align of 1 << (align % 12)
-    Alloc {
-        size: u16,
-        align_bit: u8,
-    },
+    Alloc { size: u16, align_bit: u8 },
     /// Dealloc the ith allocation
-    Dealloc {
-        index: u8,
-    },
+    Dealloc { index: u8 },
     /// Realloc the ith allocation
-    Realloc {
-        index: u8,
-        new_size: u16,
-    },
+    Realloc { index: u8, new_size: u16 },
 }
-use talc::sys::unix::UnixMMapSource;
-use talc::sys::GetSysMemOnOom;
-use talc::TalcCell;
 use Actions::*;
+use talc::TalcCell;
+use talc::oom::WithSysMem;
 
 fuzz_target!(|actions: Vec<Actions>| fuzz_talc(actions));
 
 fn fuzz_talc(actions: Vec<Actions>) {
-    let allocator = TalcCell::new(GetSysMemOnOom::new(UnixMMapSource));
+    let allocator = TalcCell::new(WithSysMem::new());
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
 
@@ -44,12 +35,17 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     continue;
                 }
 
-                // eprintln!("ALLOC | size: {:x} align: {:x}", size as usize, 1 << align_bit % 12);
-
                 let layout = Layout::from_size_align(size as usize, 1 << align_bit).unwrap();
                 let ptr = unsafe { allocator.alloc(layout) };
 
                 if null_mut() != ptr {
+                    // eprintln!(
+                    //     "ALLOC | size: {:x} align: {:x}, ptr: {:p}",
+                    //     size,
+                    //     1 << align_bit,
+                    //     ptr
+                    // );
+
                     allocations.push((ptr, layout));
                     unsafe {
                         ptr.write_bytes(0xab, layout.size());
@@ -60,7 +56,14 @@ fn fuzz_talc(actions: Vec<Actions>) {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     let (ptr, layout) = allocations.swap_remove(index);
-                    // eprintln!("DEALLOC | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
+
+                    // eprintln!(
+                    //     "DEALLOC | ptr: {:p} size: {:x} align: {:x}",
+                    //     ptr,
+                    //     layout.size(),
+                    //     layout.align()
+                    // );
+
                     unsafe {
                         allocator.dealloc(ptr, layout);
                     }
@@ -75,7 +78,13 @@ fn fuzz_talc(actions: Vec<Actions>) {
 
                     let (ptr, old_layout) = allocations[index as usize];
 
-                    // eprintln!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize);
+                    // eprintln!(
+                    //     "REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}",
+                    //     ptr,
+                    //     old_layout.size(),
+                    //     old_layout.align(),
+                    //     new_size
+                    // );
 
                     let new_layout =
                         Layout::from_size_align(new_size as usize, old_layout.align()).unwrap();
@@ -98,7 +107,12 @@ fn fuzz_talc(actions: Vec<Actions>) {
 
     // Free any remaining allocations.
     for (ptr, layout) in allocations {
-        //eprintln!("DEALLOC FINAL | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
+        // eprintln!(
+        //     "DEALLOC FINAL | ptr: {:p} size: {:x} align: {:x}",
+        //     ptr,
+        //     layout.size(),
+        //     layout.align()
+        // );
         unsafe {
             allocator.dealloc(ptr, layout);
         }

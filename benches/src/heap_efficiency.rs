@@ -1,6 +1,6 @@
 use std::{alloc::GlobalAlloc, fmt::Write, path::PathBuf};
 
-use benches::{AllocationWrapper, NAMED_ALLOCATORS, generate_align, generate_size};
+use benches::{ARENA_ALLOCATORS, AllocationWrapper, generate_align, generate_size};
 
 const HE_MAX_ALLOC_SIZE: usize = 10000;
 const HE_MAX_REALLOC_SIZE_MULTI: usize = 10;
@@ -12,19 +12,14 @@ fn main() {
 
     let mut csv = String::new();
 
-    let named_allocators = NAMED_ALLOCATORS
-        .iter()
-        // these request memory from the OS on-demand, instead of being arena-allocated
-        .filter(|na| !matches!(na.name, "FRuSA" | "System"));
-
-    for named_allocator in named_allocators.clone() {
+    for named_allocator in ARENA_ALLOCATORS.iter() {
         write!(csv, "{},", named_allocator.name).unwrap();
     }
 
     csv.pop(); // remove trailing comma
     writeln!(csv).unwrap();
 
-    for named_allocator in named_allocators {
+    for named_allocator in ARENA_ALLOCATORS.iter() {
         eprintln!("Benchmarking {}...", named_allocator.name);
 
         let allocator = unsafe { (named_allocator.init_fn)() };

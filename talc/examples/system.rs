@@ -1,13 +1,13 @@
-use talc::{oom::GetSysMemOnOom, Talck};
+use talc::{Talck, oom::WithSysMem};
 
 // Run with:
 // `cargo run --example system`
 
-talc::static_system_mutex!(Mutex);
+talc::static_system_mutex!(SysMutex);
 
+#[cfg(all(not(miri), any(unix, windows)))]
 #[global_allocator]
-// #[cfg(all(not(miri), any(unix, windows)))]
-static TALC: Talck<Mutex, GetSysMemOnOom> = Talck::new(GetSysMemOnOom::new(talc::oom::unix::UnixMMapSource));
+static TALC: Talck<SysMutex, WithSysMem> = Talck::new(WithSysMem::new());
 
 fn main() {
     eprint!("Doing some small allocations... ");

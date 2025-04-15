@@ -1,5 +1,8 @@
 - More tests: realloc test, reserved?, Talck/TalcCell tests
 
-- Backing allocator/systems integration/reclaim
+- Backing allocator
+
+- Make system-backed constants configurable?
+    - See what works well according to RA?/other?
 
 CI

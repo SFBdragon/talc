@@ -138,6 +138,7 @@ impl Counters {
     ) {
         if deleted_arena {
             self.arena_count -= 1;
+            self.claimed_bytes -= std::mem::size_of::<super::tag::Tag>();
         }
 
         self.claimed_bytes -= old_acme as usize - new_acme as usize;
@@ -187,8 +188,10 @@ impl<O: crate::oom::OomHandler<B>, B: super::Binning> super::Talc<O, B> {
 #[cfg(test)]
 mod tests {
     use ::core::alloc::Layout;
+    use core::ptr::null_mut;
 
     use crate::Binning;
+    use crate::base::CHUNK_UNIT;
 
     use crate::*;
 
@@ -199,19 +202,19 @@ mod tests {
 
             let mut talc = crate::base::Talc::<_, B>::new(crate::ErrOnOom);
 
-            let base = 99;
-            let size = 10001;
-            let arena = unsafe { talc.claim(arena.as_mut_ptr().add(base), size).unwrap() };
+            let mem_base = arena.as_mut_ptr().wrapping_add(99);
+            let mem_size = 10001;
+            let end = unsafe { talc.claim(mem_base, mem_size) }.unwrap().as_ptr();
 
-            assert_eq!(talc.counters().claimed_bytes, arena.size());
-            assert_eq!(talc.counters().claimed_bytes, talc.counters().total_claimed_bytes as _);
+            let pre_alloc_claimed_bytes = talc.counters().claimed_bytes;
+            let pre_alloc_avl_bytes = talc.counters().available_bytes;
+
+            assert!(pre_alloc_claimed_bytes <= mem_size);
+            assert!(pre_alloc_claimed_bytes > mem_size - CHUNK_UNIT * 2);
+            assert_eq!(pre_alloc_claimed_bytes, talc.counters().total_claimed_bytes as _);
 
             let max_meta_overhead = crate::min_first_arena_size::<B>();
-            assert!(arena.size() - max_meta_overhead < talc.counters().available_bytes);
-            assert!(
-                talc.counters().available_bytes
-                    <= arena.size() - B::BIN_COUNT as usize * size_of::<usize>() - 1 /* size_of::<Tag>() */
-            );
+            assert!(pre_alloc_claimed_bytes - max_meta_overhead <= pre_alloc_avl_bytes);
             assert_eq!(talc.counters().allocated_bytes, 0);
             assert_eq!(talc.counters().total_allocated_bytes, 0);
             assert_eq!(talc.counters().allocation_count, 0);
@@ -219,11 +222,8 @@ mod tests {
             assert_eq!(talc.counters().fragment_count, 1);
             assert_eq!(
                 talc.counters().overhead_bytes(),
-                arena.size() - talc.counters().available_bytes
+                pre_alloc_claimed_bytes - pre_alloc_avl_bytes
             );
-
-            let pre_alloc_claimed_bytes = talc.counters().claimed_bytes;
-            let pre_alloc_avl_bytes = talc.counters().available_bytes;
 
             let alloc_layout = Layout::new::<[u8; 3]>();
             let alloc = unsafe { talc.allocate(alloc_layout).unwrap() };
@@ -241,10 +241,6 @@ mod tests {
             assert_eq!(talc.counters().allocation_count, 1);
             assert_eq!(talc.counters().total_allocation_count, 1);
             assert_eq!(talc.counters().fragment_count, 1);
-            assert_eq!(
-                talc.counters().overhead_bytes(),
-                arena.size() - talc.counters().available_bytes - alloc_layout.size()
-            );
 
             unsafe {
                 talc.deallocate(alloc.as_ptr(), alloc_layout);
@@ -259,11 +255,12 @@ mod tests {
             assert_eq!(talc.counters().total_allocation_count, 1);
             assert_eq!(talc.counters().fragment_count, 1);
 
-            let arena = unsafe { talc.truncate(arena, 0) }.unwrap();
-            assert!(arena.size() <= max_meta_overhead);
+            let end = unsafe { talc.truncate(end, null_mut()) }.unwrap();
+            let extent = end.as_ptr() as usize - mem_base as usize;
+            assert!(extent <= max_meta_overhead);
 
-            assert_eq!(talc.counters().claimed_bytes, arena.size());
-            assert_eq!(talc.counters().overhead_bytes(), arena.size());
+            assert_eq!(talc.counters().claimed_bytes, extent);
+            assert_eq!(talc.counters().overhead_bytes(), extent);
             assert_eq!(talc.counters().total_claimed_bytes, pre_alloc_claimed_bytes as _);
             assert_eq!(talc.counters().available_bytes, 0);
             assert_eq!(talc.counters().allocated_bytes, 0);

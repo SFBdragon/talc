@@ -7,23 +7,20 @@
 //! Your first step will be `Talc::new(...)`, then `claim`.
 //! Calling `Talc::lock()` on it will yield a `Talck` which implements
 //! [`GlobalAlloc`] and [`Allocator`] (if the appropriate feature flags are set).
+//!
+//! TODO ^^^
 
 #![cfg_attr(not(any(test, feature = "error-scanning-std")), no_std)]
-
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
-
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
-
 #![warn(missing_docs)]
 #![allow(type_alias_bounds)]
 
 #[cfg(test)]
 #[macro_use]
 mod test_utils;
-pub(crate) mod ptr_utils;
-
-mod arena;
 pub(crate) mod node;
+pub(crate) mod ptr_utils;
 
 pub mod base;
 pub mod cell;
@@ -31,9 +28,10 @@ pub mod oom;
 pub mod sync;
 pub mod wasm;
 
-pub mod ext;
+// todo is this useful?
+// pub mod ext;
 
-pub use arena::Arena;
+// pub use arena::Arena;
 pub use base::binning::{Binning, DefaultBinning};
 pub use oom::{ClaimOnOom, ErrOnOom};
 
@@ -43,7 +41,7 @@ pub type TalcCell<O: oom::OomHandler<DefaultBinning>> = cell::TalcCell<O, Defaul
 pub type Talck<R: lock_api::RawMutex, O: oom::OomHandler<DefaultBinning>> =
     sync::Talck<R, O, DefaultBinning>;
 
-/// [`Talc`](base::Talc) can always successfully claim its first [`Arena`]
+/// [`Talc`](base::Talc) can always successfully perform the first claim
 /// if the provided `size` is at least the returned value.
 ///
 /// Note that this size is larger than [`min_first_arena_layout`]'s size
@@ -73,7 +71,7 @@ pub const fn min_first_arena_size<B: Binning>() -> usize {
     size + max_overhead
 }
 
-/// [`Talc`](base::Talc) can always successfully claim its first [`Arena`]
+/// [`Talc`](base::Talc) can always successfully perform the first claim
 /// if the provided `base` and `size` fit the returned
 /// [`Layout`](::core::alloc::Layout).
 ///

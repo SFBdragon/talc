@@ -7,23 +7,12 @@ use core::ptr::{NonNull, null_mut};
 
 use allocator_api2::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 
-use crate::{
-    base::Talc,
-    Binning,
-    oom::OomHandler,
-};
+use crate::{Binning, base::Talc, oom::OomHandler};
 
 #[cfg(target_family = "unix")]
 mod unix;
 #[cfg(target_family = "windows")]
 mod win;
-
-// TODO
-
-// pub use unix::StaticPThreadMutex as StaticGlobalLock;
-#[cfg(target_family = "windows")]
-pub use win::StaticSrwMutex as StaticGlobalLock;
-
 
 const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
 

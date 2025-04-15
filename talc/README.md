@@ -191,14 +191,22 @@ In general, the allocator got a lot better at doing its job. Also took the oppor
 
 Here are some highlights:
 
-- The crate is now stable-by-default, and the MSRV has _dropped_ to Rust 1.63
-- The available features have changed, see [Features](#conditional-features)
+- Large performance improvements.
+- Large size improvements on WebAssembly.
+- `WithSysMem` uses OS virtual memory management to manage arenas. Supports Unix and Windows.
+    - `OomHandler` is now powerful enough for automatic memory management.
 - `TalcCell` introduced: safe, `!Sync`, zero-runtime-overhead implementor of `GlobalAlloc` and `Allocator`
-- `Span` is gone, rest in peace. It's been sort-of-replaced by `Arena` but `Arena` has a more narrow focus.
-    - `Talc`'s arena-management APIs have changed in general. Notably the base of arenas are now fixed.
-- `AssumeUnlockable` is gone, good riddance. Use `TalcCellAssumeSingleThreaded` if you need something similar.
-- WebAssembly-specific things are all in `talc::wasm` now. `WasmHandler` became `ExtendWasmMemOnOom`. `ClaimWasmMemOnOom` is the default though.
+- The crate is now stable-by-default, and the MSRV has _dropped_ to Rust 1.63
 - Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly.
+
+Changes:
+- `AssumeUnlockable`, the never-safe lock is gone (good riddance). Instead:
+    - See if `TalcCell` meets your use-case.
+    - If you really need `Sync`, use `TalcCellAssumeSingleThreaded`.
+- `Talc`'s arena-management APIs have changed. Most notably the base of arenas are now fixed.
+- The available features have changed, see [Features](#conditional-features)
+- WebAssembly-specific things are all in `talc::wasm` now. `WasmHandler` became `ExtendWasmMemOnOom`. `ClaimWasmMemOnOom` is the default though.
+- `Span` is gone, rest in peace.
 
 A bunch of other things have changed.
 

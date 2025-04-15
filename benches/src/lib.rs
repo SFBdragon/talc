@@ -23,20 +23,22 @@ pub struct NamedAllocator {
     pub init_fn: unsafe fn() -> Box<dyn GlobalAlloc + Sync>,
 }
 
-pub const NAMED_ALLOCATORS: &[NamedAllocator] = &[
+pub const ARENA_ALLOCATORS: &[NamedAllocator] = &[
     NamedAllocator { name: "DLmalloc", init_fn: init_dlmalloc },
     NamedAllocator { name: "Talc", init_fn: init_talc },
-    // NamedAllocator { name: "Talc v4", init_fn: init_talc_old },
+    NamedAllocator { name: "Talc v4", init_fn: init_talc_old },
     NamedAllocator { name: "RLSF", init_fn: init_rlsf },
     NamedAllocator { name: "Galloc", init_fn: init_galloc },
-    NamedAllocator { name: "FRuSA", init_fn: init_frusa },
-    NamedAllocator { name: "System", init_fn: init_system },
     NamedAllocator { name: "Buddy Alloc", init_fn: init_buddy_alloc },
     // NamedAllocator { name: "Linked List", init_fn: init_linked_list_allocator },
 ];
 
 pub const SYSTEM_ALLOCATORS: &[NamedAllocator] = &[
-    NamedAllocator { name: "Talc", init_fn:  }
+    NamedAllocator { name: "DLmalloc", init_fn: init_dlmalloc_sys },
+    NamedAllocator { name: "Talc", init_fn: init_talc_sys },
+    NamedAllocator { name: "FRuSA", init_fn: init_frusa_sys },
+    NamedAllocator { name: "Jemalloc", init_fn: init_jemalloc_sys },
+    NamedAllocator { name: "System", init_fn: init_system },
 ];
 
 /// Bias towards smaller values over larger ones.
@@ -108,21 +110,19 @@ impl<'a> Drop for AllocationWrapper<'a> {
 }
 
 unsafe fn init_talc() -> Box<dyn GlobalAlloc + Sync> {
-    unsafe {
-        let talck = talc::Talck::<spin::Mutex<()>, _>::new(talc::ErrOnOom);
-        talck.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
-        Box::new(talck)
-    }
+    let talck = talc::Talck::<spin::Mutex<()>, _>::new(talc::ErrOnOom);
+    talck.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
+    Box::new(talck)
 }
-/* unsafe fn init_talc_old() -> Box<dyn GlobalAlloc + Sync> {
-    use prev_talc::{Talc, ErrOnOom};
+unsafe fn init_talc_old() -> Box<dyn GlobalAlloc + Sync> {
+    use prev_talc::{ErrOnOom, Talc};
 
     unsafe {
         let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
         talck.lock().claim((&raw mut HEAP.0).into()).unwrap();
         Box::new(talck)
     }
-} */
+}
 
 #[allow(dead_code)]
 unsafe fn init_linked_list_allocator() -> Box<dyn GlobalAlloc + Sync> {
@@ -133,10 +133,6 @@ unsafe fn init_linked_list_allocator() -> Box<dyn GlobalAlloc + Sync> {
 
 unsafe fn init_system() -> Box<dyn GlobalAlloc + Sync> {
     Box::new(std::alloc::System)
-}
-
-unsafe fn init_frusa() -> Box<dyn GlobalAlloc + Sync> {
-    Box::new(frusa::Frusa2M::new(&std::alloc::System))
 }
 
 unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
@@ -280,4 +276,22 @@ unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
             )
             .map_or(std::ptr::null_mut(), |nn| nn.as_ptr())
     }
+}
+
+unsafe fn init_talc_sys() -> Box<dyn GlobalAlloc + Sync> {
+    let talck = talc::Talck::<spin::Mutex<()>, _>::new(talc::oom::WithSysMem::new());
+
+    Box::new(talck)
+}
+
+unsafe fn init_dlmalloc_sys() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(dlmalloc::GlobalDlmalloc)
+}
+
+unsafe fn init_frusa_sys() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(frusa::Frusa2M::new(&std::alloc::System))
+}
+
+unsafe fn init_jemalloc_sys() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(jemallocator::Jemalloc)
 }

@@ -1,7 +1,7 @@
 #![feature(iter_intersperse)]
 
 use benches::{
-    NAMED_ALLOCATORS, NamedAllocator, generate_align, generate_size, touch_the_whole_heap,
+    ARENA_ALLOCATORS, NamedAllocator, generate_align, generate_size, touch_the_whole_heap,
 };
 
 use std::alloc::{GlobalAlloc, Layout};
@@ -22,7 +22,7 @@ fn main() {
 
     touch_the_whole_heap();
 
-    for &NamedAllocator { name, init_fn } in NAMED_ALLOCATORS {
+    for &NamedAllocator { name, init_fn } in ARENA_ALLOCATORS {
         // The following run far too slowly under this benchmark to be worth testing.
         // Thing is; these aren't slow allocators, either. Not sure what's wrong.
         // if matches!(name, "System" | "FRuSA") { continue; }

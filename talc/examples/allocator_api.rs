@@ -17,7 +17,7 @@ fn main() {
     let talc = TalcCell::new(ErrOnOom);
 
     // We know the memory is fine for use (unsafe) and that it's big enough for the metadata (unwrap).
-    let arena = unsafe { talc.claim(memory.as_mut_ptr(), memory.len()).unwrap() };
+    let end = unsafe { talc.claim(memory.as_mut_ptr(), memory.len()) }.unwrap().as_ptr();
 
     // Allocate, grow, shrink
     let mut vec = Vec::with_capacity_in(100, &talc);
@@ -33,11 +33,12 @@ fn main() {
 
     // Let's say we want to have 200 bytes of free space at the top of the heap.
     // However we also need to ensure that we don't try to claim bytes outside of `memory`:
-    let allocated = unsafe { talc.reserved(&arena) };
-    let new_size = (allocated + 200).min(memory.len());
+    // TODO EXPLAIN UNWRAP
+    let allocated = unsafe { talc.reserved(end) }.unwrap();
+    let new_size = allocated.as_ptr().wrapping_add(200).min(memory.as_mut_ptr_range().end);
 
     // Finally, resize the heap!
-    let _arena = unsafe { talc.resize(arena, new_size) };
+    let _arena = unsafe { talc.resize(end, new_size) }.unwrap();
 
     // Shrink again
     vec.truncate(50);

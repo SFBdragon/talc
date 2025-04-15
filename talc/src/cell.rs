@@ -11,9 +11,7 @@ use core::{
     ptr::null_mut,
 };
 
-use crate::{
-    base::Talc, oom::OomHandler, ptr_utils::nonnull_slice_from_raw_parts, Arena, Binning
-};
+use crate::{Binning, base::Talc, oom::OomHandler, ptr_utils::nonnull_slice_from_raw_parts};
 
 use core::ptr::NonNull;
 
@@ -174,10 +172,10 @@ impl<O: OomHandler<B>, B: Binning> TalcCell<O, B> {
     /// - `arena` must be managed by this instance of the allocator.
     #[inline]
     #[track_caller]
-    pub unsafe fn reserved(&self, arena: &Arena) -> usize {
+    pub unsafe fn reserved(&self, arena_acme: *mut u8) -> Option<NonNull<u8>> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
-        self.borrow().reserved(arena)
+        self.borrow().reserved(arena_acme)
     }
 
     /// Establish a new [`Arena`] to allocate into.
@@ -226,7 +224,7 @@ impl<O: OomHandler<B>, B: Binning> TalcCell<O, B> {
     /// ```
     #[inline]
     #[track_caller]
-    pub unsafe fn claim(&self, base: *mut u8, size: usize) -> Option<Arena> {
+    pub unsafe fn claim(&self, base: *mut u8, size: usize) -> Option<NonNull<u8>> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
         self.borrow().claim(base, size)
@@ -263,10 +261,10 @@ impl<O: OomHandler<B>, B: Binning> TalcCell<O, B> {
     /// ```
     #[inline]
     #[track_caller]
-    pub unsafe fn extend(&self, arena: &mut Arena, new_size: usize) {
+    pub unsafe fn extend(&self, arena_acme: *mut u8, new_acme: *mut u8) -> NonNull<u8> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
-        self.borrow().extend(arena, new_size)
+        self.borrow().extend(arena_acme, new_acme)
     }
 
     /// Reduce the size of `arena` to `new_size`.
@@ -307,31 +305,16 @@ impl<O: OomHandler<B>, B: Binning> TalcCell<O, B> {
     /// ```
     #[inline]
     #[track_caller]
-    pub unsafe fn truncate(&self, arena: Arena, new_size: usize) -> Option<Arena> {
+    pub unsafe fn truncate(&self, arena_acme: *mut u8, new_acme: *mut u8) -> Option<NonNull<u8>> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
-        self.borrow().truncate(arena, new_size)
+        self.borrow().truncate(arena_acme, new_acme)
     }
 
-    /// Convenience for calling either [`TalcCell::extend`] or [`TalcCell::truncate`] based on
-    /// `arena.size()` and `new_size`.
-    ///
-    /// The resulting [`Arena`] will not exceed `arena.base().add(new_size)`
-    /// but may be shorter by less than [`CHUNK_UNIT`](crate::base::CHUNK_UNIT).
-    ///
-    /// # Safety
-    /// - `arena` must be managed by this instance of the allocator.
-    /// - `arena.base()..arena.base().add(new_size)`
-    ///     must encompass memory that will be exclusively writeable
-    ///     by the allocator (unless the allocator allocates it for use).
-    ///     Only memory contained within the resulting [`Arena`], if any,
-    ///     is subject to this requirement after `resize` returns.
     #[inline]
     #[track_caller]
-    pub unsafe fn resize(&self, arena: Arena, new_size: usize) -> Option<Arena> {
-        // SAFETY: See `Self::borrow`'s safety docs
-        // SAFETY: `Talc` function safety requirements guaranteed by caller
-        self.borrow().resize(arena, new_size)
+    pub unsafe fn resize(&self, arena_acme: *mut u8, new_acme: *mut u8) -> Option<NonNull<u8>> {
+        self.borrow().resize(arena_acme, new_acme)
     }
 }
 

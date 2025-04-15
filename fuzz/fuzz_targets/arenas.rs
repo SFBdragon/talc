@@ -46,7 +46,7 @@ enum Actions {
     },
 }
 use Actions::*;
-use talc::{Arena, ErrOnOom};
+use talc::ErrOnOom;
 
 fuzz_target!(|actions: Vec<Actions>| fuzz_talc(actions));
 
@@ -66,7 +66,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
         talc::cell::TalcCell::new(ErrOnOom);
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
-    let mut arenas: Vec<(*mut u8, Layout, Arena)> = vec![];
+    let mut arenas: Vec<(*mut u8, Layout, *mut u8)> = vec![];
 
     for action in actions {
         match action {
@@ -75,12 +75,17 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     continue;
                 }
 
-                // eprintln!("ALLOC | size: {:x} align: {:x}", size as usize, 1 << align_bit % 12);
-
                 let layout = Layout::from_size_align(size as usize, 1 << align_bit).unwrap();
                 let ptr = unsafe { allocator.alloc(layout) };
 
                 if null_mut() != ptr {
+                    /* eprintln!(
+                        "ALLOC | size: {:x} align: {:x}, ptr: {:p}",
+                        size,
+                        1 << align_bit,
+                        ptr
+                    ); */
+
                     allocations.push((ptr, layout));
                     unsafe {
                         ptr.write_bytes(0xab, layout.size());
@@ -91,7 +96,14 @@ fn fuzz_talc(actions: Vec<Actions>) {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     let (ptr, layout) = allocations.swap_remove(index);
-                    // eprintln!("DEALLOC | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
+
+                    /* eprintln!(
+                        "DEALLOC | ptr: {:p} size: {:x} align: {:x}",
+                        ptr,
+                        layout.size(),
+                        layout.align()
+                    ); */
+
                     unsafe {
                         allocator.dealloc(ptr, layout);
                     }
@@ -106,7 +118,13 @@ fn fuzz_talc(actions: Vec<Actions>) {
 
                     let (ptr, old_layout) = allocations[index as usize];
 
-                    // eprintln!("REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}", ptr, old_layout.size(), old_layout.align(), new_size as usize);
+                    /* eprintln!(
+                        "REALLOC | ptr: {:p} old size: {:x} old align: {:x} new_size: {:x}",
+                        ptr,
+                        old_layout.size(),
+                        old_layout.align(),
+                        new_size as usize
+                    ); */
 
                     let new_layout =
                         Layout::from_size_align(new_size as usize, old_layout.align()).unwrap();
@@ -137,9 +155,10 @@ fn fuzz_talc(actions: Vec<Actions>) {
                 let mem = unsafe { alloc(mem_layout) };
                 assert!(!mem.is_null());
 
-                if let Some(arena) = unsafe { allocator.claim(mem.add(offset), size) } {
-                    // eprintln!("CLAIM | heap {}", heap);
-                    arenas.push((mem, mem_layout, arena));
+                if let Some(end) = unsafe { allocator.claim(mem.add(offset), size) } {
+                    /* eprintln!("CLAIM | end {:p}", end); */
+
+                    arenas.push((mem, mem_layout, end.as_ptr()));
                 } else {
                     unsafe {
                         dealloc(mem, mem_layout);
@@ -149,31 +168,30 @@ fn fuzz_talc(actions: Vec<Actions>) {
             Extend { index, bytes } => {
                 if arenas.len() > 0 {
                     let index = index as usize % arenas.len();
-                    let (ptr, mem_layout, arena) = &mut arenas[index];
+                    let (ptr, mem_layout, end) = &mut arenas[index];
 
-                    // eprintln!("EXTEND | high: {} old heap {}", high, old_heap);
-
-                    let new_size = (bytes as usize)
-                        .min(mem_layout.size() - (arena.base() as usize - *ptr as usize));
+                    let new_end =
+                        end.wrapping_add(bytes as _).min((*ptr).wrapping_add(mem_layout.size()));
                     unsafe {
-                        allocator.extend(arena, new_size);
+                        let new_end = allocator.extend(*end, new_end).as_ptr();
+
+                        /* eprintln!("EXTEND | old end: {:p} new end {:p}", *end, new_end); */
+
+                        *end = new_end;
                     }
                 }
             }
             Truncate { index, bytes } => {
                 if arenas.len() > 0 {
                     let index = index as usize % arenas.len();
-                    let (mem, mem_layout, arena) = arenas.swap_remove(index);
+                    let (mem, mem_layout, end) = arenas.swap_remove(index);
 
-                    // eprintln!("TRUNCATE | high: {} old heap {}", high, old_heap);
+                    let new_end = unsafe { allocator.truncate(end, end.wrapping_sub(bytes as _)) };
 
-                    let new_arena = unsafe {
-                        let new_size = bytes as usize;
-                        allocator.truncate(arena, new_size)
-                    };
+                    /* eprintln!("TRUNCATE | old end: {:p} new end: {:?}", end, new_end); */
 
-                    if let Some(new_arena) = new_arena {
-                        arenas.push((mem, mem_layout, new_arena));
+                    if let Some(new_end) = new_end {
+                        arenas.push((mem, mem_layout, new_end.as_ptr()));
                     } else {
                         unsafe {
                             dealloc(mem, mem_layout);
@@ -184,10 +202,10 @@ fn fuzz_talc(actions: Vec<Actions>) {
             Reserved { index } => {
                 if arenas.len() > 0 {
                     let index = index as usize % arenas.len();
-                    let arena = &arenas[index].2;
+                    let end = arenas[index].2;
 
                     unsafe {
-                        allocator.reserved(arena);
+                        allocator.reserved(end);
                     }
                 }
             }
@@ -196,7 +214,13 @@ fn fuzz_talc(actions: Vec<Actions>) {
 
     // Free any remaining allocations.
     for (ptr, layout) in allocations {
-        //eprintln!("DEALLOC FINAL | ptr: {:p} size: {:x} align: {:x}", ptr, layout.size(), layout.align());
+        /* eprintln!(
+            "DEALLOC FINAL | ptr: {:p} size: {:x} align: {:x}",
+            ptr,
+            layout.size(),
+            layout.align()
+        ); */
+
         unsafe {
             allocator.dealloc(ptr, layout);
         }
@@ -205,7 +229,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
     // drop the remaining heaps
     let mut undropped_arenas = vec![];
     for (mem, mem_layout, arena) in arenas {
-        if let Some(arena) = unsafe { allocator.truncate(arena, 0) } {
+        if let Some(arena) = unsafe { allocator.truncate(arena, null_mut()) } {
             undropped_arenas.push((mem, mem_layout, arena));
         } else {
             unsafe {

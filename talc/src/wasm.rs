@@ -1,8 +1,9 @@
 #![doc = include_str!("../README_WASM.md")]
 
 use crate::{
-    Arena, Binning, ClaimOnOom,
+    Binning, ClaimOnOom,
     cell::{TalcCell, TalcCellAssumeSingleThreaded},
+    ptr_utils,
 };
 
 /// A binning configuration optimized for WebAssembly.
@@ -42,7 +43,7 @@ pub type WasmArenaTalc = TalcCellAssumeSingleThreaded<ClaimOnOom, WasmBinning>;
 /// allocates out of a fixed-size region of memory.
 ///
 /// See the [module docs](self) for more details.
-/// 
+///
 /// # Safety
 /// The target must be exclusively single-threaded.
 pub const unsafe fn new_wasm_arena_allocator<T, const N: usize>(
@@ -58,7 +59,7 @@ pub type WasmDynamicTalc = TalcCellAssumeSingleThreaded<ClaimWasmMemOnOom, WasmB
 /// dynamically requests memory from the WebAssembly memory space as needed.
 ///
 /// See the [module docs](self) for more details.
-/// 
+///
 /// # Safety
 /// The target must be exclusively single-threaded.
 pub const unsafe fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
@@ -105,7 +106,7 @@ unsafe impl<B: Binning> crate::oom::OomHandler<B> for ClaimWasmMemOnOom {
 /// but makes the compiled WebAssembly module bigger.
 #[derive(Debug, Default)]
 pub struct ExtendWasmMemOnOom {
-    top_arena: Option<Arena>,
+    end: Option<NonNull<u8>>,
 }
 
 impl ExtendWasmMemOnOom {
@@ -115,7 +116,7 @@ impl ExtendWasmMemOnOom {
     /// from the WebAssembly memory subsystem as needed,
     /// extending the arena to encompass the additional memory.
     pub const fn new() -> Self {
-        Self { top_arena: None }
+        Self { end: None }
     }
 }
 
@@ -125,32 +126,30 @@ unsafe impl<B: Binning> crate::oom::OomHandler<B> for ExtendWasmMemOnOom {
         talc: &mut crate::base::Talc<Self, B>,
         layout: core::alloc::Layout,
     ) -> Result<(), ()> {
-
         // growth strategy: just try to grow enough to avoid OOM again on this allocation
         let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
-        let prev_memory_acme = match memory_grow::<0>(delta_pages) {
+        let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
             prev => prev,
         };
 
-        let grown_base = (prev_memory_acme * PAGE_SIZE) as *mut u8;
-        let grown_size = delta_pages * PAGE_SIZE;
+        let new_base = (prev_memory_end * PAGE_SIZE) as *mut u8;
+        let new_bytes = delta_pages * PAGE_SIZE;
+        let new_end = ptr_utils::saturating_ptr_add(new_base, new_bytes);
 
         // try to get base & acme, which will fail if prev_heap is empty
         // otherwise the allocator has been initialized previously
-        if let Some(mut top_arena) = talc.oom_handler.top_arena.take() {
-            if top_arena.end() == grown_base {
-                unsafe {
-                    talc.extend(&mut top_arena, grown_size);
-                }
-                talc.oom_handler.top_arena = Some(top_arena);
+        if let Some(old_end) = talc.oom_handler.end.take() {
+            if old_end.as_ptr() == new_base {
+                let new_acme = unsafe { talc.extend(old_end.as_ptr(), new_end) };
+                talc.oom_handler.end = Some(new_acme);
 
                 return Ok(());
             }
         }
 
-        talc.oom_handler.top_arena = unsafe { talc.claim(grown_base, grown_size) };
+        talc.oom_handler.end = unsafe { talc.claim(new_base, new_bytes) };
 
         Ok(())
     }
@@ -163,6 +162,7 @@ const PAGE_SIZE: usize = 1024 * 64;
 use core::arch::wasm32::memory_grow;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64::memory_grow;
+use core::ptr::NonNull;
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 fn memory_grow<const M: usize>(_pages: usize) -> usize {
     panic!("not running on wasm32 or wasm64")

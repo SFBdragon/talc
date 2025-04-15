@@ -30,3 +30,17 @@ pub fn align_up_by(ptr: *mut u8, align_mask: usize) -> *mut u8 {
     // ((ptr as usize + align_mask) & !align_mask) as *mut u8
     // i.e. just align up to the next align_mask + 1
 }
+
+#[inline]
+pub fn saturating_ptr_add(ptr: *mut u8, bytes: usize) -> *mut u8 {
+    // done this way to maintain the provenance of `base` for MIRI
+
+    // if you add to ptr and the result is less than ptr, it wrapped
+    if ptr.wrapping_add(bytes) < ptr {
+        // this gets to NULL-1, the compiler will see through it
+        ptr.wrapping_add((ptr as usize).wrapping_neg() - 1)
+    } else {
+        // normal result
+        ptr.wrapping_add(bytes)
+    }
+}

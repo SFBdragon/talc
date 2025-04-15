@@ -70,6 +70,15 @@ random-actions-no-realloc: && (plot-random-actions-no-realloc "random-actions-no
 random-actions-multi: && (plot-random-actions "random-actions-multi")
     cargo run -p benches --bin random_actions --release -- --name "random-actions-multi" --thread-count 4
 
+random-actions-sys: && (plot-random-actions "random-actions-sys")
+    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys" --system
+
+random-actions-sys-no-realloc: && (plot-random-actions-no-realloc "random-actions-sys-no-realloc")
+    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-no-realloc" --no-realloc --system
+
+random-actions-sys-multi: && (plot-random-actions "random-actions-sys-multi")
+    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-multi" --thread-count 4 --system
+
 plot-random-actions name:
     #!/usr/bin/env python
     import matplotlib.pyplot as plt
@@ -253,7 +262,7 @@ plot-wasm-perf:
     pairs = list(filter(None, rows[1].split(',')))
     alloc_dealloc = list(map(float, map(lambda x: x.strip().split(' ')[0], pairs)))
     ad_realloc = list(map(float, map(lambda x: x.strip().split(' ')[1], pairs)))
-    names, alloc_dealloc, ad_realloc = (list(x) for x in zip(*sorted(zip(names, alloc_dealloc, ad_realloc), key=lambda tri: tri[1])))
+    names, alloc_dealloc, ad_realloc = (list(x) for x in zip(*sorted(zip(names, alloc_dealloc, ad_realloc), key=lambda tri: tri[1] + tri[2])))
     y = np.arange(len(names))
     w = 0.4
     f = plt.figure()

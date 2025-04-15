@@ -6,17 +6,18 @@ use crate::base::Talc;
 
 // mod allocator_backed;
 mod claim_on_oom;
-mod vm_backed;
+mod os_backed;
 
-// pub use allocator_backed::AllocOnOom;
+pub use allocator_backed::AllocOnOom;
 pub use claim_on_oom::ClaimOnOom;
-pub use vm_backed::GetSysMemOnOom;
 
+#[cfg(any(unix, windows))]
+pub use os_backed::WithSysMem;
 
-// pub(crate) mod backed;
+pub(crate) mod allocator_backed;
 
 /// Handle [`Talc`]'s out-of-memory state.
-/// 
+///
 /// # Safety
 /// Do not use the parent [`TalcCell`](crate::cell::TalcCell) or
 /// [`Talck`](crate::sync::Talck) in the [`OomHandler::handle_oom`] implementation.
@@ -58,46 +59,36 @@ pub unsafe trait OomHandler<B: Binning>: Debug + Sized {
     /// See [`OomHandler`]'s documentation for more information.
     fn handle_oom(talc: &mut Talc<Self, B>, layout: Layout) -> Result<(), ()>;
 
-    #[inline]
-    unsafe fn handle_basereg(&mut self, arena_base: *mut u8, chunk_acme: *mut u8) -> bool {
-        false
-    }
-
-
-    /* /// If `self` does not support shrinking a span, this returns `None`.
-    /// 
-    /// If `self` does, then this returns the minimum amount of free space
-    /// from the top of the span that ought to be available before
-    /// `try_realloc_in_place` will get called to shrink a span.
-    /// 
-    /// If `self` allocates discrete pages, it may be best to return that
-    /// here, or a higher size, so that [`Backed`] never asks to shrink
-    /// spans when there isn't enough space available for `self` to even
-    /// release a single page.
-    /// 
-    /// Setting this to a reasonably high value is also an optimization
-    /// to the reclaim routine, at the cost of holding onto additional
-    /// memory (which can also benefit performance, of course). 
+    /// Configures whether [`Talc`] tracks the end of the arena.
     ///
-    /// The returned value must be constant for a particular instance of `Self`.
-    #[inline]
-    fn supports_shrink_with_delta_of(&mut self) -> Option<core::num::NonZeroUsize> {
-        None
-    }
-    #[inline]
-    unsafe fn shrink(
-        &mut self,
-        arena_acme: *mut u8,
-        min_new_acme: *mut u8,
-    ) -> *mut u8 {
-        let _ = min_new_acme;
-        arena_acme
-    }
+    /// This must be `true` for [`OomHandler::maybe_resize_arena`] to have any effect.
+    ///
+    /// Because tracking the end of the arena incurs some overhead,
+    /// leave this as `false` if you don't need to automatically reduce the
+    /// size of the arena.
+    ///
+    /// Note that this does not allow for querying the ends of arenas.
+    /// This just means that Talc "knows it when it sees it" and can
+    /// call [`OomHandler::maybe_resize_arena`] to provide implementors
+    /// the opportunity to change the size of the arena if they'd like.
+    /// See [`OomHandler::maybe_resize_arena`] for more details on that.
+    const TRACK_ARENA_END: bool = false;
 
+    /// TODO
+    /// Not called unless `TRACK_ARENA_END` is set to true.
+    /// If `is_arena_base`, `base + 1 <= chunk_base <= base + CHUNK_UNIT`.
+    /// `chunk_case` is aligned to CHUNK_UNIT.
+    /// `arena_end` is aligned to CHUNK_UNIT.
     #[inline]
-    fn could_be_arena_acme(&mut self, arena_acme: *mut u8) -> bool {
-        true
-    } */
+    unsafe fn maybe_resize_arena(
+        &mut self,
+        chunk_base: *mut u8,
+        arena_end: *mut u8,
+        is_arena_base: bool,
+    ) -> *mut u8 {
+        let _ = (chunk_base, arena_end, is_arena_base);
+        arena_end
+    }
 }
 
 /// Doesn't handle out-of-memory conditions, immediate allocation error occurs.
@@ -111,5 +102,3 @@ unsafe impl<B: Binning> OomHandler<B> for ErrOnOom {
         Err(())
     }
 }
-
-

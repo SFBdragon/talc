@@ -9,21 +9,26 @@ use std::{
 };
 
 use benches::{
-    AllocationWrapper, NAMED_ALLOCATORS, NamedAllocator, generate_align, generate_size,
-    touch_the_whole_heap,
+    ARENA_ALLOCATORS, AllocationWrapper, NamedAllocator, SYSTEM_ALLOCATORS, generate_align,
+    generate_size, touch_the_whole_heap,
 };
 
 const TRIALS_AMOUNT: usize = 7;
 const WARMUP: Duration = Duration::from_millis(2);
 const DURATION: Duration = Duration::from_millis(200);
-const RA_MAX_ALLOC_SIZES: &[usize] = &[1000, 3000, 10000, 30000];
 const RA_MAX_REALLOC_SIZE_MULTI: usize = 3;
-const RA_TARGET_MIN_ALLOCATIONS: usize = 300;
+
+const RA_MAX_SIZES_ARENA: &[usize] = &[200, 1000, 3000, 10000, 30000];
+const RA_ALLOC_COUNT_ARENA: usize = 300;
+
+const RA_MAX_SIZES_SYSTEM: &[usize] = &[200, 1000, 5000, 20000, 100000];
+const RA_ALLOC_COUNT_SYSTEM: usize = 600;
 
 fn main() {
     let mut realloc = true;
     let mut thread_count = 1;
     let mut output_name = None;
+    let mut arena_else_system = true;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -36,15 +41,19 @@ fn main() {
                     .expect("expected number after --thread-count")
             }
             "--name" => output_name = Some(args.next().expect("expected string after --name")),
+            "--system" => arena_else_system = false,
             "--help" => {
                 println!(
                     r#"Random actions benchmark
 
-Usage: cargo run -p benches --bin random-actions --release
+It's recommended to use `just random-actions` and friends for automated plotting.
+
+Usage: cargo run -p benches --bin random-actions --release -- --name my-bench
 
 Options:
   --name            The name of the output file [required].
   --no-realloc      Disables reallocation operations in the benchmark.
+  --system          Benchmark OS memory-backed allocators instead of arena allocators.
   --thread-count    Sets the number of threads the benchmark executes in parallel. [default = 1]."#
                 );
                 return;
@@ -57,6 +66,10 @@ Options:
         panic!("--name is required");
     };
 
+    let allocators = if arena_else_system { ARENA_ALLOCATORS } else { SYSTEM_ALLOCATORS };
+    let max_alloc_sizes = if arena_else_system { RA_MAX_SIZES_ARENA } else { RA_MAX_SIZES_SYSTEM };
+    let alloc_count = if arena_else_system { RA_ALLOC_COUNT_ARENA } else { RA_ALLOC_COUNT_SYSTEM };
+
     let cargo_manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let benchmark_results_dir = cargo_manifest_dir.join("../results");
     std::fs::create_dir_all(&benchmark_results_dir).unwrap();
@@ -64,15 +77,18 @@ Options:
     let mut csv = String::new();
 
     write!(csv, ",").unwrap();
-    csv.extend(RA_MAX_ALLOC_SIZES.iter().map(|i| i.to_string()).intersperse(",".to_owned()));
+
+    csv.extend(max_alloc_sizes.iter().map(|i| i.to_string()).intersperse(",".to_owned()));
     writeln!(csv).unwrap();
 
-    touch_the_whole_heap();
+    if arena_else_system {
+        touch_the_whole_heap();
+    }
 
-    for &NamedAllocator { name, init_fn } in NAMED_ALLOCATORS {
+    for &NamedAllocator { name, init_fn } in allocators {
         write!(csv, "{}", name).unwrap();
 
-        for &max_alloc_size in RA_MAX_ALLOC_SIZES.iter() {
+        for &max_alloc_size in max_alloc_sizes {
             eprintln!("benchmarking {} - max alloc size {}B ...", name, max_alloc_size);
 
             let score = (0..TRIALS_AMOUNT)
@@ -93,6 +109,7 @@ Options:
                                     max_alloc_size,
                                     run_immediately,
                                     WARMUP,
+                                    alloc_count,
                                     realloc,
                                 );
                                 random_actions(
@@ -100,6 +117,7 @@ Options:
                                     max_alloc_size,
                                     barrier,
                                     DURATION,
+                                    alloc_count,
                                     realloc,
                                 )
                             }));
@@ -128,6 +146,7 @@ pub fn random_actions(
     max_alloc_size: usize,
     barrier: Arc<Barrier>,
     duration: Duration,
+    alloc_count: usize,
     realloc: bool,
 ) -> usize {
     let mut score = 0;
@@ -163,7 +182,7 @@ pub fn random_actions(
                         reallocation_failure_count += 1;
                     }
                 }
-            } else if action < 3 || v.len() < RA_TARGET_MIN_ALLOCATIONS {
+            } else if action < 3 || v.len() < alloc_count {
                 // bias towards smaller values over larger ones
                 // I'm hoping this makes this a little more representative
                 let size = generate_size(max_alloc_size);

@@ -1,2 +1,2 @@
 No Allocator,Talc (Dynamic),Talc (Dynamic disable-grow-in-place),Talc (Dynamic disable-realloc-in-place),Talc (Arena),Talc (Arena disable-grow-in-place),Talc (Arena disable-realloc-in-place),RLSF (Normal),RLSF (Small),DLMalloc,lol_alloc
-312,2272,2149,2041,2316,2193,2085,4130,1995,6083,1457
+346,1678,1557,1455,1716,1595,1493,2322,1395,5444,867

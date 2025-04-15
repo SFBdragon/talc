@@ -1,9 +1,14 @@
-use core::{alloc::{GlobalAlloc, Layout}, fmt::Debug};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    fmt::Debug,
+};
 
-use crate::{base::{Talc, CHUNK_UNIT}, Binning};
+use crate::{
+    Binning,
+    base::{CHUNK_UNIT, Talc},
+};
 
 use super::OomHandler;
-
 
 #[derive(Debug)]
 pub struct AllocOnOom<G: GlobalAlloc>(G);
@@ -31,30 +36,32 @@ unsafe impl<G: GlobalAlloc + Debug, B: Binning> OomHandler<B> for AllocOnOom<G> 
             )
         };
 
-        let allocation = unsafe {
-            talc.oom_handler.0.alloc(layout)
-        };
+        let allocation = unsafe { talc.oom_handler.0.alloc(layout) };
 
         if allocation.is_null() {
             return Err(());
         }
 
-        let arena = unsafe {
-            talc
-                .claim(allocation, layout.size())
-                .unwrap_unchecked()
-        };
+        let arena = unsafe { talc.claim(allocation, layout.size()).unwrap_unchecked() };
 
         // TODO check _arena
 
         Ok(())
     }
-    
-    fn supports_deallocate(&mut self) -> bool {
-        true
-    }
-    
-    unsafe fn handle_basereg(&mut self, arena_base: *mut u8, arena_acme: *mut u8) {
-        // TODO
+
+    const TRACK_ARENA_END: bool = true;
+
+    unsafe fn maybe_resize_arena(
+        &mut self,
+        chunk_base: *mut u8,
+        arena_end: *mut u8,
+        is_arena_base: bool,
+    ) -> *mut u8 {
+        if is_arena_base {
+            // todo
+            todo!()
+        } else {
+            arena_end
+        }
     }
 }

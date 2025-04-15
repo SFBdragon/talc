@@ -12,7 +12,12 @@ categories = ["memory-management", "no-std", "embedded", "wasm"]
 license = "MIT"
 
 [features]
+default = ["system-backed"]
 counters = []
+system-backed = [
+    "dep:libc",
+    "dep:windows-sys",
+]
 cache-aligned-allocations = ["dep:crossbeam-utils"]
 nightly = ["allocator-api2/nightly"]
 disable-grow-in-place = []
@@ -21,10 +26,10 @@ disable-realloc-in-place = []
 error-scanning-std = ["allocator-api2/std"]
 
 [target.'cfg(unix)'.dependencies]
-libc = { version = "0.2", default-features = false }#, optional = true } TODO
+libc = { version = "0.2", default-features = false, optional = true }
 
-# [target.'cfg(windows)'.dependencies] # TODO
-windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_System_Threading"] }
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_System_Threading"], optional = true }
 
 [dependencies]
 allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }

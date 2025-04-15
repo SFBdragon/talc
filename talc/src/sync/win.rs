@@ -1,35 +1,43 @@
-use core::ptr::addr_of_mut;
+#[macro_export]
+macro_rules! static_system_mutex_ {
+    ($name:ident) => {
+        static mut STATIC_SRWLOCK: SRWLOCK = SRWLOCK_INIT;
 
-use windows_sys::Win32::System::Threading::*;
+        // TODO
+        pub struct $name;
 
-static mut STATIC_SRWLOCK: SRWLOCK = SRWLOCK_INIT;
+        unsafe impl lock_api::RawMutex for $name {
+            const INIT: Self = Self;
 
-pub struct StaticSrwMutex;
+            type GuardMarker = lock_api::GuardSend;
 
-unsafe impl lock_api::RawMutex for StaticSrwMutex {
-    const INIT: Self = Self;
+            #[inline]
+            fn lock(&self) {
+                unsafe {
+                    windows_sys::Win32::System::Threading::AcquireSRWLockExclusive(
+                        core::mem::addr_of_mut!(STATIC_SRWLOCK),
+                    );
+                }
+            }
 
-    type GuardMarker = lock_api::GuardSend;
+            #[inline]
+            fn try_lock(&self) -> bool {
+                unsafe {
+                    // https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive
+                    windows_sys::Win32::System::Threading::TryAcquireSRWLockExclusive(
+                        core::mem::addr_of_mut!(STATIC_SRWLOCK),
+                    ) != 0
+                }
+            }
 
-    #[inline]
-    fn lock(&self) {
-        unsafe {
-            AcquireSRWLockExclusive(addr_of_mut!(STATIC_SRWLOCK));
+            #[inline]
+            unsafe fn unlock(&self) {
+                unsafe {
+                    windows_sys::Win32::System::Threading::ReleaseSRWLockExclusive(
+                        core::mem::addr_of_mut!(STATIC_SRWLOCK),
+                    );
+                }
+            }
         }
-    }
-
-    #[inline]
-    fn try_lock(&self) -> bool {
-        unsafe {
-            // https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive
-            TryAcquireSRWLockExclusive(addr_of_mut!(STATIC_SRWLOCK)) != 0
-        }
-    }
-
-    #[inline]
-    unsafe fn unlock(&self) {
-        unsafe {
-            ReleaseSRWLockExclusive(addr_of_mut!(STATIC_SRWLOCK));
-        }
-    }
+    };
 }

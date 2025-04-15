@@ -1,4 +1,6 @@
-use crate::{base::Talc, Arena, Binning};
+use core::ptr::NonNull;
+
+use crate::{Binning, base::Talc};
 
 use super::OomHandler;
 
@@ -21,7 +23,7 @@ pub struct ClaimOnOom(ClaimOnOomInner);
 #[derive(Debug)]
 enum ClaimOnOomInner {
     Unclaimed { base: *mut u8, size: usize },
-    CannotClaim(Option<Arena>),
+    CannotClaim(Option<NonNull<u8>>),
 }
 
 unsafe impl Send for ClaimOnOomInner {}
@@ -81,7 +83,7 @@ impl ClaimOnOom {
     /// If `handle_oom` has been called and an [`Arena`] is successfully claimed,
     /// the [`Arena`] can be taken using this function.
     /// Otherwise, this return `None`.
-    pub fn take_claimed_arena(&mut self) -> Option<Arena> {
+    pub fn take_claimed_arena_acme(&mut self) -> Option<NonNull<u8>> {
         match &mut self.0 {
             ClaimOnOomInner::CannotClaim(arena) => arena.take(),
             _ => None,
