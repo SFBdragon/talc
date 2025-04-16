@@ -22,15 +22,15 @@ Features:
 - Supports `allocator-api2` for using the `Allocator` API in safe Rust
 - `"counters"`: Provides allocation statistics for debugging and performance insights
 - `"cache-aligned-allocations"`: Mitigates false sharing between allocations
-- Custom Out-Of-Memory handlers for just-in-time heap management, fallback, and recovery
+- Custom Out-Of-Memory handlers for making custom heap sources
 - Supports creating and resizing arbitrarily many heaps
 - Correctness verified with tests, MIRI, and fuzzing
 
-\* `TalcCell` doesn't require any locking or runtime borrow-checking to safely allocate through shared references.
+\* `TalcCell` doesn't require any locking or runtime borrow-checking to safely allocate through shared references. 
 
 ## Why not Talc?
-- Doesn't scale well to allocation-heavy concurrent processing
-- 16-bit architectures are unsupported
+- Doesn't scale well to allocation-heavy concurrent processing.
+- If you're on a system that `jemalloc` or `mimalloc` supports, consider those instead.
 
 ## Getting started
 

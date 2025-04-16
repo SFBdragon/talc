@@ -191,7 +191,7 @@ unsafe impl<A: ReserveCommitDecommitRelease + Debug, B: Binning> OomHandler<B>
             let free_size = arena_end as usize - chunk_base as usize;
             let commit_granularity = self.source.commit_granularity();
 
-            if free_size >= commit_granularity * 2 {
+            if free_size >= commit_granularity * 4 {
                 let uncommitted = arena_end.cast::<usize>().read();
                 let commit_end = arena_end.wrapping_add(CHUNK_UNIT);
 

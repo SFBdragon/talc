@@ -5,7 +5,6 @@ use talc::{Talck, oom::WithSysMem};
 
 talc::static_system_mutex!(SysMutex);
 
-#[cfg(all(not(miri), any(unix, windows)))]
 #[global_allocator]
 static TALC: Talck<SysMutex, WithSysMem> = Talck::new(WithSysMem::new());
 

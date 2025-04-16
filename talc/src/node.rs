@@ -4,11 +4,11 @@ use core::ptr::NonNull;
 ///
 /// # Safety:
 /// `LlistNode`s are inherently unsafe due to the referential dependency between nodes. This requires
-/// that `LlistNode`s are never moved manually, otherwise using the list becomes memory
-/// unsafe and may lead to undefined behavior.
+/// that `LlistNode`s are never invalidated (e.g. overwritten) without removal, otherwise using the list becomes
+/// referentially unsound and may lead to undefined behavior. Moving `Node`s will also not do what you expect.
 ///
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(crate) struct Node {
     pub next: Option<NonNull<Node>>,
@@ -95,10 +95,10 @@ mod tests {
             let z = Box::into_raw(Box::new(MaybeUninit::<Node>::uninit())).cast::<Node>();
 
             Node::link_at(y, Node { next: None, next_of_prev: Node::addr_of_next(x) });
-            Node::link_at(z, Node {
-                next: Some(NonNull::new(y).unwrap()),
-                next_of_prev: Node::addr_of_next(x),
-            });
+            Node::link_at(
+                z,
+                Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::addr_of_next(x) },
+            );
 
             let mut iter = Node::iter_mut(Some(NonNull::new(x)).unwrap());
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
@@ -117,10 +117,10 @@ mod tests {
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            Node::link_at(z, Node {
-                next: Some(NonNull::new(y).unwrap()),
-                next_of_prev: Node::addr_of_next(x),
-            });
+            Node::link_at(
+                z,
+                Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::addr_of_next(x) },
+            );
 
             let mut iter = Node::iter_mut(Some(NonNull::new(x).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));

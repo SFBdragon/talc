@@ -9,10 +9,13 @@ use allocator_api2::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 
 use crate::{Binning, base::Talc, oom::OomHandler};
 
+#[doc(hidden)]
 #[cfg(target_family = "unix")]
-mod unix;
+pub mod unix;
+
+#[doc(hidden)]
 #[cfg(target_family = "windows")]
-mod win;
+pub mod win;
 
 const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
 

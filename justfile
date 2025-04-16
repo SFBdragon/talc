@@ -3,6 +3,7 @@
 results := 'results'
 random_actions_results := results / "random-actions-1threads.csv"
 heap_efficiency_results := results / "heap-efficiency.csv"
+memory_efficiency_results := results / "memory-efficiency.csv"
 microbench_results := results / "microbench.csv"
 wasm_size_results := results / "wasm-size.csv"
 wasm_perf_results := results / "wasm-perf.csv"
@@ -10,6 +11,7 @@ wasm_perf_results := results / "wasm-perf.csv"
 plots := 'plots'
 random_actions_plot := plots / "random-actions-1threads.png"
 heap_efficiency_plot := plots / "heap-efficiency.png"
+memory_efficiency_plot := plots / "memory-efficiency.png"
 microbench_plot := plots / "microbench.png"
 wasm_size_plot := plots / "wasm-size.png"
 wasm_perf_plot := plots / "wasm-perf.png"
@@ -192,6 +194,35 @@ plot-heap-efficiency:
     plt.savefig("{{heap_efficiency_plot}}")
     plt.show()
 
+memory-efficiency: && plot-memory-efficiency
+    cargo run -p benches --bin memory_efficiency --release
+
+plot-memory-efficiency:
+    #!/usr/bin/env python
+    import matplotlib.pyplot as plt
+    import numpy as np
+    with open("{{memory_efficiency_results}}", 'r') as f:
+        rows = f.readlines()
+    names = rows[0].split(',')
+    tris = list(filter(None, rows[1].split(',')))
+    allocated = list(map(float, map(lambda x: x.strip().split(' ')[0], tris)))
+    used_phys = list(map(float, map(lambda x: x.strip().split(' ')[1], tris)))
+    used_virt = list(map(float, map(lambda x: x.strip().split(' ')[2], tris)))
+    names, allocated, used_phys, used_virt = (list(x) for x in zip(*sorted(zip(names, allocated, used_phys, used_virt), key=lambda quad: -quad[3])))
+    y = np.arange(len(names))
+    w = 0.3
+    f = plt.figure()
+    f.set_figwidth(8)
+    plt.barh(y+0.3, allocated, w, color='orange')
+    plt.barh(y+0, used_phys, w, color='black')
+    plt.barh(y-0.3, used_virt, w, color='green')
+    plt.yticks(y, names);
+    plt.title('Memory Efficiency Benchmark (Lower is Better)')
+    plt.xlabel('Memory Usage At Cutoff')
+    plt.legend(["Allocated", "Physical Memory Usage", "Virtual Memory Usage"])
+    plt.tight_layout()
+    plt.savefig("{{memory_efficiency_plot}}")
+    plt.show()
 
 check-wasm-size:
     #!/usr/bin/env bash

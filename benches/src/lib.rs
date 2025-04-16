@@ -37,8 +37,9 @@ pub const SYSTEM_ALLOCATORS: &[NamedAllocator] = &[
     NamedAllocator { name: "DLmalloc", init_fn: init_dlmalloc_sys },
     NamedAllocator { name: "Talc", init_fn: init_talc_sys },
     NamedAllocator { name: "FRuSA", init_fn: init_frusa_sys },
-    NamedAllocator { name: "Jemalloc", init_fn: init_jemalloc_sys },
+    NamedAllocator { name: "mimalloc", init_fn: init_mimalloc_sys },
     NamedAllocator { name: "System", init_fn: init_system },
+    NamedAllocator { name: "Jemalloc", init_fn: init_jemalloc_sys },
 ];
 
 /// Bias towards smaller values over larger ones.
@@ -294,4 +295,8 @@ unsafe fn init_frusa_sys() -> Box<dyn GlobalAlloc + Sync> {
 
 unsafe fn init_jemalloc_sys() -> Box<dyn GlobalAlloc + Sync> {
     Box::new(jemallocator::Jemalloc)
+}
+
+unsafe fn init_mimalloc_sys() -> Box<dyn GlobalAlloc + Sync> {
+    Box::new(mimalloc::MiMalloc)
 }

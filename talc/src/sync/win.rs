@@ -1,20 +1,24 @@
+pub use lock_api;
+pub use windows_sys;
+
 #[macro_export]
-macro_rules! static_system_mutex_ {
+macro_rules! static_system_mutex {
     ($name:ident) => {
-        static mut STATIC_SRWLOCK: SRWLOCK = SRWLOCK_INIT;
+        static mut STATIC_SRWLOCK: ::talc::sync::win::windows_sys::Win32::System::Threading::SRWLOCK
+            = ::talc::sync::win::windows_sys::Win32::System::Threading::SRWLOCK_INIT;
 
         // TODO
         pub struct $name;
 
-        unsafe impl lock_api::RawMutex for $name {
+        unsafe impl ::talc::sync::win::lock_api::RawMutex for $name {
             const INIT: Self = Self;
 
-            type GuardMarker = lock_api::GuardSend;
+            type GuardMarker = ::talc::sync::win::lock_api::GuardSend;
 
             #[inline]
             fn lock(&self) {
                 unsafe {
-                    windows_sys::Win32::System::Threading::AcquireSRWLockExclusive(
+                    ::talc::sync::win::windows_sys::Win32::System::Threading::AcquireSRWLockExclusive(
                         core::mem::addr_of_mut!(STATIC_SRWLOCK),
                     );
                 }
@@ -24,7 +28,7 @@ macro_rules! static_system_mutex_ {
             fn try_lock(&self) -> bool {
                 unsafe {
                     // https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive
-                    windows_sys::Win32::System::Threading::TryAcquireSRWLockExclusive(
+                    ::talc::sync::win::windows_sys::Win32::System::Threading::TryAcquireSRWLockExclusive(
                         core::mem::addr_of_mut!(STATIC_SRWLOCK),
                     ) != 0
                 }
@@ -33,7 +37,7 @@ macro_rules! static_system_mutex_ {
             #[inline]
             unsafe fn unlock(&self) {
                 unsafe {
-                    windows_sys::Win32::System::Threading::ReleaseSRWLockExclusive(
+                    ::talc::sync::win::windows_sys::Win32::System::Threading::ReleaseSRWLockExclusive(
                         core::mem::addr_of_mut!(STATIC_SRWLOCK),
                     );
                 }

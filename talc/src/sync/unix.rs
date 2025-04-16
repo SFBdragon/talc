@@ -1,34 +1,45 @@
+pub use libc;
+pub use lock_api;
+
+/// Establishes a static `pthread` mutex for TODO
 #[macro_export]
 macro_rules! static_system_mutex {
     ($name:ident) => {
-        static mut STATIC_PTHREAD_MUTEX: libc::pthread_mutex_t = libc::PTHREAD_MUTEX_INITIALIZER;
+        static mut STATIC_PTHREAD_MUTEX: ::talc::sync::unix::libc::pthread_mutex_t =
+            ::talc::sync::unix::libc::PTHREAD_MUTEX_INITIALIZER;
 
         /// TODO
         pub struct $name;
 
-        unsafe impl lock_api::RawMutex for $name {
+        unsafe impl ::talc::sync::unix::lock_api::RawMutex for $name {
             const INIT: Self = Self;
 
-            type GuardMarker = lock_api::GuardSend;
+            type GuardMarker = ::talc::sync::unix::lock_api::GuardSend;
 
             #[inline]
             fn lock(&self) {
                 unsafe {
-                    libc::pthread_mutex_lock(core::ptr::addr_of_mut!(STATIC_PTHREAD_MUTEX));
+                    ::talc::sync::unix::libc::pthread_mutex_lock(core::ptr::addr_of_mut!(
+                        STATIC_PTHREAD_MUTEX
+                    ));
                 }
             }
 
             #[inline]
             fn try_lock(&self) -> bool {
                 unsafe {
-                    libc::pthread_mutex_trylock(core::ptr::addr_of_mut!(STATIC_PTHREAD_MUTEX)) == 0
+                    ::talc::sync::unix::libc::pthread_mutex_trylock(core::ptr::addr_of_mut!(
+                        STATIC_PTHREAD_MUTEX
+                    )) == 0
                 }
             }
 
             #[inline]
             unsafe fn unlock(&self) {
                 unsafe {
-                    libc::pthread_mutex_unlock(core::ptr::addr_of_mut!(STATIC_PTHREAD_MUTEX));
+                    ::talc::sync::unix::libc::pthread_mutex_unlock(core::ptr::addr_of_mut!(
+                        STATIC_PTHREAD_MUTEX
+                    ));
                 }
             }
         }
@@ -45,11 +56,15 @@ macro_rules! static_system_mutex {
                     core::sync::atomic::AtomicUsize::new(0);
 
                 unsafe extern "C" fn _lock_mutex() {
-                    libc::pthread_mutex_lock(core::ptr::addr_of_mut!(STATIC_PTHREAD_MUTEX));
+                    ::talc::sync::unix::libc::pthread_mutex_lock(core::ptr::addr_of_mut!(
+                        STATIC_PTHREAD_MUTEX
+                    ));
                 }
 
                 unsafe extern "C" fn _unlock_mutex() {
-                    libc::pthread_mutex_unlock(core::ptr::addr_of_mut!(STATIC_PTHREAD_MUTEX));
+                    ::talc::sync::unix::libc::pthread_mutex_unlock(core::ptr::addr_of_mut!(
+                        STATIC_PTHREAD_MUTEX
+                    ));
                 }
 
                 let cmpxchg_result = FORK_PROTECTED.compare_exchange(
@@ -65,7 +80,7 @@ macro_rules! static_system_mutex {
                     // this protects against deadlocks
 
                     let result = unsafe {
-                        libc::pthread_atfork(
+                        ::talc::sync::unix::libc::pthread_atfork(
                             Some(_lock_mutex),
                             Some(_unlock_mutex),
                             Some(_unlock_mutex),

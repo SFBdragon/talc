@@ -91,6 +91,7 @@ unsafe fn end_to_tag(acme: *mut u8) -> *mut Tag {
 /// See the [`OomHandler`] and [`Binning`] trait documentation for more info, but in short:
 ///
 /// - The OOM handler is effectively a callback to get more memory if allocation failure occurs.
+///     Though they can be more TODO
 ///     Common choices are [`ErrOnOom`](crate::ErrOnOom) and [`ClaimOnOom`](crate::ClaimOnOom).
 ///     TODO backing allocator?
 ///
@@ -897,15 +898,15 @@ impl<O: OomHandler<B>, B: Binning> Talc<O, B> {
     /// unsafe { talc.extend(&mut arena, 5000) };
     /// ```
     pub unsafe fn extend(&mut self, arena_end: *mut u8, new_end: *mut u8) -> NonNull<u8> {
+        debug_assert!(ptr_utils::is_aligned_to(arena_end, CHUNK_UNIT));
+
         let new_end = Self::align_down(new_end);
 
-        if new_end == arena_end {
+        if new_end <= arena_end {
             return NonNull::new_unchecked(arena_end);
         }
 
-        debug_assert!(ptr_utils::is_aligned_to(arena_end, CHUNK_UNIT));
         debug_assert!(ptr_utils::is_aligned_to(new_end, CHUNK_UNIT));
-        debug_assert!(new_end > arena_end);
 
         let mut free_chunk_base = arena_end;
 
@@ -934,49 +935,55 @@ impl<O: OomHandler<B>, B: Binning> Talc<O, B> {
         NonNull::new_unchecked(new_end)
     }
 
-    /// TODO FIXME
-    /// Reduce the size of `arena` to `new_size`.
+    /// Reduce the arena's end from `arena_end` to `new_end`.
     ///
-    /// This function will never truncate more than what is legal.
+    /// Returns the new arena end, or otherwise `None` if the arena would be
+    /// empty or too small to allocate into (less than a
+    /// [`CHUNK_UNIT`](crate::base::CHUNK_UNIT)), and is thus deleted.
+    ///
+    /// If `new_end` is greater or equal to `arena_end`, this returns `arena_end`.
+    ///
     /// The extent cannot be reduced further than what is indicated
-    /// by [`Talc::reserved`]. Attempting to do so (e.g. setting `new_size` to `0`)
+    /// by [`Talc::reserved`]. Attempting to do so (e.g. setting `new_end` to `null_mut`)
     /// will truncate as much as possible.
     ///
-    /// If `new_size` is too big, this call does nothing.
-    ///
-    /// If the resulting [`Arena`] is too small to allocate into, `None` is returned.
-    ///
-    /// Due to alignment requirements, the resulting [`Arena`]
-    /// might have a slightly smaller resulting size than requested
+    /// Due to alignment requirements, the resulting arena end
+    /// might be slightly lower than requested
     /// by a difference of less than [`CHUNK_UNIT`](crate::base::CHUNK_UNIT).
     ///
-    /// All memory in `arena` not contained by the resulting [`Arena`], if any,
-    /// is released back to the caller. You no longer need to guarantee that it's
-    /// exclusively writable by `self`.
+    /// All memory between the resulting pointer and `arena_end`, if any,
+    /// is released back to the caller. You no longer need to guarantee that
+    /// unallocated memory in this region is not mutated.
     ///
     /// # Safety
-    /// `arena` must be managed by this instance of the allocator.
+    /// - The arena must be managed by this instance of the allocator.
+    /// - `arena_end` must have been previously returned as an arena end by this
+    ///     allocator, and not subsequently modified. i.e. it must be the
+    ///     up-to-date arena end.
     ///
     /// # Example
     ///
     /// ```
     /// # extern crate talc;
     /// # use talc::{TalcCell, ErrOnOom};
+    /// # use core::ptr::null_mut();
     /// static mut ARENA: [u8; 5000] = [0; 5000];
     ///
-    /// let talc = TalcCell::new(ErrOnOom);
-    /// let arena = unsafe { talc.claim((&raw mut ARENA).cast(), ARENA.len()).unwrap() };
+    /// let mut talc = TalcCell::new(ErrOnOom);
+    /// let end = unsafe { talc.claim((&raw mut ARENA).cast(), ARENA.len()).unwrap() };
     /// // do some allocator operations...
     ///
     /// // reclaim as much of the arena as possible
-    /// let opt_arena = unsafe { talc.truncate(arena, 0) };
+    /// let opt_new_end = unsafe { talc.truncate(end, null_mut()) };
     /// ```
     pub unsafe fn truncate(&mut self, arena_end: *mut u8, new_end: *mut u8) -> Option<NonNull<u8>> {
-        debug_assert!(ptr_utils::is_aligned_to(arena_end, CHUNK_UNIT));
-        debug_assert!(new_end <= arena_end);
+        debug_assert!(
+            ptr_utils::is_aligned_to(arena_end, CHUNK_UNIT),
+            "This is not the end of an arena. Ends of arenas are always aligned to CHUNK_UNIT."
+        );
 
         let new_end = Self::align_down(new_end);
-        if new_end == arena_end {
+        if new_end >= arena_end {
             return NonNull::new(arena_end);
         }
 

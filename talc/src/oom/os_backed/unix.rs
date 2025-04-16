@@ -4,8 +4,8 @@ use crate::ptr_utils;
 
 use super::ReserveCommitDecommitRelease;
 
-const RESERVED_BLOCK_DEFAULT: usize = 2 << 20;
-const COMMIT_GRANULARITY_DEFAULT: usize = 64 << 10;
+const RESERVED_BLOCK_DEFAULT: usize = 4 << 20;
+const COMMIT_GRANULARITY_DEFAULT: usize = 128 << 10;
 
 #[derive(Debug)]
 pub struct UnixMMapSource;

@@ -36,8 +36,8 @@ Now you need to decide how you're going to establish arenas for `Talc` to alloca
 - You can manually do this using `claim` 
 - You can have an OOM (Out Of Memory) handler do this for you
     - `ClaimOnOom` tries to `claim` a region of memory you specify.
-    - Platform-specific OOM handlers like `ClaimWasmMemOnOom` retrieve memory from the system as needed.
-    - TODO
+    - Platform-specific OOM handlers like `ClaimWasmMemOnOom` and `WithSysMem` retrieve memory from the system as needed.
+    - Some, like `WithSysMem` and `AllocOnOom` reserve and release memory dynamically.
 
 See the following two examples of how this looks in practice.
 
