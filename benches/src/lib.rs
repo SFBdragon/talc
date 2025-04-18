@@ -111,17 +111,19 @@ impl<'a> Drop for AllocationWrapper<'a> {
 }
 
 unsafe fn init_talc() -> Box<dyn GlobalAlloc + Sync> {
-    let talck = talc::Talck::<spin::Mutex<()>, _>::new(talc::ErrOnOom);
-    talck.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
-    Box::new(talck)
+    use talc::prelude::*;
+    let talc: TalcLock<spin::Mutex<()>, _> = TalcLock::new(Manual);
+    talc.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
+    Box::new(talc)
 }
+
 unsafe fn init_talc_old() -> Box<dyn GlobalAlloc + Sync> {
     use prev_talc::{ErrOnOom, Talc};
 
     unsafe {
-        let talck = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
-        talck.lock().claim((&raw mut HEAP.0).into()).unwrap();
-        Box::new(talck)
+        let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+        talc.lock().claim((&raw mut HEAP.0).into()).unwrap();
+        Box::new(talc)
     }
 }
 
@@ -280,9 +282,10 @@ unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
 }
 
 unsafe fn init_talc_sys() -> Box<dyn GlobalAlloc + Sync> {
-    let talck = talc::Talck::<spin::Mutex<()>, _>::new(talc::oom::WithSysMem::new());
+    use talc::prelude::*;
+    let talc: TalcLock<spin::Mutex<()>, _> = TalcLock::new(Os::new());
 
-    Box::new(talck)
+    Box::new(talc)
 }
 
 unsafe fn init_dlmalloc_sys() -> Box<dyn GlobalAlloc + Sync> {

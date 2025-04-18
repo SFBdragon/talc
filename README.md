@@ -17,8 +17,8 @@ Performance:
 - Fast & Small: [WebAssembly Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md)
 
 Features:
-- Safe, zero-runtime-overhead\* `TalcCell` for single-threaded allocation with `GlobalAlloc` and `Allocator`
-- Flexible locking using `lock_api` for multi-threaded allocation using `Talck`
+- Safe, zero-locking-overhead\* `TalcCell` for single-threaded allocation with `GlobalAlloc` and `Allocator`
+- Flexible locking using `lock_api` for multi-threaded allocation using `TalcLock`
 - Supports `allocator-api2` for using the `Allocator` API in safe Rust
 - `"counters"`: Provides allocation statistics for debugging and performance insights
 - `"cache-aligned-allocations"`: Mitigates false sharing between allocations

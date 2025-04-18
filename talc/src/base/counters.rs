@@ -5,8 +5,8 @@
 /// # Example
 ///
 /// ```
-/// # use ::talc::{TalcCell, ErrOnOom};
-/// let talc = TalcCell::new(ErrOnOom);
+/// # use ::talc::{TalcCell, Manual};
+/// let talc = TalcCell::new(Manual);
 /// let counters = talc.counters();
 /// assert_eq!(counters.total_freed_bytes(), 0);
 /// eprintln!("{}", counters);
@@ -30,10 +30,10 @@ pub struct Counters {
     /// Number of holes/gaps between allocations.
     pub fragment_count: usize,
 
-    /// Number of active established arenas.
-    pub arena_count: usize,
-    /// Total number of established arenas.
-    pub total_arena_count: u64,
+    /// Number of active established heaps.
+    pub heap_count: usize,
+    /// Total number of established heaps.
+    pub total_heap_count: u64,
 
     /// Sum of bytes actively claimed.
     pub claimed_bytes: usize,
@@ -51,8 +51,8 @@ impl Counters {
             total_allocated_bytes: 0,
             available_bytes: 0,
             fragment_count: 0,
-            arena_count: 0,
-            total_arena_count: 0,
+            heap_count: 0,
+            total_heap_count: 0,
             claimed_bytes: 0,
             total_claimed_bytes: 0,
         }
@@ -116,32 +116,32 @@ impl Counters {
 
     #[inline]
     pub(crate) fn account_claim(&mut self, claimed_size: usize) {
-        self.arena_count += 1;
+        self.heap_count += 1;
         self.claimed_bytes += claimed_size;
 
-        self.total_arena_count += 1;
+        self.total_heap_count += 1;
         self.total_claimed_bytes += claimed_size as u64;
     }
 
     #[inline]
-    pub(crate) fn account_append(&mut self, old_acme: *mut u8, new_acme: *mut u8) {
-        self.claimed_bytes += new_acme as usize - old_acme as usize;
-        self.total_claimed_bytes += (new_acme as usize - old_acme as usize) as u64;
+    pub(crate) fn account_append(&mut self, old_end: *mut u8, new_end: *mut u8) {
+        self.claimed_bytes += new_end as usize - old_end as usize;
+        self.total_claimed_bytes += (new_end as usize - old_end as usize) as u64;
     }
 
     #[inline]
     pub(crate) fn account_truncate(
         &mut self,
-        old_acme: *mut u8,
-        new_acme: *mut u8,
-        deleted_arena: bool,
+        old_end: *mut u8,
+        new_end: *mut u8,
+        deleted_heap: bool,
     ) {
-        if deleted_arena {
-            self.arena_count -= 1;
-            self.claimed_bytes -= std::mem::size_of::<super::tag::Tag>();
+        if deleted_heap {
+            self.heap_count -= 1;
+            self.claimed_bytes -= core::mem::size_of::<super::tag::Tag>();
         }
 
-        self.claimed_bytes -= old_acme as usize - new_acme as usize;
+        self.claimed_bytes -= old_end as usize - new_end as usize;
     }
 }
 
@@ -166,14 +166,14 @@ impl core::fmt::Display for Counters {
             self.overhead_bytes(),
             self.claimed_bytes,
             self.total_claimed_bytes,
-            self.arena_count,
-            self.total_arena_count,
+            self.heap_count,
+            self.total_heap_count,
             self.fragment_count,
         )
     }
 }
 
-impl<O: crate::oom::OomHandler<B>, B: super::Binning> super::Talc<O, B> {
+impl<S: crate::src::Source, B: super::Binning> super::Talc<S, B> {
     /// Obtain a reference to the internal allocation statistics.
     ///
     /// Avoid holding onto the reference as this will block allocations
@@ -190,17 +190,15 @@ mod tests {
     use ::core::alloc::Layout;
     use core::ptr::null_mut;
 
-    use crate::Binning;
     use crate::base::CHUNK_UNIT;
-
-    use crate::*;
+    use crate::base::binning::Binning;
+    use crate::src::Manual;
 
     #[test]
     fn test_claim_alloc_free_truncate() {
         fn test_claim_alloc_free_truncate_inner<B: Binning>() {
             let mut arena = [0u8; 1000000];
-
-            let mut talc = crate::base::Talc::<_, B>::new(crate::ErrOnOom);
+            let mut talc = crate::base::Talc::<_, B>::new(Manual);
 
             let mem_base = arena.as_mut_ptr().wrapping_add(99);
             let mem_size = 10001;
@@ -213,7 +211,7 @@ mod tests {
             assert!(pre_alloc_claimed_bytes > mem_size - CHUNK_UNIT * 2);
             assert_eq!(pre_alloc_claimed_bytes, talc.counters().total_claimed_bytes as _);
 
-            let max_meta_overhead = crate::min_first_arena_size::<B>();
+            let max_meta_overhead = crate::min_first_heap_size::<B>();
             assert!(pre_alloc_claimed_bytes - max_meta_overhead <= pre_alloc_avl_bytes);
             assert_eq!(talc.counters().allocated_bytes, 0);
             assert_eq!(talc.counters().total_allocated_bytes, 0);
@@ -229,7 +227,7 @@ mod tests {
             let alloc = unsafe { talc.allocate(alloc_layout).unwrap() };
 
             let allocation_chunk_bytes =
-                crate::base::Talc::<ErrOnOom, B>::required_chunk_size(alloc_layout.size());
+                crate::base::Talc::<Manual, B>::required_chunk_size(alloc_layout.size());
 
             assert_eq!(talc.counters().claimed_bytes, pre_alloc_claimed_bytes);
             assert_eq!(
@@ -268,8 +266,8 @@ mod tests {
             assert_eq!(talc.counters().allocation_count, 0);
             assert_eq!(talc.counters().total_allocation_count, 1);
             assert_eq!(talc.counters().fragment_count, 0);
-            assert_eq!(talc.counters().arena_count, 1);
-            assert_eq!(talc.counters().total_arena_count, 1);
+            assert_eq!(talc.counters().heap_count, 1);
+            assert_eq!(talc.counters().total_heap_count, 1);
         }
 
         for_many_talc_configurations!(test_claim_alloc_free_truncate_inner);

@@ -24,8 +24,8 @@ Reducing WebAssembly module size:
 See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md) to get a sense for the tradeoffs between performance and size, as a bunch of possible configuration are tested.
 
 Not WebAssembly-specific:
-- `"counters"`: `Talc` will track arena and allocation metrics. Use the `counters` associated function to access them.
-- `"nightly"`: Enable nightly-only APIs. Currently allows `Talck` and `TalcCell` to implement `core::alloc::Allocator`.
+- `"counters"`: `Talc` will track heap and allocation metrics. Use the `counters` associated function to access them.
+- `"nightly"`: Enable nightly-only APIs. Currently allows `TalcLock` and `TalcCell` to implement `core::alloc::Allocator`.
 - `"cache-aligned-allocation"`: `Talc` will align all of its chunks according to `crossbeam_utils::CachePadded`.
     - This is intended to mitigate [false sharing](https://en.wikipedia.org/wiki/False_sharing) between different
         allocations that will be used from different threads.
@@ -67,21 +67,21 @@ static TALC: WasmArenaTalc = {
 Using a dynamically-sized heap with WebAssembly memory integration...
 
 ```rust,no_run
-use talc::{wasm::{ClaimWasmMemOnOom, WasmBinning}, sync::Talck};
+use talc::{wasm::*, sync::TalcLock};
 
 #[global_allocator]
-static TALC: Talck<spin::Mutex<()>, ClaimWasmMemOnOom, WasmBinning> = Talck::new(ClaimWasmMemOnOom);
+static TALC: TalcLock<spin::Mutex<()>, ClaimWasmMemOnOom, WasmBinning> = TalcLock::new(ClaimWasmMemOnOom);
 ```
 
 Simple arena allocation...
 
 ```rust
-use talc::{wasm::WasmBinning, sync::Talck, ClaimOnOom};
+use talc::{wasm::WasmBinning, sync::TalcLock, Claim};
 
 #[global_allocator]
-static TALC: Talck<spin::Mutex<()>, ClaimOnOom, WasmBinning> = {
+static TALC: TalcLock<spin::Mutex<()>, Claim, WasmBinning> = {
     use core::mem::MaybeUninit;
     static mut MEMORY: [MaybeUninit<u8>; 0x8000000] = [MaybeUninit::uninit(); 0x8000000];
-    Talck::new(unsafe { ClaimOnOom::array(&raw mut MEMORY) })
+    TalcLock::new(unsafe { Claim::array(&raw mut MEMORY) })
 };
 ```

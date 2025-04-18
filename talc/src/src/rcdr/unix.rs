@@ -4,8 +4,8 @@ use crate::ptr_utils;
 
 use super::ReserveCommitDecommitRelease;
 
-const RESERVED_BLOCK_DEFAULT: usize = 4 << 20;
-const COMMIT_GRANULARITY_DEFAULT: usize = 128 << 10;
+const RESERVED_BLOCK: usize = 8 << 20;
+const COMMIT_GRANULARITY: usize = 256 << 10;
 
 #[derive(Debug)]
 pub struct UnixMMapSource;
@@ -15,7 +15,7 @@ unsafe impl ReserveCommitDecommitRelease for UnixMMapSource {
 
     #[inline]
     fn reserve(&mut self, min_size: NonZeroUsize) -> Option<NonNull<[u8]>> {
-        let unit_l1 = RESERVED_BLOCK_DEFAULT - 1;
+        let unit_l1 = RESERVED_BLOCK - 1;
         let size = (min_size.get() + unit_l1) & !unit_l1;
 
         let x = unsafe {
@@ -58,8 +58,8 @@ unsafe impl ReserveCommitDecommitRelease for UnixMMapSource {
 
     #[inline]
     unsafe fn commit(&mut self, base: NonNull<u8>, size: usize) {
-        let is_base_aligned = ptr_utils::is_aligned_to(base.as_ptr(), COMMIT_GRANULARITY_DEFAULT);
-        let is_size_aligned = size % COMMIT_GRANULARITY_DEFAULT == 0;
+        let is_base_aligned = ptr_utils::is_aligned_to(base.as_ptr(), COMMIT_GRANULARITY);
+        let is_size_aligned = size % COMMIT_GRANULARITY == 0;
 
         // eprintln!("COMMIT   {:p}..{:p}", base.as_ptr(), base.as_ptr().wrapping_add(size));
 
@@ -82,8 +82,8 @@ unsafe impl ReserveCommitDecommitRelease for UnixMMapSource {
 
     #[inline]
     unsafe fn decommit(&mut self, base: NonNull<u8>, size: usize) {
-        let is_base_aligned = ptr_utils::is_aligned_to(base.as_ptr(), COMMIT_GRANULARITY_DEFAULT);
-        let is_size_aligned = size % COMMIT_GRANULARITY_DEFAULT == 0;
+        let is_base_aligned = ptr_utils::is_aligned_to(base.as_ptr(), COMMIT_GRANULARITY);
+        let is_size_aligned = size % COMMIT_GRANULARITY == 0;
 
         // eprintln!("DECOMMIT {:p}..{:p}", base.as_ptr(), base.as_ptr().wrapping_add(size));
 
@@ -109,6 +109,6 @@ unsafe impl ReserveCommitDecommitRelease for UnixMMapSource {
     }
 
     fn commit_granularity(&mut self) -> usize {
-        COMMIT_GRANULARITY_DEFAULT
+        COMMIT_GRANULARITY
     }
 }

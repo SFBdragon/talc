@@ -2,22 +2,6 @@ use std::alloc::Layout;
 
 use wasm_bindgen::prelude::*;
 
-/* #[cfg(all(feature = "talc", not(feature = "talc_arena")))]
-#[global_allocator]
-static TALC: talc::sync::Talck<spin::Mutex<()>, talc::wasm::ClaimWasmMemOnOom, talc::wasm::WasmBinning>
-    = talc::sync::Talck::new(talc::wasm::ClaimWasmMemOnOom::new());
-
-#[cfg(all(feature = "talc", feature = "talc_arena"))]
-#[global_allocator]
-static TALC_ARENA: talc::sync::Talck<spin::Mutex<()>, talc::ClaimOnOom, talc::wasm::WasmBinning> = {
-    use core::mem::MaybeUninit;
-    static mut MEMORY: [MaybeUninit<u8>; 128 * 1024 * 1024] = [MaybeUninit::uninit(); 128 * 1024 * 1024];
-
-    unsafe {
-        talc::sync::Talck::new(talc::ClaimOnOom::slice(&raw mut MEMORY))
-    }
-}; */
-
 #[cfg(all(feature = "talc", not(feature = "talc_arena")))]
 #[global_allocator]
 static TALC: talc::wasm::WasmDynamicTalc = unsafe { talc::wasm::new_wasm_dynamic_allocator() };

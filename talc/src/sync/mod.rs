@@ -1,20 +1,20 @@
-//! [`Talck`] facilitates using [`Talc`](crate::base::Talc) as a Rust
+//! [`TalcLock`] facilitates using [`Talc`](crate::base::Talc) as a Rust
 //! global allocator, or other usage across multiple threads.
 //!
-//! See [`Talck`].
+//! See [`TalcLock`].
 
 use core::ptr::{NonNull, null_mut};
 
 use allocator_api2::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 
-use crate::{Binning, base::Talc, oom::OomHandler};
+use crate::{base::Talc, base::binning::Binning, src::Source};
 
 #[doc(hidden)]
-#[cfg(target_family = "unix")]
+#[cfg(all(feature = "system-backed", target_family = "unix"))]
 pub mod unix;
 
 #[doc(hidden)]
-#[cfg(target_family = "windows")]
+#[cfg(all(feature = "system-backed", target_family = "windows"))]
 pub mod win;
 
 const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
@@ -23,30 +23,30 @@ const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
 ///
 /// # Example
 /// ```rust
-/// # use talc::ErrOnOom;
+/// # use talc::Manual;
 /// use spin::Mutex;
 ///
-/// let talck = talc::Talck::<Mutex<()>, _>::new(ErrOnOom);
+/// let talc = talc::TalcLock::<Mutex<()>, _>::new(talc::src::Global(std::alloc::System)); // TODO
 /// ```
 #[derive(Debug)]
-pub struct Talck<R: lock_api::RawMutex, O: OomHandler<B>, B: Binning> {
-    mutex: lock_api::Mutex<R, Talc<O, B>>,
+pub struct TalcLock<R: lock_api::RawMutex, S: Source, B: Binning> {
+    mutex: lock_api::Mutex<R, Talc<S, B>>,
 }
 
-impl<R: lock_api::RawMutex, O: OomHandler<B>, B: Binning> Talck<R, O, B> {
-    /// Create a new [`Talck`].
-    pub const fn new(oom_handler: O) -> Self {
-        Self { mutex: lock_api::Mutex::new(Talc::new(oom_handler)) }
+impl<R: lock_api::RawMutex, S: Source, B: Binning> TalcLock<R, S, B> {
+    /// Create a new [`TalcLock`].
+    pub const fn new(src: S) -> Self {
+        Self { mutex: lock_api::Mutex::new(Talc::new(src)) }
     }
 
     /// Lock the mutex and access the inner [`Talc`].
     #[track_caller]
-    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<O, B>> {
+    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<S, B>> {
         self.mutex.lock()
     }
 
     /// Try to lock the mutex and access the inner [`Talc`].
-    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<O, B>>> {
+    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<S, B>>> {
         self.mutex.try_lock()
     }
 
@@ -54,17 +54,17 @@ impl<R: lock_api::RawMutex, O: OomHandler<B>, B: Binning> Talck<R, O, B> {
     ///
     /// This avoids locking, as having a mutable reference statically
     /// guarantees that `self` is not locked.
-    pub fn get_mut(&mut self) -> &mut Talc<O, B> {
+    pub fn get_mut(&mut self) -> &mut Talc<S, B> {
         self.mutex.get_mut()
     }
 
     /// Retrieve the inner [`Talc`].
-    pub fn into_inner(self) -> Talc<O, B> {
+    pub fn into_inner(self) -> Talc<S, B> {
         self.mutex.into_inner()
     }
 }
 
-unsafe impl<R: lock_api::RawMutex, O: OomHandler<B>, B: Binning> GlobalAlloc for Talck<R, O, B> {
+unsafe impl<R: lock_api::RawMutex, S: Source, B: Binning> GlobalAlloc for TalcLock<R, S, B> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.lock().allocate(layout).map_or(null_mut(), |nn| nn.as_ptr())
     }
@@ -198,7 +198,7 @@ fn nonnull_slice_from_raw_parts(nn: NonNull<u8>, len: usize) -> NonNull<[u8]> {
     unsafe { NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(nn.as_ptr(), len)) }
 }
 
-unsafe impl<R: lock_api::RawMutex, O: OomHandler<B>, B: Binning> Allocator for Talck<R, O, B> {
+unsafe impl<R: lock_api::RawMutex, S: Source, B: Binning> Allocator for TalcLock<R, S, B> {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {

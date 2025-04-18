@@ -12,7 +12,6 @@ categories = ["memory-management", "no-std", "embedded", "wasm"]
 license = "MIT"
 
 [features]
-default = ["system-backed"]
 counters = []
 system-backed = [
     "dep:libc",
@@ -43,3 +42,7 @@ allocator-api2 = { version = "0.2", default-features = false, features = ["std"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "system"
+required-features = ["system-backed"]

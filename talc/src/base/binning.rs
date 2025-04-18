@@ -234,8 +234,7 @@ pub const fn linear_extent_then_linearly_divided_exponential_binning<
     // Multiply the exponential level by LIN_DIVS to shift it above the linear division bits
     // Multiply the LIN_EXT_MULTI by LIN_DIVS to add the offset due to the linearly-spaced buckets
     // Multiply (-1) to get (-LIN_DIVS)
-    let exponential_plus_offset_minus_lin_divs =
-        unshifted_exponential_minus_one << ilog2(LIN_DIVS);
+    let exponential_plus_offset_minus_lin_divs = unshifted_exponential_minus_one << ilog2(LIN_DIVS);
 
     // This LIN_DIVS cancel out, yielding the expected exponential-region bin
     exponential_plus_offset_minus_lin_divs + linear_subdivision_plus_lin_divs as u32
@@ -363,24 +362,24 @@ pub mod test_utils {
     }
 
     /// Searches for the first size where `size_to_bin` yields `next_bin`
-    /// in the inclusive range `base..=acme`.
+    /// in the inclusive range `base..=end`.
     ///
     /// This assumes that `size_to_bin` is monotonically increasing.
     ///
     /// - If `size_to_bin` never yields `next_bin`, this will try to find the first size to yield a higher bin.
     /// - If all inputs to `size_to_bin` yield a bin equal or greater than `next_bin`, `base` is returned.
-    /// - If all inputs to `size_to_bin` yield a bin less that `next_bin`, `acme` is returned.
+    /// - If all inputs to `size_to_bin` yield a bin less that `next_bin`, `end` is returned.
     fn find_binning_boundary(
         next_bin: u32,
         mut base: usize,
-        mut acme: usize,
+        mut end: usize,
         size_to_bin: &dyn Fn(usize) -> u32,
     ) -> usize {
-        while base < acme {
-            let mid = base + (acme - base) / 2;
+        while base < end {
+            let mid = base + (end - base) / 2;
 
             if size_to_bin(mid) >= next_bin {
-                acme = mid;
+                end = mid;
             } else {
                 base = mid + 1;
             }

@@ -15,11 +15,11 @@ rand = "0.8.5"
 
 [dependencies.talc]
 path = "../talc"
-features = ["error-scanning-std", "counters"]
+features = ["error-scanning-std", "counters", "system-backed"]
 
 [[bin]]
-name = "arenas"
-path = "fuzz_targets/arenas.rs"
+name = "heaps"
+path = "fuzz_targets/heaps.rs"
 test = false
 doc = false
 

@@ -9,8 +9,8 @@ impl core::fmt::Debug for Tag {
         f.debug_struct("Tag")
             .field("is_allocated", &self.is_allocated())
             .field("is_above_free", &self.is_above_free())
-            .field("is_arena_base", &self.is_arena_base())
-            .field("is_arena_end", &self.is_arena_end())
+            .field("is_heap_base", &self.is_heap_base())
+            .field("is_heap_end", &self.is_heap_end())
             .finish()
     }
 }
@@ -43,13 +43,13 @@ impl core::ops::BitOrAssign for Tag {
 impl Tag {
     pub const ALLOCATED_FLAG: u8 = 1 << 0;
     pub const ABOVE_FREE_FLAG: u8 = 1 << 1;
-    pub const ARENA_BASE_FLAG: u8 = 1 << 2;
-    pub const ARENA_END_FLAG: u8 = 1 << 3;
+    pub const HEAP_BASE_FLAG: u8 = 1 << 2;
+    pub const HEAP_END_FLAG: u8 = 1 << 3;
 
     pub const ALLOCATED: Tag = Tag(Self::ALLOCATED_FLAG);
     pub const ABOVE_FREE: Tag = Tag(Self::ABOVE_FREE_FLAG);
-    pub const ARENA_BASE: Tag = Tag(Self::ARENA_BASE_FLAG);
-    pub const ARENA_END: Tag = Tag(Self::ARENA_END_FLAG);
+    pub const HEAP_BASE: Tag = Tag(Self::HEAP_BASE_FLAG);
+    pub const HEAP_END: Tag = Tag(Self::HEAP_END_FLAG);
 
     #[inline]
     pub fn is_above_free(self) -> bool {
@@ -62,13 +62,13 @@ impl Tag {
     }
 
     #[inline]
-    pub fn is_arena_base(self) -> bool {
-        self.0 & Self::ARENA_BASE_FLAG != 0
+    pub fn is_heap_base(self) -> bool {
+        self.0 & Self::HEAP_BASE_FLAG != 0
     }
 
     #[inline]
-    pub fn is_arena_end(self) -> bool {
-        self.0 & Self::ARENA_END_FLAG != 0
+    pub fn is_heap_end(self) -> bool {
+        self.0 & Self::HEAP_END_FLAG != 0
     }
 
     #[inline]
@@ -88,14 +88,14 @@ impl Tag {
     #[inline]
     #[track_caller]
     pub unsafe fn set_end_flag(ptr: *mut Self) {
-        debug_assert!((*ptr).0 & Self::ARENA_END_FLAG == 0);
-        (*ptr).0 ^= Self::ARENA_END_FLAG;
+        debug_assert!((*ptr).0 & Self::HEAP_END_FLAG == 0);
+        (*ptr).0 ^= Self::HEAP_END_FLAG;
     }
 
     #[inline]
     #[track_caller]
     pub unsafe fn clear_end_flag(ptr: *mut Self) {
-        debug_assert!((*ptr).0 & Self::ARENA_END_FLAG != 0);
-        (*ptr).0 ^= Self::ARENA_END_FLAG;
+        debug_assert!((*ptr).0 & Self::HEAP_END_FLAG != 0);
+        (*ptr).0 ^= Self::HEAP_END_FLAG;
     }
 }

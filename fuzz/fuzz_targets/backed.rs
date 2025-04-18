@@ -5,6 +5,8 @@
 use std::alloc::{GlobalAlloc, Layout};
 use std::ptr::null_mut;
 
+use talc::prelude::*;
+
 use libfuzzer_sys::arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 
@@ -17,20 +19,17 @@ enum Actions {
     /// Realloc the ith allocation
     Realloc { index: u8, new_size: u16 },
 }
-use Actions::*;
-use talc::TalcCell;
-use talc::oom::WithSysMem;
 
 fuzz_target!(|actions: Vec<Actions>| fuzz_talc(actions));
 
 fn fuzz_talc(actions: Vec<Actions>) {
-    let allocator = TalcCell::new(WithSysMem::new());
+    let allocator = TalcCell::new(Os::new());
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
 
     for action in actions {
         match action {
-            Alloc { size, align_bit } => {
+            Actions::Alloc { size, align_bit } => {
                 if size == 0 || align_bit > 12 {
                     continue;
                 }
@@ -52,7 +51,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Dealloc { index } => {
+            Actions::Dealloc { index } => {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     let (ptr, layout) = allocations.swap_remove(index);
@@ -69,7 +68,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Realloc { index, new_size } => {
+            Actions::Realloc { index, new_size } => {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     if new_size == 0 {

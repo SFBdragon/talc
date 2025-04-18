@@ -15,8 +15,8 @@ Targeting WebAssembly? Check out [the WebAssembly README](https://github.com/SFB
 
 
 ## Features
-- `"counters"`: `Talc` will track arena and allocation metrics. Use the `counters` associated function to access them.
-- `"nightly"`: Enable nightly-only APIs. Currently allows `Talck` and `TalcCell` to implement `core::alloc::Allocator`.
+- `"counters"`: `Talc` will track heap and allocation metrics. Use the `counters` associated function to access them.
+- `"nightly"`: Enable nightly-only APIs. Currently allows `TalcLock` and `TalcCell` to implement `core::alloc::Allocator`.
 - `"cache-aligned-allocation"`: `Talc` will align all of its chunks according to `crossbeam_utils::CachePadded`.
     - This is intended to mitigate [false sharing](https://en.wikipedia.org/wiki/False_sharing) between different
         allocations that will be used from different threads.
@@ -27,12 +27,34 @@ Targeting WebAssembly? Check out [the WebAssembly README](https://github.com/SFB
 
 ## Setup
 
-`Talc` is the core, but usually not useful alone.
-- Use `TalcCell` for single-threaded allocation, e.g. using the `Allocator` interface.
-- Use `Talck` for multi-threaded allocation, e.g. as a `#[global_allocator]`
-    - Talck requires a locking mechanism implementing `lock_api::RawMutex`, e.g. `spin::Mutex<()>`
+There are two choices to make. 
 
-Now you need to decide how you're going to establish arenas for `Talc` to allocate from.
+```
+ ----- Wrapper ----- | -- Allocator -- | ----- Source -----
+                     |                 | 
+  Provides interior  |                 |       Manual
+   mutability, for   |                 |
+   GlobalAlloc and   |                 |       Claim
+    Allocator APIs   |                 |
+                     |                 |  GlobalAllocSource   
+  --- TalcLock  ---  |                 |   AllocatorSource
+                     |      Talc       |
+  Uses locking via   |                 |          Os
+      lock_api       |                 |   WasmGrowAndClaim
+                     |                 |   WasmGrowAndExtend
+  --- TalcCell  ---  |                 |
+                     |                 |
+ Exposes an API with |                 |
+ Cell's constraints, |                 |
+  free !Sync access  |                 |
+```
+
+`Talc` is the core of the allocator, but usually not useful alone.
+- Use `TalcCell` for single-threaded allocation, e.g. using the `Allocator` interface.
+- Use `TalcLock` for multi-threaded allocation, e.g. as a `#[global_allocator]`
+    - TalcLock requires a locking mechanism implementing `lock_api::RawMutex`, e.g. `spin::Mutex<()>`
+
+Now you need to decide how you're going to establish heaps for `Talc` to allocate from.
 - You can manually do this using `claim` 
 - You can have an OOM (Out Of Memory) handler do this for you
     - `ClaimOnOom` tries to `claim` a region of memory you specify.
@@ -46,15 +68,8 @@ See the following two examples of how this looks in practice.
 ```rust
 use talc::*;
 
-static mut ARENA: [u8; 10000] = [0; 10000];
-
 #[global_allocator]
-static TALCK: Talck<spin::Mutex<()>, ClaimOnOom> = Talck::new(unsafe {
-    // If we're in a hosted environment, the Rust runtime may allocate before
-    // main() is called, so we need to initialize the arena automatically.
-    // We use `ClaimOnOom` to claim `ARENA` when 
-    ClaimOnOom::new(Span::slice(&raw mut ARENA))
-});
+static TALC: TalcLock<spin::Mutex<()>, ClaimOnOom> = TalcLock::new(src::Os);
 
 fn main() {
     let mut vec = Vec::with_capacity(100);
@@ -74,10 +89,8 @@ use allocator_api2::alloc::{Allocator, Layout}
 use talc::*;
 
 fn main() {
-    let mut arena = [0u8; 10000];
-
-    let talc = TalcCell::new(ErrOnOom);
-    unsafe { talc.claim(arena.as_mut().into()); }
+    let mut heap = [0u8; 10000];
+    let talc = TalcCell::new(Claim::array(&raw mut heap));
     
     let my_vec = allocator_api2::vec::Vec::new_in(&talc);
     let my_allocation = talc.allocate(Layout::new::<[u32; 16]>()).unwrap();
@@ -88,49 +101,52 @@ See [examples/allocator_api.rs]((https://github.com/SFBdragon/talc/blob/master/t
 
 ## API Overview
 
-Whether you're using `Talc`, `Talck` (call `lock` to get the `Talc`), or `TalcCell` (re-exposes the API directly), usage is similar.
+Whether you're using `Talc`, `TalcLock` (call `lock` to get the `Talc`), or `TalcCell` (re-exposes the API directly), usage is similar.
 
 #### Allocation
 
-`Talck` and `TalcCell` implement the `GlobalAlloc` and `Allocator` traits.
+`TalcLock` and `TalcCell` implement the `GlobalAlloc` and `Allocator` traits.
 
 `Talc` exposes the allocation primitives
 - `allocate`
 - `deallocate`
 - `try_grow_in_place`
 - `shrink`
-- `try_resize_in_place`
 
-#### Arena Management
-* `claim` - establish an `Arena`
+#### Heap Management
+* `claim` - establish a heap
 * `reserved` - query for the region of bytes reserved due to allocations
-* `extend`/`truncate`/`resize` - change the size of an existing `Arena`
+* `extend`/`truncate`/`resize` - change the size of an existing heap
 
 #### Statistics - requires "counters" feature
 * `counter` - obtains the `Counters` struct which contains arena and allocation statistics
 
 Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
 
-## Advanced Usage
+## Sources
 
-The most powerful feature of the allocator is that it has a modular OOM handling system, allowing you to fail out of or recover from allocation failure easily. 
-
-Provided `OomHandler` implementations include:
-- `ErrOnOom`: allocations fail on OOM
-- `ClaimOnOom`: claims a heap upon first OOM, useful for initialization
-- `WasmHandler`: itegrate with WebAssembly's `memory` module for automatic memory heap management
+Provided `Source` implementations include:
+- `Manual`: allocations fail on OOM
+- `Claim`: claims a heap upon first OOM, useful for initialization
+- `GlobalAllocSource` and `AllocatorSource`: obtains and frees memory back to another allocator 
+- `Os`/`WasmGrow*`: use system APIs to manage memory
 
 As an example of a custom implementation, recovering by extending the heap is implemented below.
 
 ```rust
-use talc::*;
+use talc::prelude::*;
+use core::alloc::Layout;
 
-struct MyOomHandler {
+struct MySource {
     heap: Span,
 }
 
-impl OomHandler for MyOomHandler {
-    fn handle_oom(talc: &mut Talc<Self>, layout: core::alloc::Layout) -> Result<(), ()> {
+// SAFETY: I promise not to try to access `talc` via its wrapper type here.
+// This includes accidentally allocating when `talc` is the `global_allocator`.
+// This may cause deadlocking or panics or even UB in release mode.
+// See `Source`'s documentation for more.
+unsafe impl Source for MySource {
+    fn acquire<B: Binning>(talc: &mut Talc<Self, B>, layout: Layout) -> Result<(), ()> {
         // Talc doesn't have enough memory, and we just got called!
         // We'll go through an example of how to handle this situation.
     
@@ -145,7 +161,7 @@ impl OomHandler for MyOomHandler {
         // an arbitrary address limit for the sake of example
         const HEAP_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
     
-        let old_heap: Span = talc.oom_handler.heap;
+        let old_heap: Span = talc.source.heap;
     
         // we're going to extend the heap upward, doubling its size
         // but we'll be sure not to extend past the limit
@@ -158,7 +174,7 @@ impl OomHandler for MyOomHandler {
     
         unsafe {
             // we're assuming the new memory up to HEAP_TOP_LIMIT is unused and allocatable
-            talc.oom_handler.heap = talc.extend(old_heap, new_heap);
+            talc.source.heap = talc.extend(old_heap, new_heap);
         }
     
         Ok(())
@@ -177,9 +193,9 @@ If you're using WebAssembly, check out the [guide](https://github.com/SFBdragon/
 
 The allocator is now stable-by-default. The configurable features have changes significantly as well. See the [Features](#features) section.
 
-Don't use `Talc::new` anymore. Use `Talck::new` (global allocators, multi-threaded allocation) or `TalcCell::new` (single-threaded allocation).
+You typically won't use `Talc::new` anymore. Use `TalcLock::new` or `TalcCell::new`.
 
-The arena management APIs (`Talc::claim`, `Talc::extend`, `Talc::reserved` (previously `get_allocated_span`), `Talc::truncate`, `Talc::resize` (new!)) changed in various ways. `Span` has been removed, but the functions should be easier to use. Please check their docs for more info.
+The arena management APIs: `Talc::claim`, `Talc::extend`, `Talc::reserved`(previously `get_allocated_span`), `Talc::truncate`, `Talc::resize` (new!) changed in various ways. `Span` has been removed. Please check their docs for more info.
 
 ## Changelog
 
@@ -194,7 +210,7 @@ Here are some highlights:
 - Large performance improvements.
 - Large size improvements on WebAssembly.
 - `WithSysMem` uses OS virtual memory management to manage arenas. Supports Unix and Windows.
-    - `OomHandler` is now powerful enough for automatic memory management.
+    - `Source` is now powerful enough for automatic memory management.
 - `TalcCell` introduced: safe, `!Sync`, zero-runtime-overhead implementor of `GlobalAlloc` and `Allocator`
 - The crate is now stable-by-default, and the MSRV has _dropped_ to Rust 1.63
 - Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly.
@@ -338,7 +354,7 @@ To migrate from v2 to v3, keep in mind that you must keep track of the heaps if 
 - Removed the requirement that the `Talc` struct must not be moved, and removed the `mov` function.
     - The arena is now used to store metadata, so extremely small arenas will result in allocation failure.
 - Made the OOM handling system use generics and traits instead of a function pointer.
-    - Use `ErrOnOom` to do what it says on the tin. `InitOnOom` is similar but inits to the given span if completely uninitialized. Implement `OomHandler` on any struct to implement your own behaviour (the OOM handler state can be accessed from `handle_oom` via `talc.oom_handler`).
+    - Use `ErrOnOom` to do what it says on the tin. `InitOnOom` is similar but inits to the given span if completely uninitialized. Implement `Source` on any struct to implement your own behaviour (the OOM handler state can be accessed from `handle_oom` via `talc.oom_handler`).
 - Changed the API and internals of `Span` and other changes to pass `miri`'s Stacked Borrows checks.
     - Span now uses pointers exclusively and carries provenance.
 - Updated the benchmarks in a number of ways, notably adding `buddy_alloc` and removing `simple_chunk_allocator`.

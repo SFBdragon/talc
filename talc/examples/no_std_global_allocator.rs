@@ -7,15 +7,15 @@ use core::alloc::Layout;
 
 use alloc::{alloc::alloc, vec::Vec};
 
-use talc::{ClaimOnOom, Talck};
+use talc::prelude::*;
 
 // todo: what is going on here
 
 #[global_allocator]
-static TALC: Talck<spin::Mutex<()>, ClaimOnOom> = Talck::new(unsafe {
+static TALC: TalcLock<spin::Mutex<()>, Claim> = TalcLock::new(unsafe {
     static mut INITIAL_ARENA: [u8; 10000] = [0; 10000];
-    ClaimOnOom::array(&raw mut INITIAL_ARENA)
-    // For older Rust versions: ClaimOnOom::array(core::ptr::addr_of!(INITIAL_ARENA) as *mut _)
+    Claim::array(&raw mut INITIAL_ARENA)
+    // For older Rust versions: Claim::array(core::ptr::addr_of!(INITIAL_ARENA) as *mut _)
 });
 
 #[no_mangle]

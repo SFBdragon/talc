@@ -1,12 +1,11 @@
-use talc::{Talck, oom::WithSysMem};
+use talc::prelude::*;
 
 // Run with:
 // `cargo run --example system`
 
-talc::static_system_mutex!(SysMutex);
-
 #[global_allocator]
-static TALC: Talck<SysMutex, WithSysMem> = Talck::new(WithSysMem::new());
+static TALC: TalcLock<SysMutex, Os> = TalcLock::new(Os::new());
+talc::static_system_mutex!(SysMutex);
 
 fn main() {
     eprint!("Doing some small allocations... ");

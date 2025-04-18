@@ -1,9 +1,10 @@
 #![doc = include_str!("../README_WASM.md")]
 
 use crate::{
-    Binning, ClaimOnOom,
+    base::binning::Binning,
     cell::{TalcCell, TalcCellAssumeSingleThreaded},
     ptr_utils,
+    src::Claim,
 };
 
 /// A binning configuration optimized for WebAssembly.
@@ -37,7 +38,7 @@ impl Binning for WasmBinning {
 }
 
 /// Type alias for the return value of [`new_wasm_arena_allocator`].
-pub type WasmArenaTalc = TalcCellAssumeSingleThreaded<ClaimOnOom, WasmBinning>;
+pub type WasmArenaTalc = TalcCellAssumeSingleThreaded<Claim, WasmBinning>;
 
 /// Yields a [`GlobalAlloc`](core::alloc::GlobalAlloc) implementation that
 /// allocates out of a fixed-size region of memory.
@@ -49,11 +50,11 @@ pub type WasmArenaTalc = TalcCellAssumeSingleThreaded<ClaimOnOom, WasmBinning>;
 pub const unsafe fn new_wasm_arena_allocator<T, const N: usize>(
     arena: *mut [T; N],
 ) -> WasmArenaTalc {
-    TalcCellAssumeSingleThreaded::new(TalcCell::new(ClaimOnOom::array(arena)))
+    TalcCellAssumeSingleThreaded::new(TalcCell::new(Claim::array(arena)))
 }
 
 /// Type alias for the return value of [`new_wasm_dynamic_allocator`].
-pub type WasmDynamicTalc = TalcCellAssumeSingleThreaded<ClaimWasmMemOnOom, WasmBinning>;
+pub type WasmDynamicTalc = TalcCellAssumeSingleThreaded<WasmGrowAndClaim, WasmBinning>;
 
 /// Yields a [`GlobalAlloc`](core::alloc::GlobalAlloc) implementation that
 /// dynamically requests memory from the WebAssembly memory space as needed.
@@ -63,19 +64,19 @@ pub type WasmDynamicTalc = TalcCellAssumeSingleThreaded<ClaimWasmMemOnOom, WasmB
 /// # Safety
 /// The target must be exclusively single-threaded.
 pub const unsafe fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
-    TalcCellAssumeSingleThreaded::new(TalcCell::new(ClaimWasmMemOnOom))
+    TalcCellAssumeSingleThreaded::new(TalcCell::new(WasmGrowAndClaim))
 }
 
-/// This OOM handler requests memory from the WebAssembly memory subsystem as needed.
+/// This source requests memory from the WebAssembly memory subsystem as needed.
 ///
-/// Unlike [`ExtendWasmMemOnOom`] it always creates new heaps; never extends the previous.
+/// Unlike [`WasmGrowAndExtend`] it always creates new heaps; never extends the previous.
 /// This increases fragmentation, decreasing memory efficiency somewhat,
 /// but makes the compiled WebAssembly module smaller.
 #[derive(Debug)]
-pub struct ClaimWasmMemOnOom;
+pub struct WasmGrowAndClaim;
 
-unsafe impl<B: Binning> crate::oom::OomHandler<B> for ClaimWasmMemOnOom {
-    fn handle_oom(
+unsafe impl crate::src::Source for WasmGrowAndClaim {
+    fn acquire<B: Binning>(
         talc: &mut crate::base::Talc<Self, B>,
         layout: core::alloc::Layout,
     ) -> Result<(), ()> {
@@ -83,12 +84,12 @@ unsafe impl<B: Binning> crate::oom::OomHandler<B> for ClaimWasmMemOnOom {
         // Performance testing shows that it works well even in random actions.
         let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
-        let prev_memory_acme = match memory_grow::<0>(delta_pages) {
+        let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
             prev => prev,
         };
 
-        let grown_base = (prev_memory_acme * PAGE_SIZE) as *mut u8;
+        let grown_base = (prev_memory_end * PAGE_SIZE) as *mut u8;
         let grown_size = delta_pages * PAGE_SIZE;
 
         // This should always succeed. If it doesn't though, return Err(())
@@ -99,20 +100,20 @@ unsafe impl<B: Binning> crate::oom::OomHandler<B> for ClaimWasmMemOnOom {
     }
 }
 
-/// This OOM handler requests memory from the WebAssembly memory subsystem as needed.
+/// This source requests memory from the WebAssembly memory subsystem as needed.
 ///
-/// Unlike [`ClaimWasmMemOnOom`] it attempts to extend the heap instead of establishing
+/// Unlike [`WasmGrowAndClaim`] it attempts to extend the heap instead of establishing
 /// new heaps. This reduced fragmentation, increasing memory efficiency somewhat,
-/// but makes the compiled WebAssembly module bigger.
+/// but makes the compiled WebAssembly module a little bigger.
 #[derive(Debug, Default)]
-pub struct ExtendWasmMemOnOom {
+pub struct WasmGrowAndExtend {
     end: Option<NonNull<u8>>,
 }
 
-impl ExtendWasmMemOnOom {
-    /// Create a [`ExtendWasmMemOnOom`].
+impl WasmGrowAndExtend {
+    /// Create a [`WasmGrowAndExtend`] source.
     ///
-    /// This is an OOM handler that requests more memory
+    /// This is an source that requests more memory
     /// from the WebAssembly memory subsystem as needed,
     /// extending the arena to encompass the additional memory.
     pub const fn new() -> Self {
@@ -121,8 +122,8 @@ impl ExtendWasmMemOnOom {
 }
 
 // SAFETY: does not invoke a Rust allocator or use allocated container types.
-unsafe impl<B: Binning> crate::oom::OomHandler<B> for ExtendWasmMemOnOom {
-    fn handle_oom(
+unsafe impl crate::src::Source for WasmGrowAndExtend {
+    fn acquire<B: Binning>(
         talc: &mut crate::base::Talc<Self, B>,
         layout: core::alloc::Layout,
     ) -> Result<(), ()> {
@@ -138,18 +139,18 @@ unsafe impl<B: Binning> crate::oom::OomHandler<B> for ExtendWasmMemOnOom {
         let new_bytes = delta_pages * PAGE_SIZE;
         let new_end = ptr_utils::saturating_ptr_add(new_base, new_bytes);
 
-        // try to get base & acme, which will fail if prev_heap is empty
+        // try to get base & end, which will fail if prev_heap is empty
         // otherwise the allocator has been initialized previously
-        if let Some(old_end) = talc.oom_handler.end.take() {
+        if let Some(old_end) = talc.source.end.take() {
             if old_end.as_ptr() == new_base {
-                let new_acme = unsafe { talc.extend(old_end.as_ptr(), new_end) };
-                talc.oom_handler.end = Some(new_acme);
+                let new_end = unsafe { talc.extend(old_end.as_ptr(), new_end) };
+                talc.source.end = Some(new_end);
 
                 return Ok(());
             }
         }
 
-        talc.oom_handler.end = unsafe { talc.claim(new_base, new_bytes) };
+        talc.source.end = unsafe { talc.claim(new_base, new_bytes) };
 
         Ok(())
     }

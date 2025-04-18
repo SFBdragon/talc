@@ -9,11 +9,11 @@ use crate::ptr_utils;
 
 use super::ReserveCommitDecommitRelease;
 
-const RESERVED_BLOCK_DEFAULT: usize = 2 << 20;
+const RESERVED_BLOCK_DEFAULT: usize = 8 << 20;
 /// In practice, the Windows allocation granularity, `dwAllocationGranularity`
 /// is always 64KiB since Windows NT.
 /// The page size is always smaller in practice. 4KiB. (8KiB for Intel Itanium.)
-const COMMIT_GRANULARITY_DEFAULT: usize = 64 << 10;
+const COMMIT_GRANULARITY_DEFAULT: usize = 256 << 10;
 
 #[derive(Debug)]
 pub struct Win32VirtualAllocSource;

@@ -1,6 +1,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 
-use talc::*;
+use talc::prelude::*;
 
 // Run with:
 // `cargo run --example global_allocator`
@@ -11,16 +11,17 @@ use talc::*;
 // The `spin` crate provides a simple mutex we can use on most platforms.
 // We'll use it for the sake of example.
 //
-// ## Using `ClaimOnOom`
-// An OOM handler with support for claiming memory on-demand is required,
+// ## Using `Span`
+// An source with support for providing memory on-demand is required,
 // as allocations may occur prior to the execution of `main`.
+// This means that `Manual` won't cut it.
 
 #[global_allocator]
 #[cfg(not(miri))]
-static TALC: Talck<spin::Mutex<()>, ClaimOnOom> = Talck::new(unsafe {
+static TALC: TalcLock<spin::Mutex<()>, Claim> = TalcLock::new(unsafe {
     static mut INITIAL_ARENA: [u8; 100000] = [0; 100000];
-    ClaimOnOom::array(&raw mut INITIAL_ARENA)
-    // For older Rust versions: ClaimOnOom::array(core::ptr::addr_of!(INITIAL_ARENA) as *mut _)
+    Claim::array(&raw mut INITIAL_ARENA)
+    // For older Rust versions: Span::array(core::ptr::addr_of!(INITIAL_ARENA) as *mut _)
 });
 
 fn main() {

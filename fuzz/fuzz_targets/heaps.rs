@@ -5,6 +5,8 @@
 use std::alloc::{GlobalAlloc, Layout, alloc, dealloc};
 use std::ptr::null_mut;
 
+use talc::prelude::*;
+
 use libfuzzer_sys::arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 
@@ -45,13 +47,11 @@ enum Actions {
         index: u8,
     },
 }
-use Actions::*;
-use talc::ErrOnOom;
 
 fuzz_target!(|actions: Vec<Actions>| fuzz_talc(actions));
 
 struct FuzzBinning;
-impl talc::Binning for FuzzBinning {
+impl Binning for FuzzBinning {
     type AvailabilityBitField = u32;
 
     const BIN_COUNT: u32 = 25;
@@ -62,15 +62,14 @@ impl talc::Binning for FuzzBinning {
 }
 
 fn fuzz_talc(actions: Vec<Actions>) {
-    let allocator: talc::cell::TalcCell<ErrOnOom, FuzzBinning> =
-        talc::cell::TalcCell::new(ErrOnOom);
+    let allocator: talc::cell::TalcCell<Manual, FuzzBinning> = talc::cell::TalcCell::new(Manual);
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
-    let mut arenas: Vec<(*mut u8, Layout, *mut u8)> = vec![];
+    let mut heaps: Vec<(*mut u8, Layout, *mut u8)> = vec![];
 
     for action in actions {
         match action {
-            Alloc { size, align_bit } => {
+            Actions::Alloc { size, align_bit } => {
                 if size == 0 || align_bit > 12 {
                     continue;
                 }
@@ -92,7 +91,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Dealloc { index } => {
+            Actions::Dealloc { index } => {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     let (ptr, layout) = allocations.swap_remove(index);
@@ -109,7 +108,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Realloc { index, new_size } => {
+            Actions::Realloc { index, new_size } => {
                 if allocations.len() > 0 {
                     let index = index as usize % allocations.len();
                     if new_size == 0 {
@@ -142,7 +141,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Claim { offset, size, additional_capacity } => {
+            Actions::Claim { offset, size, additional_capacity } => {
                 let offset = offset as usize;
                 let size = size as usize;
                 let capacity = offset + size + additional_capacity as usize;
@@ -158,17 +157,17 @@ fn fuzz_talc(actions: Vec<Actions>) {
                 if let Some(end) = unsafe { allocator.claim(mem.add(offset), size) } {
                     /* eprintln!("CLAIM | end {:p}", end); */
 
-                    arenas.push((mem, mem_layout, end.as_ptr()));
+                    heaps.push((mem, mem_layout, end.as_ptr()));
                 } else {
                     unsafe {
                         dealloc(mem, mem_layout);
                     }
                 }
             }
-            Extend { index, bytes } => {
-                if arenas.len() > 0 {
-                    let index = index as usize % arenas.len();
-                    let (ptr, mem_layout, end) = &mut arenas[index];
+            Actions::Extend { index, bytes } => {
+                if heaps.len() > 0 {
+                    let index = index as usize % heaps.len();
+                    let (ptr, mem_layout, end) = &mut heaps[index];
 
                     let new_end =
                         end.wrapping_add(bytes as _).min((*ptr).wrapping_add(mem_layout.size()));
@@ -181,17 +180,17 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Truncate { index, bytes } => {
-                if arenas.len() > 0 {
-                    let index = index as usize % arenas.len();
-                    let (mem, mem_layout, end) = arenas.swap_remove(index);
+            Actions::Truncate { index, bytes } => {
+                if heaps.len() > 0 {
+                    let index = index as usize % heaps.len();
+                    let (mem, mem_layout, end) = heaps.swap_remove(index);
 
                     let new_end = unsafe { allocator.truncate(end, end.wrapping_sub(bytes as _)) };
 
                     /* eprintln!("TRUNCATE | old end: {:p} new end: {:?}", end, new_end); */
 
                     if let Some(new_end) = new_end {
-                        arenas.push((mem, mem_layout, new_end.as_ptr()));
+                        heaps.push((mem, mem_layout, new_end.as_ptr()));
                     } else {
                         unsafe {
                             dealloc(mem, mem_layout);
@@ -199,10 +198,10 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     }
                 }
             }
-            Reserved { index } => {
-                if arenas.len() > 0 {
-                    let index = index as usize % arenas.len();
-                    let end = arenas[index].2;
+            Actions::Reserved { index } => {
+                if heaps.len() > 0 {
+                    let index = index as usize % heaps.len();
+                    let end = heaps[index].2;
 
                     unsafe {
                         allocator.reserved(end);
@@ -226,11 +225,16 @@ fn fuzz_talc(actions: Vec<Actions>) {
         }
     }
 
-    // drop the remaining heaps
-    let mut undropped_arenas = vec![];
-    for (mem, mem_layout, arena) in arenas {
-        if let Some(arena) = unsafe { allocator.truncate(arena, null_mut()) } {
-            undropped_arenas.push((mem, mem_layout, arena));
+    // Drop the remaining heaps.
+    // Typically you wouldn't worry about truncating down each heap
+    // before freeing the memory, but it helps catch bugs quicker here.
+    // The heap with metadata can't be deleted using truncate, and must
+    // be deleted last because `truncate` (an allocator operation) is otherwise used after.
+
+    let mut undropped_heaps = vec![];
+    for (mem, mem_layout, heap_end) in heaps {
+        if let Some(heap_end) = unsafe { allocator.truncate(heap_end, null_mut()) } {
+            undropped_heaps.push((mem, mem_layout, heap_end));
         } else {
             unsafe {
                 dealloc(mem, mem_layout);
@@ -241,10 +245,10 @@ fn fuzz_talc(actions: Vec<Actions>) {
     let counters = allocator.counters();
     assert_eq!(counters.allocated_bytes, 0);
     assert_eq!(counters.allocation_count, 0);
-    assert!(counters.arena_count <= 1);
+    assert!(counters.heap_count <= 1);
 
     drop(allocator);
-    for (mem, mem_layout, _arena) in undropped_arenas {
+    for (mem, mem_layout, _heap_end) in undropped_heaps {
         unsafe {
             dealloc(mem, mem_layout);
         }

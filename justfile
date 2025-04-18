@@ -35,7 +35,7 @@ check: && check-wasm-size check-wasm-perf
     # check that the examples aren't broken
     rustup run stable cargo check -p talc --example allocator_api
     rustup run stable cargo check -p talc --example global_allocator
-    rustup run stable cargo check -p talc --example wasm_allocators --target wasm32-unknown-unknown
+    # TODO ADD THE OTHERS
     # check whether MSRV has been broken
     rustup run 1.63.0 cargo check -p talc --features=counters
     # check the benchmarks
