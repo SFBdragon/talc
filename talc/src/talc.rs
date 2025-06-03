@@ -322,9 +322,31 @@ impl<O: OomHandler> Talc<O> {
     }
 
     /// Allocate a contiguous region of memory according to `layout`, if possible.
+    /// If the allocation is not currently possible, attempt to recover via the
+    /// specified [`OomHandler`].
+    /// See [`Self::malloc_without_oom_handler`] for allocating without automatic OOM recovery.
+    ///
     /// # Safety
     /// `layout.size()` must be nonzero.
     pub unsafe fn malloc(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
+        self.malloc_impl(layout, true)
+    }
+
+    /// Allocate a contiguous region of memory according to `layout`, if possible.
+    /// If the allocation is not currently possible, do not attempt to recover via
+    /// the specified [`OomHandler`] and always return `Err(())`.
+    ///
+    /// # Safety
+    /// `layout.size()` must be nonzero.
+    pub unsafe fn malloc_without_oom_handler(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
+        self.malloc_impl(layout, false)
+    }
+
+    unsafe fn malloc_impl(
+        &mut self,
+        layout: Layout,
+        handle_oom: bool,
+    ) -> Result<NonNull<u8>, ()> {
         debug_assert!(layout.size() != 0);
         self.scan_for_errors();
 
@@ -332,7 +354,13 @@ impl<O: OomHandler> Talc<O> {
             // this returns None if there are no heaps or allocatable memory
             match self.get_sufficient_chunk(layout) {
                 Some(payload) => break payload,
-                None => _ = O::handle_oom(self, layout)?,
+                None => {
+                    if handle_oom {
+                        _ = O::handle_oom(self, layout)?
+                    } else {
+                        return Err(());
+                    }
+                }
             }
         };
 
