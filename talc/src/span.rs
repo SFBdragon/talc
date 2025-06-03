@@ -1,4 +1,8 @@
-use core::ops::Range;
+use core::{
+    hash::{Hash, Hasher},
+    ops::Range,
+    ptr::null_mut,
+};
 
 use crate::ptr_utils::*;
 
@@ -11,7 +15,7 @@ use crate::ptr_utils::*;
 /// the specific values of `base` and `acme` are considered meaningless.
 /// * Empty spans contain nothing and overlap with nothing.
 /// * Empty spans are contained by any sized span.
-#[derive(Clone, Copy, Hash)]
+#[derive(Clone, Copy)]
 pub struct Span {
     base: *mut u8,
     acme: *mut u8,
@@ -120,10 +124,23 @@ impl<T, const N: usize> From<*const [T; N]> for Span {
 
 impl PartialEq for Span {
     fn eq(&self, other: &Self) -> bool {
-        self.is_empty() && other.is_empty() || self.base == other.base && self.acme == other.acme
+        self.is_empty() && other.is_empty()
+            || core::ptr::eq(self.base, other.base) && core::ptr::eq(self.acme, other.acme)
     }
 }
 impl Eq for Span {}
+
+impl Hash for Span {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        if self.is_empty() {
+            null_mut::<u8>().hash(hasher);
+            null_mut::<u8>().hash(hasher);
+        } else {
+            self.base.hash(hasher);
+            self.acme.hash(hasher);
+        }
+    }
+}
 
 impl Span {
     /// Returns whether `base >= acme`.
