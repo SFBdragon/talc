@@ -24,6 +24,8 @@ mod talck;
 pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
 pub use span::Span;
 pub use talc::Talc;
+#[cfg(feature = "counters")]
+pub use talc::counters::Counters;
 
 #[cfg(feature = "lock_api")]
 pub use talck::Talck;
