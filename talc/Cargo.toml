@@ -1,6 +1,6 @@
 [package]
 name = "talc"
-version = "4.4.2"
+version = "4.4.3"
 rust-version = "1.67.1"
 edition = "2021"
 readme = "README.md"

@@ -216,6 +216,10 @@ Update: All of this is currently in the works. No guarantees on when it will be 
 
 ## Changelog
 
+#### v4.4.3
+
+- [Rajas Paranjpe](https://github.com/ChocolateLoverRaj): Replaced `pub use counters` to ensure `Counters`
+    is publicly accessible when the `"counters"` feature is enabled. 
 
 #### v4.4.2
 
