@@ -82,8 +82,8 @@ pub const fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
 ///
 /// # Heap management
 ///
-/// Manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
-/// directly is not allowed, and will cause UB.
+/// Manual heap management (i.e. using [`Talc::claim`](crate::base::Talc::claim),
+/// [`Talc::resize`](crate::base::Talc::resize), etc.) directly is not allowed, and will cause UB.
 #[derive(Debug)]
 pub struct WasmGrowAndClaim;
 
@@ -120,8 +120,8 @@ unsafe impl crate::source::Source for WasmGrowAndClaim {
 ///
 /// # Heap management
 ///
-/// Manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
-/// directly is not allowed, and will cause UB.
+/// Manual heap management (i.e. using [`Talc::claim`](crate::base::Talc::claim),
+/// [`Talc::resize`](crate::base::Talc::resize), etc.) directly is not allowed, and will cause UB.
 #[derive(Debug, Default)]
 pub struct WasmGrowAndExtend {
     end: Option<NonNull<u8>>,

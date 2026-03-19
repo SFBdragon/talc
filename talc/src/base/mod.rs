@@ -1103,9 +1103,9 @@ pub struct Reserved {
     /// make sure it can be found, which helps with performance.
     ///
     /// The user can track this information if necessary.
-    /// For an example, see the
-    /// [`VirtualHeaps`](crate::source::vmem::VirtualHeaps)
-    /// implementation.
+    // /// For an example, see the
+    // /// [`VirtualHeaps`](crate::source::vmem::VirtualHeaps)
+    // /// implementation.
     pub up_to: NonNull<u8>,
     /// Indicated whether any of the heap is reserved.
     ///

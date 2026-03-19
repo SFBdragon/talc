@@ -9,7 +9,7 @@
 //! If you need something slightly different - this is quite common, especially on
 //! embedded systems and other unusual compilation targets - it's recommended that you
 //! look at some of the more advanced implementations in this crate
-//! (e.g. [`GlobalAllocSource`] or [`VirtualHeapsSource`](vmem::VirtualHeapsSource)) as well as the
+//! (e.g. [`GlobalAllocSource`] or `VirtualHeapsSource` [currently unused]).
 //!
 //! Some key ones to be aware of:
 //! - [`Manual`] does nothing. Returns `Err(())` if `acquire` is called.
@@ -186,13 +186,8 @@ pub unsafe trait Source: Debug + Sized {
     /// while a resizing-[`Source`]-implementation is active will probably lead to
     /// erroneous memory accessed and UB.
     ///
-    /// This should be incorporated into the safety contract of using applicable
-    /// [`Source`] implementations as necessary. See [`vmem::VirtualHeapsSource::new`] as an example.
-    ///
-    /// Note that the [`Source::acquire`] implementation will still use heap management
-    /// functions though to establish/extend heaps. However [`Source::resize`] should not
-    /// use heap management functions. The return pointer entirely controls the resulting
-    /// heap extent.
+    /// If manual heap management use may lead to UB, document this clearly on the
+    /// implementation struct's docs.
     #[inline]
     unsafe fn resize(
         &mut self,

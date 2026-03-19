@@ -554,14 +554,14 @@ unsafe impl<S: Source, B: Binning> Allocator for TalcCell<S, B> {
 /// This type implements [`Self::new`] and [`GlobalAlloc`]
 /// making it usable as a global allocator.
 ///
-/// See [`TalcCellAssumeSingleThreaded::new`].
+/// See [`TalcSyncCell::new`] amd [`TalcSyncCell::new_wasm`].
 pub struct TalcSyncCell<S: Source, B: Binning>(TalcCell<S, B>);
 
-/// TODO
+/// SAFETY: Upheld by `new*` implementations.
 unsafe impl<S: Source, B: Binning> Sync for TalcSyncCell<S, B> {}
 
 impl<S: Source, B: Binning> TalcSyncCell<S, B> {
-    /// TODO
+    /// Safely create a new [`TalcSyncCell`] on single-threaded WebAssembly, where it is safe to do so.
     pub const fn new_wasm(source: S) -> Self {
         if cfg!(all(not(target_feature = "atomics"), any(target_family = "wasm"))) {
             Self(TalcCell::new(source))
