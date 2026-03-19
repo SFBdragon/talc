@@ -46,8 +46,6 @@ It does seem to, besides Galloc. Not sure what's up with that.
 
 ## Allocators not included here
 
-`System` is Rust's `std::alloc::System` allocator on Linux. All other OS's `System` implementations aren't shown.
-
 `linked_list_allocator` and `simple_chunk_allocator` are not included as they are much, much
 slower compared to the alternatives, making some of the plots unreadable.
 
