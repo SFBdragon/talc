@@ -26,6 +26,12 @@ Changes:
 
 And more.
 
+#### v4.4.3
+
+- [Rajas Paranjpe](https://github.com/ChocolateLoverRaj): Replaced `pub use counters` to ensure `Counters`
+    is publicly accessible when the `"counters"` feature is enabled. 
+
+
 #### v4.4.2
 
 - [polarathene](https://github.com/polarathene): Replace README relative links with fully-qualified links.
