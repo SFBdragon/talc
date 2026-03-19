@@ -16,7 +16,7 @@ Performance:
 - Fast & Small: [WebAssembly Benchmarks](./BENCHMARKS_WASM.md)
 
 Features:
-- Safe, zero-locking-overhead\* `TalcCell` for single-threaded allocation with `GlobalAlloc` and `Allocator`
+- Safe, lockless `TalcCell` for single-threaded allocation with `GlobalAlloc` and `Allocator`
 - Flexible locking using `lock_api` for multi-threaded allocation using `TalcLock`
 - Supports `allocator-api2` for using the `Allocator` API in safe Rust
 - `"counters"`: Provides allocation statistics for debugging and performance insights
@@ -24,8 +24,6 @@ Features:
 - Supports creating and resizing arbitrarily many heaps, manually or automatically
 - Supports automatic reclaim of unused memory
 - Correctness verified with tests, MIRI, and fuzzing
-
-\* `TalcCell` doesn't require any locking or runtime borrow-checking to safely allocate through shared references.
 
 ## Why not Talc?
 
