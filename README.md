@@ -28,7 +28,7 @@ Features:
 ## Why not Talc?
 
 If you're on a mature hosted system, especially one that `jemalloc` or `mimalloc` supports, consider those instead.
-Those provide allocation concurrency, well-tested virtual memory API integration (releasing memory back to the OS!),
+Those provide allocation concurrency, well-tested virtual memory API integration,
 and are all-round more mature and sophisticated and more cleverly implemented than Talc.
 Even the default allocator for Rust on Linux, for example, has impressive performance characteristics.
 
