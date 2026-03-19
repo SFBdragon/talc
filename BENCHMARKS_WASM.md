@@ -22,20 +22,20 @@ Run with`just wasm-size`. Source code can be found in `wasm-size/`.
 
 ## Caveats
 
-`Talc`'s default WebAssembly configuration is less memory-efficient compared to the alternatives. The defaults are chosen as WebAssembly module's rarely push the limits of system memory, whereas network bandwidth and runtime performance dictate the latency end-users experience, and therefore is often crucial.
+`Talc`'s default WebAssembly configuration is less memory-efficient compared to the alternatives. The defaults are chosen as WebAssembly modules rarely push the limits of system memory, whereas network bandwidth and runtime performance dictate the latency end-users experience, and therefore is often crucial.
 
 Expect a 10%-15% higher runtime memory usage, though I've only taken rough measurements. Your mileage may vary. To test for yourself, you can use `core::arch::wasm32::memory_size::<0>()` to see how much memory the WebAssembly module is using.
 
 `Talc`'s memory efficiency is almost entirely dependent on the `Binning` configuration used. You can swap out `WasmBinning` if desirable.
 
-Using `ExtendWasmMemOnOom` instead of `ClaimWasmMemOnOom` will also help. 
+Using `ExtendWasmMemOnOom` instead of `ClaimWasmMemOnOom` will also help.
 
 #### `ClaimWasmMemOnOom` vs. `ExtendWasmMemOnOom`
 
 By default, Talc claims new WebAssembly pages on demand using the `ClaimWasmMemOnOom` OOM handler.
 
 An alternative to consider is `ExtendWasmMemOnOom`:
-- Extends the arena instead of claiming new arenas. This reduces memory fragmentation and thus may improve memory efficiency somewhat.
+- Extends the heap instead of claiming new heaps. This reduces memory fragmentation and thus may improve memory efficiency somewhat.
 - Requires ~250 more bytes of WebAssembly module size due to pulling in the `Talc::extend` code.
 
 ```rust

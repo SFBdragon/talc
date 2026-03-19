@@ -1,4 +1,4 @@
-//! [`TalcLock`] facilitates using [`Talc`](crate::base::Talc) as a Rust
+//! [`TalcLock`] facilitates using [`Talc`] as a Rust
 //! global allocator, or other usage across multiple threads.
 //!
 //! See [`TalcLock`].
@@ -7,15 +7,15 @@ use core::ptr::{NonNull, null_mut};
 
 use allocator_api2::alloc::{AllocError, Allocator, GlobalAlloc, Layout};
 
-use crate::{base::Talc, base::binning::Binning, src::Source};
+use crate::{base::Talc, base::binning::Binning, source::Source};
 
-#[doc(hidden)]
-#[cfg(all(feature = "system-backed", target_family = "unix"))]
-pub mod unix;
+// #[doc(hidden)]
+// #[cfg(all(feature = "os", target_family = "unix"))]
+// pub mod unix;
 
-#[doc(hidden)]
-#[cfg(all(feature = "system-backed", target_family = "windows"))]
-pub mod win;
+// #[doc(hidden)]
+// #[cfg(all(feature = "os", target_family = "windows"))]
+// pub mod win;
 
 const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
 
@@ -23,10 +23,10 @@ const RELEASE_LOCK_ON_REALLOC_LIMIT: usize = 0x4000;
 ///
 /// # Example
 /// ```rust
-/// # use talc::Manual;
-/// use spin::Mutex;
+/// # use talc::source::Manual;
+/// use spinning_top::RawSpinlock;
 ///
-/// let talc = talc::TalcLock::<Mutex<()>, _>::new(talc::src::Global(std::alloc::System)); // TODO
+/// let talc = talc::TalcLock::<RawSpinlock, _>::new(Manual);
 /// ```
 #[derive(Debug)]
 pub struct TalcLock<R: lock_api::RawMutex, S: Source, B: Binning> {
@@ -35,18 +35,18 @@ pub struct TalcLock<R: lock_api::RawMutex, S: Source, B: Binning> {
 
 impl<R: lock_api::RawMutex, S: Source, B: Binning> TalcLock<R, S, B> {
     /// Create a new [`TalcLock`].
-    pub const fn new(src: S) -> Self {
-        Self { mutex: lock_api::Mutex::new(Talc::new(src)) }
+    pub const fn new(source: S) -> Self {
+        Self { mutex: lock_api::Mutex::new(Talc::new(source)) }
     }
 
     /// Lock the mutex and access the inner [`Talc`].
     #[track_caller]
-    pub fn lock(&self) -> lock_api::MutexGuard<R, Talc<S, B>> {
+    pub fn lock(&self) -> lock_api::MutexGuard<'_, R, Talc<S, B>> {
         self.mutex.lock()
     }
 
     /// Try to lock the mutex and access the inner [`Talc`].
-    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<R, Talc<S, B>>> {
+    pub fn try_lock(&self) -> Option<lock_api::MutexGuard<'_, R, Talc<S, B>>> {
         self.mutex.try_lock()
     }
 

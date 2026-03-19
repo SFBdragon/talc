@@ -8,8 +8,7 @@
 
 ## What is this for?
 - Embedded systems, OS kernels, and other `no_std` environments
-- WebAssembly modules, as one of the best drop-in replacements for DLmalloc
-- Normal programs that need quick single-threaded allocation
+- WebAssembly modules, as a drop-in replacement for DLmalloc
 
 ## Why Talc?
 Performance:
@@ -22,15 +21,18 @@ Features:
 - Supports `allocator-api2` for using the `Allocator` API in safe Rust
 - `"counters"`: Provides allocation statistics for debugging and performance insights
 - `"cache-aligned-allocations"`: Mitigates false sharing between allocations
-- Custom Out-Of-Memory handlers for making custom heap sources
-- Supports creating and resizing arbitrarily many heaps
+- Supports creating and resizing arbitrarily many heaps, manually or automatically
+- Supports automatic reclaim of unused memory
 - Correctness verified with tests, MIRI, and fuzzing
 
-\* `TalcCell` doesn't require any locking or runtime borrow-checking to safely allocate through shared references. 
+\* `TalcCell` doesn't require any locking or runtime borrow-checking to safely allocate through shared references.
 
 ## Why not Talc?
-- Doesn't scale well to allocation-heavy concurrent processing.
-- If you're on a system that `jemalloc` or `mimalloc` supports, consider those instead.
+
+If you're on a mature hosted system, especially one that `jemalloc` or `mimalloc` supports, consider those instead.
+Those provide allocation concurrency, well-tested virtual memory API integration (releasing memory back to the OS!),
+and are all-round more mature and sophisticated and more cleverly implemented than Talc.
+Even the default allocator for Rust on Linux, for example, has impressive performance characteristics.
 
 ## Getting started
 

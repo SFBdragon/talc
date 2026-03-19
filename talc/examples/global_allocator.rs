@@ -1,14 +1,17 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 
-use talc::prelude::*;
+use spinning_top::RawSpinlock;
+
+#[cfg(not(miri))]
+use talc::{TalcLock, source::Claim};
 
 // Run with:
 // `cargo run --example global_allocator`
 
 // Notes:
 //
-// ## Using `spin::Mutex<()>`
-// The `spin` crate provides a simple mutex we can use on most platforms.
+// ## Using `spinning_top::RawSpinlock`
+// The `spinning_top` crate provides a simple mutex we can use on most platforms.
 // We'll use it for the sake of example.
 //
 // ## Using `Span`
@@ -18,8 +21,11 @@ use talc::prelude::*;
 
 #[global_allocator]
 #[cfg(not(miri))]
-static TALC: TalcLock<spin::Mutex<()>, Claim> = TalcLock::new(unsafe {
-    static mut INITIAL_ARENA: [u8; 100000] = [0; 100000];
+static TALC: TalcLock<RawSpinlock, Claim> = TalcLock::new(unsafe {
+    use talc::{DefaultBinning, min_first_heap_size};
+
+    static mut INITIAL_ARENA: [u8; min_first_heap_size::<DefaultBinning>() + 100000] =
+        [0; min_first_heap_size::<DefaultBinning>() + 100000];
     Claim::array(&raw mut INITIAL_ARENA)
     // For older Rust versions: Span::array(core::ptr::addr_of!(INITIAL_ARENA) as *mut _)
 });

@@ -12,7 +12,8 @@
 //! If you need to implement something more tailored, be aware of
 //! - [`test_utils`] which provides methods for evaluating binning strategies.
 //! - [`linear_extent_then_linearly_divided_exponential_binning`] which is a highly
-//!     optimized `size_to_bin` implementation that you should consider using.
+//!     optimized `size_to_bin` implementation that you should consider using,
+//!     perhaps with different parameters to [`DefaultBinning`]'s choices.
 
 use super::bitfield::BitField;
 
@@ -46,7 +47,7 @@ pub trait Binning: Sized {
     /// The larger this is, the larger the metadata chunk.
     ///
     /// # What should I set this to?
-    /// - `Self::AvailabilityBitField::BITS - 1` if you have a bin to spare to eliminate
+    /// - `Self::AvailabilityBitField::BITS - 1` if you have a bit to spare to eliminate
     ///     an uncommon branch in the allocation routine. Not a big deal.
     /// - `Self::AvailabilityBitField::BITS` is otherwise a good default.
     ///
@@ -58,48 +59,32 @@ pub trait Binning: Sized {
 
     /// Given `size` of a chunk return which bin, or free-list, it should be in.
     ///
-    /// # How a normal `size_to_bin` function works
-    ///
-    /// Any size within `0..chunk_unit::<A>()` results in `u8::MAX`.
-    /// This is an edge case that Talc takes advantage of.
-    ///
-    /// Then ranges of sizes in increasing order are allocated increasingly larger bins.
-    ///
-    /// After a certain size, `Self::bin_count() - 1` is returned, the largest bin size.
-    ///
     /// # What guarantees are associated with `size`
     ///
-    /// When Talc ends up with a free chunk and needs to keep track of it, it'll
-    /// call `size_to_bin` with its size, which is always a non-zero multiple
-    /// of `chunk_unit::<A>()` to figure out which free list to put it in.
+    /// When [`Talc`](super::Talc) calls `size_to_bin` directly, `size` is always a nonzero
+    /// multiple of [`CHUNK_UNIT`](super::CHUNK_UNIT).
     ///
-    /// When the user attempts to allocate using Talc, Talc tries to avoid having to
-    /// search for a block if it can grab one directly.
-    ///
-    /// A free list contains a range of sizes. Let's say bin 3 holds chunk sizes from
-    /// 96 to 128. If Talc needs a chunk that's 96 bytes, it should take a chunk from this
-    /// list. But if Talc needs a 112 byte chunk, it could search this list for a chunk that's
-    /// at least 112 chunks or it could instead go to bin 4, which holds 128..160 byte chunks
-    /// and grab the first one.
-    ///
-    /// To achieve this, upon allocating, Talc asks what bin the `required_chunk_size - 1`
-    /// would slot into, and then tries to take from the bin+1. It's much faster this way.
-    /// Notice that if `chunk_unit::<A>()` is 32 and bin size ranges are 32..64, 64..96, 96..128, ...
-    /// then this will always grab from the bin range with the exact size it needs.
-    /// If, however, the ranges are larger, and
-    ///
-    ///
+    /// However, [`Binning::size_to_bin_ceil`] by default will always call
+    /// [`Binning::size_to_bin`] with a multiple of [`CHUNK_UNIT`](super::CHUNK_UNIT) **minus one**.
+    /// So either override the implementation of [`Binning::size_to_bin_ceil`], or else be aware that
+    /// `size` might not be a multiple of [`CHUNK_UNIT`](super::CHUNK_UNIT).
     ///
     /// # Requirements
     ///
-    /// There's some rules to hold up, here. TODO
-    /// - Do not return values equal to or greater than `Self::bin_count()`
-    ///     - Exception: if `size < chuck_unit::<A>()`, then the function is _allowed_ to return `u8::MAX`
-    /// - TODO
+    /// There's some rules to hold up, here:
+    /// - Bins should be monotonically increasing with size
+    /// - Only where `size <= CHUNK_UNIT - 1` may this return `u32::MAX`
+    /// - This mapping must be deterministic for a given [`Binning`] implementation
     ///
-    /// . (NOTE: WRAPPING)
+    /// Note that returning an index less than `BIN_COUNT` is not required.
+    /// If a bin of `BIN_COUNT` or greater is returned, the last bin is used.
     ///
-    /// This mapping must be deterministic for a given [`Binning`] implementation.
+    /// # How a normal `size_to_bin` function works
+    ///
+    /// Any size within `0..=(CHUNK_UNIT-1)` results in `u32::MAX`.
+    /// This is an edge case that the default [`Binning::size_to_bin_ceil`] implementation takes advantage of.
+    ///
+    /// Then ranges of sizes in increasing order are allocated increasingly larger bins.
     fn size_to_bin(size: usize) -> u32;
 
     /// Maps from a chunk's size to which bin, or free-list, will definitely
@@ -152,7 +137,7 @@ impl Binning for DefaultBinning {
 /// well, and being very fast (only a handful of instructions with one branch).
 ///
 /// # Behavior by size
-/// - `0..=(CHUNK_UNIT*LIN_DIVS*LIN_EXT_MULTI)` : Bins sizes into one-bin-per-chunk-size  
+/// - `0..=(CHUNK_UNIT*LIN_DIVS*LIN_EXT_MULTI)` : Bins sizes into one-bin-per-chunk-size
 /// - `(CHUNK_UNIT*LIN_DIVS*LIN_EXT_MULTI)..`   : Binds sizes by linearly-subdivided exponential levels.
 ///
 /// # Parameters
@@ -175,10 +160,12 @@ impl Binning for DefaultBinning {
 /// while keeping `LIN_EXT_MULTI` low, and then increase `LIN_EXT_MULTI` if
 /// there is useless range at the top, given the number of bins you have.
 ///
-/// Having a range up to around 128MiB~2GiB is generally good.
+/// Having a range up to around 128MiB~2GiB is enough for most applications.
+/// But keep in mind the largest bucket size you'll ever make use of is the largest
+/// contiguous span of memory.
 ///
 /// The main effects on the allocator will be the heap efficiency and the performance.
-/// Scripts to test these can be found in the repository.
+/// Scripts to test these can be found in the repository in `benches/src/bin/`.
 #[inline]
 pub const fn linear_extent_then_linearly_divided_exponential_binning<
     const LIN_DIVS: usize,
@@ -186,6 +173,12 @@ pub const fn linear_extent_then_linearly_divided_exponential_binning<
 >(
     size: usize,
 ) -> u32 {
+    #[inline]
+    const fn ilog2(i: usize) -> u32 {
+        debug_assert!(i != 0);
+        usize::BITS - 1 - i.leading_zeros()
+    }
+
     assert!(LIN_DIVS.is_power_of_two());
     assert!(LIN_EXT_MULTI.is_power_of_two());
 
@@ -200,7 +193,7 @@ pub const fn linear_extent_then_linearly_divided_exponential_binning<
         return (size >> ilog2(super::CHUNK_UNIT)) as u32;
     }
 
-    // Let's say `sub_exponential` is 256, the chunk unit is 32, LIN_DIVS is 4
+    // Let's say `exponential_region` is 256, the chunk unit is 32, LIN_DIVS is 4
     //
     // Exponential level 0:  256 ;  (512 - 256)/LIN_DIVS = 256/LIN_DIVS = 64
     //  Subdiv 0: 256       ; bin 0 + LIN_DIVS * LIN_EXT_MULTI
@@ -220,7 +213,7 @@ pub const fn linear_extent_then_linearly_divided_exponential_binning<
     // 00000000_1_01_010101010
     //               ^^^^^^^^^ dead bits; all of this is ignored, effectively rounding down these bits away
     //            ^^ linear division bits; LIN_DIVS.ilog2() bits long after the first set bit; tells us which linear subdivision we're in
-    //          ^ first set bit; dictates size.ilog2(); tells us which "exponential level" this
+    //          ^ first set bit; dictates size.ilog2(); tells us which "exponential level" this size is
 
     let size_ilog2 = ilog2(size);
 
@@ -238,12 +231,6 @@ pub const fn linear_extent_then_linearly_divided_exponential_binning<
 
     // This LIN_DIVS cancel out, yielding the expected exponential-region bin
     exponential_plus_offset_minus_lin_divs + linear_subdivision_plus_lin_divs as u32
-}
-
-#[inline]
-const fn ilog2(i: usize) -> u32 {
-    debug_assert!(i != 0);
-    usize::BITS - 1 - i.leading_zeros()
 }
 
 #[cfg(test)]
@@ -264,8 +251,7 @@ mod tests {
     }
 }
 
-/// Contains utilities for evaluating and testing [`Binning`](super::Binning)
-/// implementation behavior.
+/// Contains utilities for evaluating and testing [`Binning`] implementation behavior.
 pub mod test_utils {
     /// Scans for binning boundaries, returning where the `size_to_bin`
     /// starts allocating buckets to the next bin.

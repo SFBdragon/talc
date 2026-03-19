@@ -3,6 +3,8 @@ use std::{
     ptr::NonNull,
 };
 
+use spinning_top::{RawSpinlock, lock_api::Mutex};
+
 pub const HEAP_SIZE: usize = 1 << 27;
 #[repr(align(64))] // makes initializing some allocators (e.g. galloc) easier
 pub struct Heap(pub [u8; HEAP_SIZE]);
@@ -35,7 +37,7 @@ pub const ARENA_ALLOCATORS: &[NamedAllocator] = &[
 
 pub const SYSTEM_ALLOCATORS: &[NamedAllocator] = &[
     NamedAllocator { name: "DLmalloc", init_fn: init_dlmalloc_sys },
-    NamedAllocator { name: "Talc", init_fn: init_talc_sys },
+    // NamedAllocator { name: "Talc", init_fn: init_talc_sys },
     NamedAllocator { name: "FRuSA", init_fn: init_frusa_sys },
     NamedAllocator { name: "mimalloc", init_fn: init_mimalloc_sys },
     NamedAllocator { name: "System", init_fn: init_system },
@@ -111,8 +113,8 @@ impl<'a> Drop for AllocationWrapper<'a> {
 }
 
 unsafe fn init_talc() -> Box<dyn GlobalAlloc + Sync> {
-    use talc::prelude::*;
-    let talc: TalcLock<spin::Mutex<()>, _> = TalcLock::new(Manual);
+    use talc::{TalcLock, source::Manual};
+    let talc: TalcLock<RawSpinlock, _> = TalcLock::new(Manual);
     talc.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
     Box::new(talc)
 }
@@ -121,17 +123,10 @@ unsafe fn init_talc_old() -> Box<dyn GlobalAlloc + Sync> {
     use prev_talc::{ErrOnOom, Talc};
 
     unsafe {
-        let talc = Talc::new(ErrOnOom).lock::<spin::Mutex<()>>();
+        let talc = Talc::new(ErrOnOom).lock::<RawSpinlock>();
         talc.lock().claim((&raw mut HEAP.0).into()).unwrap();
         Box::new(talc)
     }
-}
-
-#[allow(dead_code)]
-unsafe fn init_linked_list_allocator() -> Box<dyn GlobalAlloc + Sync> {
-    let lla = linked_list_allocator::LockedHeap::new((&raw mut HEAP).cast(), HEAP_SIZE);
-    lla.lock().init((&raw mut HEAP.0).cast(), HEAP_SIZE);
-    Box::new(lla)
 }
 
 unsafe fn init_system() -> Box<dyn GlobalAlloc + Sync> {
@@ -149,7 +144,7 @@ unsafe fn init_galloc() -> Box<dyn GlobalAlloc + Sync> {
 }
 
 unsafe fn init_rlsf() -> Box<dyn GlobalAlloc + Sync> {
-    let tlsf = GlobalRLSF(spin::Mutex::new(rlsf::Tlsf::new()));
+    let tlsf = GlobalRLSF(Mutex::new(rlsf::Tlsf::new()));
     tlsf.0.lock().insert_free_block(unsafe { std::mem::transmute(&mut HEAP.0[..]) });
     Box::new(tlsf)
 }
@@ -157,7 +152,7 @@ unsafe fn init_rlsf() -> Box<dyn GlobalAlloc + Sync> {
 unsafe fn init_buddy_alloc() -> Box<dyn GlobalAlloc + Sync> {
     use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 
-    let ba = BuddyAllocWrapper(spin::Mutex::new(NonThreadsafeAlloc::new(
+    let ba = BuddyAllocWrapper(Mutex::new(NonThreadsafeAlloc::new(
         FastAllocParam::new((&raw mut HEAP).cast(), HEAP_SIZE / 8),
         BuddyAllocParam::new(
             (&raw mut HEAP).cast::<u8>().add(HEAP_SIZE / 8),
@@ -170,13 +165,13 @@ unsafe fn init_buddy_alloc() -> Box<dyn GlobalAlloc + Sync> {
 }
 
 unsafe fn init_dlmalloc() -> Box<dyn GlobalAlloc + Sync> {
-    let dl = DlMallocator(spin::Mutex::new(dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(
+    let dl = DlMallocator(Mutex::new(dlmalloc::Dlmalloc::new_with_allocator(DlmallocArena(
         std::sync::atomic::AtomicBool::new(true),
     ))));
     Box::new(dl)
 }
 
-struct BuddyAllocWrapper(pub spin::Mutex<buddy_alloc::NonThreadsafeAlloc>);
+struct BuddyAllocWrapper(pub Mutex<RawSpinlock, buddy_alloc::NonThreadsafeAlloc>);
 
 unsafe impl Send for BuddyAllocWrapper {}
 unsafe impl Sync for BuddyAllocWrapper {}
@@ -199,7 +194,7 @@ unsafe impl GlobalAlloc for BuddyAllocWrapper {
     }
 }
 
-struct DlMallocator(spin::Mutex<dlmalloc::Dlmalloc<DlmallocArena>>);
+struct DlMallocator(Mutex<RawSpinlock, dlmalloc::Dlmalloc<DlmallocArena>>);
 
 unsafe impl GlobalAlloc for DlMallocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -259,7 +254,10 @@ unsafe impl dlmalloc::Allocator for DlmallocArena {
 }
 
 struct GlobalRLSF<'p>(
-    spin::Mutex<rlsf::Tlsf<'p, usize, usize, { usize::BITS as usize - 12 }, { usize::BITS as _ }>>,
+    Mutex<
+        RawSpinlock,
+        rlsf::Tlsf<'p, usize, usize, { usize::BITS as usize - 12 }, { usize::BITS as _ }>,
+    >,
 );
 unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -281,12 +279,12 @@ unsafe impl<'a> GlobalAlloc for GlobalRLSF<'a> {
     }
 }
 
-unsafe fn init_talc_sys() -> Box<dyn GlobalAlloc + Sync> {
-    use talc::prelude::*;
-    let talc: TalcLock<spin::Mutex<()>, _> = TalcLock::new(Os::new());
+// unsafe fn init_talc_sys() -> Box<dyn GlobalAlloc + Sync> {
+//     use talc::TalcLock;
+//     let talc: TalcLock<RawSpinlock, _> = TalcLock::new(Os::new());
 
-    Box::new(talc)
-}
+//     Box::new(talc)
+// }
 
 unsafe fn init_dlmalloc_sys() -> Box<dyn GlobalAlloc + Sync> {
     Box::new(dlmalloc::GlobalDlmalloc)

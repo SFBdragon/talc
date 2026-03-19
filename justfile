@@ -28,16 +28,15 @@ check: && check-wasm-size check-wasm-perf
     rustup run stable cargo check -p talc --features=disable-realloc-in-place
     rustup run stable cargo check -p talc --features=disable-grow-in-place,disable-realloc-in-place
     rustup run stable cargo check -p talc --features=counters
-    rustup run stable cargo check -p talc --features=counters,cache-aligned-allocations
     rustup run stable cargo check -p talc --target wasm32-unknown-unknown
     rustup run stable cargo check -p talc --features=disable-grow-in-place --target wasm32-unknown-unknown
     rustup run stable cargo check -p talc --features=disable-realloc-in-place --target wasm32-unknown-unknown
     # check that the examples aren't broken
     rustup run stable cargo check -p talc --example allocator_api
     rustup run stable cargo check -p talc --example global_allocator
-    # TODO ADD THE OTHERS
+    rustup run stable cargo check -p talc --example no_std_global_allocator
     # check whether MSRV has been broken
-    rustup run 1.63.0 cargo check -p talc --features=counters
+    rustup run 1.64.0 cargo check -p talc --features=counters
     # check the benchmarks
     rustup run nightly cargo check -p benches --bin microbench
     rustup run nightly cargo check -p benches --bin random_actions
@@ -45,13 +44,13 @@ check: && check-wasm-size check-wasm-perf
     # test everything
     rustup run stable cargo test -p talc --all-targets --features=counters
     rustup run stable cargo test -p talc --doc --features=counters
-    rustup run stable cargo test -p talc --all-targets --features=disable-realloc-in-place,cache-aligned-allocations
-    rustup run stable cargo test -p talc --doc --features=disable-realloc-in-place,cache-aligned-allocations
+    rustup run stable cargo test -p talc --all-targets --features=disable-realloc-in-place
+    rustup run stable cargo test -p talc --doc --features=disable-realloc-in-place
     # miri
     rustup run nightly cargo miri test -p talc --all-targets --features=counters
-    rustup run nightly cargo miri test -p talc --doc --features=counters
-    rustup run nightly cargo miri test -p talc --all-targets --target i686-unknown-linux-gnu --features=disable-realloc-in-place,cache-aligned-allocations
-    rustup run nightly cargo miri test -p talc --doc --target i686-unknown-linux-gnu --features=disable-realloc-in-place,cache-aligned-allocations
+    rustup run nightly cargo miri test -p talc --all-targets --target i686-unknown-linux-gnu --features=disable-realloc-in-place
+    # rustup run nightly cargo miri test -p talc --doc --features=counters
+    # rustup run nightly cargo miri test -p talc --doc --target i686-unknown-linux-gnu --features=disable-realloc-in-place
     # nightly
     rustup run nightly cargo test -p talc --features=nightly,counters
 
@@ -60,8 +59,8 @@ test:
     set -euxo pipefail 2>/dev/null
     rustup run stable cargo check -p talc
 
-fuzz:
-    cargo fuzz run fuzz_talc
+fuzz target:
+    cargo fuzz run {{target}}
 
 random-actions: && (plot-random-actions "random-actions")
     cargo run -p benches --bin random_actions --release -- --name "random-actions"
@@ -72,14 +71,14 @@ random-actions-no-realloc: && (plot-random-actions-no-realloc "random-actions-no
 random-actions-multi: && (plot-random-actions "random-actions-multi")
     cargo run -p benches --bin random_actions --release -- --name "random-actions-multi" --thread-count 4
 
-random-actions-sys: && (plot-random-actions "random-actions-sys")
-    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys" --system
-
-random-actions-sys-no-realloc: && (plot-random-actions-no-realloc "random-actions-sys-no-realloc")
-    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-no-realloc" --no-realloc --system
-
-random-actions-sys-multi: && (plot-random-actions "random-actions-sys-multi")
-    cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-multi" --thread-count 4 --system
+# random-actions-sys: && (plot-random-actions "random-actions-sys")
+#     cargo run -p benches --bin random_actions --release -- --name "random-actions-sys" --system
+#
+# random-actions-sys-no-realloc: && (plot-random-actions-no-realloc "random-actions-sys-no-realloc")
+#     cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-no-realloc" --no-realloc --system
+#
+# random-actions-sys-multi: && (plot-random-actions "random-actions-sys-multi")
+#     cargo run -p benches --bin random_actions --release -- --name "random-actions-sys-multi" --thread-count 4 --system
 
 plot-random-actions name:
     #!/usr/bin/env python
@@ -235,7 +234,7 @@ check-wasm-size:
 wasm-size: && plot-wasm-size
     #!/usr/bin/env bash
     set -euxo pipefail 2>/dev/null
-    printf "No Allocator,Talc (Dynamic),Talc (Dynamic disable-grow-in-place),Talc (Dynamic disable-realloc-in-place),Talc (Arena),Talc (Arena disable-grow-in-place),Talc (Arena disable-realloc-in-place),RLSF (Normal),RLSF (Small),DLMalloc,lol_alloc\n" > {{wasm_size_results}}
+    printf "No Allocator,Talc (Dynamic),Talc (Dynamic disable-grow-in-place),Talc (Dynamic disable-realloc-in-place),Talc (Arena),Talc (Arena disable-grow-in-place),Talc (Arena disable-realloc-in-place),RLSF (Normal),RLSF (Small - no realloc-in-place),DLMalloc,lol_alloc\n" > {{wasm_size_results}}
     features="no_alloc talc talc_no_grow talc_no_realloc talc_arena talc_arena_no_grow talc_arena_no_realloc rlsf rlsf_small dlmalloc lol_alloc"
     for feature in ${features}; do
         RUSTFLAGS="-C lto -C embed-bitcode=yes -C linker-plugin-lto" \

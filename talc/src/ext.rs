@@ -1,6 +1,8 @@
+//! UNUSED - OPEN AN ISSUE IF YOU'D FIND THIS USEFUL
+
 use core::ops::DerefMut;
 
-use crate::{Binning, base::Talc, src::Source};
+use crate::{Binning, base::Talc, source::Source};
 
 pub trait AsTalc<S: Source, B: Binning> {
     fn as_talc(&self) -> impl DerefMut<Target = Talc<S, B>>;

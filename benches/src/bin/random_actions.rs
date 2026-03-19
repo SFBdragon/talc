@@ -54,6 +54,7 @@ Options:
   --name            The name of the output file [required].
   --no-realloc      Disables reallocation operations in the benchmark.
   --system          Benchmark OS memory-backed allocators instead of arena allocators.
+                    [NOTE: Talc system memory integration was dropped for V5, this is currently vestigial and may be removed.]
   --thread-count    Sets the number of threads the benchmark executes in parallel. [default = 1]."#
                 );
                 return;

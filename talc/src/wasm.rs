@@ -1,11 +1,8 @@
 #![doc = include_str!("../README_WASM.md")]
 
-use crate::{
-    base::binning::Binning,
-    cell::{TalcCell, TalcCellAssumeSingleThreaded},
-    ptr_utils,
-    src::Claim,
-};
+use core::ptr::NonNull;
+
+use crate::{base::binning::Binning, cell::TalcSyncCell, ptr_utils, source::Claim};
 
 /// A binning configuration optimized for WebAssembly.
 ///
@@ -38,33 +35,43 @@ impl Binning for WasmBinning {
 }
 
 /// Type alias for the return value of [`new_wasm_arena_allocator`].
-pub type WasmArenaTalc = TalcCellAssumeSingleThreaded<Claim, WasmBinning>;
+pub type WasmArenaTalc = TalcSyncCell<Claim, WasmBinning>;
 
 /// Yields a [`GlobalAlloc`](core::alloc::GlobalAlloc) implementation that
 /// allocates out of a fixed-size region of memory.
 ///
 /// See the [module docs](self) for more details.
 ///
+/// # Panics
+///
+/// Panics if the target is not single-threaded WebAssembly.
+/// This is required to avoid creating a `TalcSyncCell` on
+/// a platform where it is unsafe.
+///
 /// # Safety
-/// The target must be exclusively single-threaded.
+///
+/// The safety invariants required by [`Claim::array`] must be upheld for `arena`.
 pub const unsafe fn new_wasm_arena_allocator<T, const N: usize>(
     arena: *mut [T; N],
 ) -> WasmArenaTalc {
-    TalcCellAssumeSingleThreaded::new(TalcCell::new(Claim::array(arena)))
+    TalcSyncCell::new_wasm(Claim::array(arena))
 }
 
 /// Type alias for the return value of [`new_wasm_dynamic_allocator`].
-pub type WasmDynamicTalc = TalcCellAssumeSingleThreaded<WasmGrowAndClaim, WasmBinning>;
+pub type WasmDynamicTalc = TalcSyncCell<WasmGrowAndClaim, WasmBinning>;
 
 /// Yields a [`GlobalAlloc`](core::alloc::GlobalAlloc) implementation that
 /// dynamically requests memory from the WebAssembly memory space as needed.
 ///
 /// See the [module docs](self) for more details.
 ///
-/// # Safety
-/// The target must be exclusively single-threaded.
-pub const unsafe fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
-    TalcCellAssumeSingleThreaded::new(TalcCell::new(WasmGrowAndClaim))
+/// # Panics
+///
+/// Panics if the target is not single-threaded WebAssembly.
+/// This is required to avoid creating a `TalcSyncCell` on
+/// a platform where it is unsafe.
+pub const fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
+    TalcSyncCell::new_wasm(WasmGrowAndClaim)
 }
 
 /// This source requests memory from the WebAssembly memory subsystem as needed.
@@ -72,10 +79,15 @@ pub const unsafe fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
 /// Unlike [`WasmGrowAndExtend`] it always creates new heaps; never extends the previous.
 /// This increases fragmentation, decreasing memory efficiency somewhat,
 /// but makes the compiled WebAssembly module smaller.
+///
+/// # Heap management
+///
+/// Manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
+/// directly is not allowed, and will cause UB.
 #[derive(Debug)]
 pub struct WasmGrowAndClaim;
 
-unsafe impl crate::src::Source for WasmGrowAndClaim {
+unsafe impl crate::source::Source for WasmGrowAndClaim {
     fn acquire<B: Binning>(
         talc: &mut crate::base::Talc<Self, B>,
         layout: core::alloc::Layout,
@@ -105,6 +117,11 @@ unsafe impl crate::src::Source for WasmGrowAndClaim {
 /// Unlike [`WasmGrowAndClaim`] it attempts to extend the heap instead of establishing
 /// new heaps. This reduced fragmentation, increasing memory efficiency somewhat,
 /// but makes the compiled WebAssembly module a little bigger.
+///
+/// # Heap management
+///
+/// Manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
+/// directly is not allowed, and will cause UB.
 #[derive(Debug, Default)]
 pub struct WasmGrowAndExtend {
     end: Option<NonNull<u8>>,
@@ -122,7 +139,7 @@ impl WasmGrowAndExtend {
 }
 
 // SAFETY: does not invoke a Rust allocator or use allocated container types.
-unsafe impl crate::src::Source for WasmGrowAndExtend {
+unsafe impl crate::source::Source for WasmGrowAndExtend {
     fn acquire<B: Binning>(
         talc: &mut crate::base::Talc<Self, B>,
         layout: core::alloc::Layout,
@@ -143,7 +160,7 @@ unsafe impl crate::src::Source for WasmGrowAndExtend {
         // otherwise the allocator has been initialized previously
         if let Some(old_end) = talc.source.end.take() {
             if old_end.as_ptr() == new_base {
-                let new_end = unsafe { talc.extend(old_end.as_ptr(), new_end) };
+                let new_end = unsafe { talc.extend(old_end, new_end) };
                 talc.source.end = Some(new_end);
 
                 return Ok(());
@@ -163,7 +180,6 @@ const PAGE_SIZE: usize = 1024 * 64;
 use core::arch::wasm32::memory_grow;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64::memory_grow;
-use core::ptr::NonNull;
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 fn memory_grow<const M: usize>(_pages: usize) -> usize {
     panic!("not running on wasm32 or wasm64")

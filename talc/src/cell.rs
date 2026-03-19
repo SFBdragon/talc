@@ -1,4 +1,4 @@
-//! [`TalcCell`] allows using [`Talc`](crate::base::Talc) as a Rust allocator
+//! [`TalcCell`] allows using [`Talc`] as a Rust allocator
 //! for single-threaded unsynchronized locking.
 //!
 //! See [`TalcCell`].
@@ -15,7 +15,7 @@ use crate::{
     base::binning::Binning,
     base::{Reserved, Talc},
     ptr_utils::nonnull_slice_from_raw_parts,
-    src::Source,
+    source::Source,
 };
 
 use core::ptr::NonNull;
@@ -35,11 +35,11 @@ use allocator_api2::alloc::{AllocError, Allocator};
 ///
 /// use allocator_api2::alloc::{Allocator, Layout};
 /// use allocator_api2::vec::Vec;
-/// use talc::{TalcCell, Manual};
+/// use talc::{TalcCell, source::*};
 ///
 /// static mut HEAP: [u8; 2048] = [0; 2048];
 ///
-/// let talc = TalcCell::new(Claim::array(&raw mut HEAP));
+/// let talc = TalcCell::new(unsafe { Claim::array(&raw mut HEAP) });
 ///
 /// let mut my_vec = Vec::<u32, _>::with_capacity_in(42, &talc);
 /// my_vec.push(123);
@@ -73,9 +73,9 @@ pub struct TalcCell<S: Source, B: Binning> {
 impl<S: Source, B: Binning> TalcCell<S, B> {
     /// Create a new [`TalcCell`].
     #[inline]
-    pub const fn new(src: S) -> Self {
+    pub const fn new(source: S) -> Self {
         Self {
-            cell: UnsafeCell::new(Talc::new(src)),
+            cell: UnsafeCell::new(Talc::new(source)),
 
             #[cfg(debug_assertions)]
             borrowed_at: core::cell::Cell::new(None),
@@ -139,10 +139,10 @@ impl<S: Source, B: Binning> TalcCell<S, B> {
     /// If you just want to clone the source, see [`TalcCell::clone_source`].
     #[inline]
     #[track_caller]
-    pub fn replace_source(&self, src: S) -> S {
+    pub fn replace_source(&self, source: S) -> S {
         unsafe {
             // SAFETY: See `Self::borrow`'s safety docs
-            core::mem::replace(&mut self.borrow().source, src)
+            core::mem::replace(&mut self.borrow().source, source)
         }
     }
 
@@ -157,14 +157,16 @@ impl<S: Source, B: Binning> TalcCell<S, B> {
         }
     }
 
+    /// See [`Talc::reserved`] for documentation details.
     #[inline]
     #[track_caller]
-    pub unsafe fn reserved(&self, heap_end: *mut u8) -> Reserved {
+    pub unsafe fn reserved(&self, heap_end: NonNull<u8>) -> Reserved {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
         self.borrow().reserved(heap_end)
     }
 
+    /// See [`Talc::claim`] for documentation details.
     #[inline]
     #[track_caller]
     pub unsafe fn claim(&self, base: *mut u8, size: usize) -> Option<NonNull<u8>> {
@@ -173,25 +175,28 @@ impl<S: Source, B: Binning> TalcCell<S, B> {
         self.borrow().claim(base, size)
     }
 
+    /// See [`Talc::extend`] for documentation details.
     #[inline]
     #[track_caller]
-    pub unsafe fn extend(&self, heap_end: *mut u8, new_end: *mut u8) -> NonNull<u8> {
+    pub unsafe fn extend(&self, heap_end: NonNull<u8>, new_end: *mut u8) -> NonNull<u8> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
         self.borrow().extend(heap_end, new_end)
     }
 
+    /// See [`Talc::truncate`] for documentation details.
     #[inline]
     #[track_caller]
-    pub unsafe fn truncate(&self, heap_end: *mut u8, new_end: *mut u8) -> Option<NonNull<u8>> {
+    pub unsafe fn truncate(&self, heap_end: NonNull<u8>, new_end: *mut u8) -> Option<NonNull<u8>> {
         // SAFETY: See `Self::borrow`'s safety docs
         // SAFETY: `Talc` function safety requirements guaranteed by caller
         self.borrow().truncate(heap_end, new_end)
     }
 
+    /// See [`Talc::resize`] for documentation details.
     #[inline]
     #[track_caller]
-    pub unsafe fn resize(&self, heap_end: *mut u8, new_end: *mut u8) -> Option<NonNull<u8>> {
+    pub unsafe fn resize(&self, heap_end: NonNull<u8>, new_end: *mut u8) -> Option<NonNull<u8>> {
         self.borrow().resize(heap_end, new_end)
     }
 }
@@ -538,47 +543,66 @@ unsafe impl<S: Source, B: Binning> Allocator for TalcCell<S, B> {
     }
 }
 
-/// Wraps [`TalcCell`], but making it [`Sync`]. This easily leads to
-/// unsoundness. Strongly consider [`TalcLock`](crate::sync::TalcLock) instead.
+/// Wraps [`TalcCell`] but implements [`Sync`].
+///
+/// This is sound on single-threaded platforms without asynchronous interruptions or
+/// signal handling, such as single-threaded WebAssembly. See [`TalcSyncCell::new_wasm`].
+///
+/// Otherwise,
+/// This easily leads to unsoundness. Strongly consider [`TalcLock`](crate::sync::TalcLock) instead.
 ///
 /// This type implements [`Self::new`] and [`GlobalAlloc`]
 /// making it usable as a global allocator.
 ///
 /// See [`TalcCellAssumeSingleThreaded::new`].
-pub struct TalcCellAssumeSingleThreaded<S: Source, B: Binning>(TalcCell<S, B>);
+pub struct TalcSyncCell<S: Source, B: Binning>(TalcCell<S, B>);
 
-unsafe impl<S: Source, B: Binning> Sync for TalcCellAssumeSingleThreaded<S, B> {}
+/// TODO
+unsafe impl<S: Source, B: Binning> Sync for TalcSyncCell<S, B> {}
 
-impl<S: Source, B: Binning> TalcCellAssumeSingleThreaded<S, B> {
-    /// Create a [`TalcCellAssumeSingleThreaded`] from a [`TalcCell`].
+impl<S: Source, B: Binning> TalcSyncCell<S, B> {
+    /// TODO
+    pub const fn new_wasm(source: S) -> Self {
+        if cfg!(all(not(target_feature = "atomics"), any(target_family = "wasm"))) {
+            Self(TalcCell::new(source))
+        } else {
+            panic!("Not running on single-threaded WebAssembly; `TalcSyncCell` is unsafe.")
+        }
+    }
+
+    /// Create a [`TalcSyncCell`] from a [`TalcCell`].
     ///
-    /// [`TalcCellAssumeSingleThreaded`] is useful if your program is exclusively
+    /// [`TalcSyncCell`] is useful if your program is exclusively
     /// single-threaded (no multi-threading, no interrupts, no signal handling)
     /// and you want a global allocator that doesn't lock.
-    ///
-    /// This is primarily intended for use with atomic-less WebAssembly, where
-    /// these requirements apply.
-    ///
-    /// Note that this is primarily for convenience. Contention-less
-    /// locking is cheap. Strongly consider using a [`TalcLock`](crate::sync::TalcLock)
-    /// with a spin-lock instead.
+    /// See [`TalcSyncCell::new_wasm`].
     ///
     /// # Safety
-    /// [`TalcCellAssumeSingleThreaded`] is inherently unsafe by implementing
+    /// [`TalcSyncCell`] is inherently unsafe by implementing
     /// [`Sync`] on [`TalcCell`], which has the semantics of a [`Cell`](core::cell::Cell).
     ///
     /// Calling a [`GlobalAlloc`] function on this type from two threads simultaneously is UB.
+    /// Calling from an interrupt or signal handler while the main thread is actively
+    /// allocating/deallocating/reallocating is UB.
+    ///
+    /// As the caller of [`TalcSyncCell::new`], you have the responsibility to ensure
+    /// that all uses of this [`TalcSyncCell`] do not violate Rust's aliasing rules.
+    /// This is not easy, and in general using this function is not recommended.
+    ///
+    /// Remember that contention-less locking is cheap.
+    /// It's generally best to use [`TalcLock`](crate::sync::TalcLock) with a basic `Mutex`
+    /// implementation (e.g. from the `spin` crate) instead.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use talc::{Claim, TalcCell, DefaultBinning};
+    /// use talc::{source::Claim, TalcCell, base::binning::DefaultBinning};
     ///
     /// #[global_allocator]
-    /// static ALLOC: talc::cell::TalcCellAssumeSingleThreaded<Claim, DefaultBinning> = unsafe {
+    /// static ALLOC: talc::cell::TalcSyncCell<Claim, DefaultBinning> = unsafe {
     ///     use core::mem::MaybeUninit;
     ///     static mut ARENA: [MaybeUninit<u8>; 100000] = [MaybeUninit::uninit(); 100000];
-    ///     talc::cell::TalcCellAssumeSingleThreaded::new(TalcCell::new(Claim::array(&raw mut ARENA)))
+    ///     talc::cell::TalcSyncCell::new(TalcCell::new(Claim::array(&raw mut ARENA)))
     /// };
     /// ```
     pub const unsafe fn new(talc: TalcCell<S, B>) -> Self {
@@ -586,7 +610,7 @@ impl<S: Source, B: Binning> TalcCellAssumeSingleThreaded<S, B> {
     }
 }
 
-unsafe impl<S: Source, B: Binning> GlobalAlloc for TalcCellAssumeSingleThreaded<S, B> {
+unsafe impl<S: Source, B: Binning> GlobalAlloc for TalcSyncCell<S, B> {
     #[track_caller]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.0.alloc(layout)

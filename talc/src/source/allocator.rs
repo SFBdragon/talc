@@ -20,14 +20,21 @@ use super::Source;
 ///
 /// This will also release memory back to the allocator when memory blocks are freed up.
 ///
+/// # Heap management
+///
+/// This [`Source`] places metadata around heaps to manage them.
+///
+/// Therefore manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
+/// directly is not allowed, and will cause UB.
+///
 /// # Example
 ///
 /// ```
 /// # extern crate talc;
-/// use talc::prelude::*;
-/// use allocator_api2::alloc::{Allocator, System};
+/// use talc::{*, source::*};
+/// use allocator_api2::alloc::{Allocator, System, Layout};
 ///
-/// let talc = TalcCell::new(AllocatorSource::new(System));
+/// let talc = TalcCell::new(unsafe { AllocatorSource::new(System) });
 /// let allocation = talc.allocate(Layout::new::<[usize; 500]>());
 /// ```
 #[derive(Debug)]
@@ -37,16 +44,16 @@ pub struct AllocatorSource<A: Allocator> {
     allocation_chain: Option<NonNull<Option<NonNull<Node>>>>,
 }
 
-/// 4 MiB, chosen pretty arbitrarily.
+/// 1 MiB, chosen pretty arbitrarily.
 const DEFAULT_BLOCK_SIZE: usize = 4 << 20;
 
-impl<G: Allocator> AllocatorSource<G> {
+impl<A: Allocator> AllocatorSource<A> {
     /// Create a new [`AllocatorSource`] with the given allocator.
     ///
     /// A default minimum block size per allocation is used.
-    /// This is subject to change. If you need a specific value,
+    /// This is subject to change. If you want a specific value,
     /// use [`AllocatorSource::with_block_size`] instead.
-    pub const fn new(allocator: G) -> Self {
+    pub const fn new(allocator: A) -> Self {
         Self { block_size: DEFAULT_BLOCK_SIZE, allocator, allocation_chain: None }
     }
 
@@ -55,14 +62,14 @@ impl<G: Allocator> AllocatorSource<G> {
     /// # Panics
     ///
     /// Panics if `block_size` is not a power of two. This might be relaxed in the future.
-    pub const fn with_block_size(allocator: G, block_size: usize) -> Self {
+    pub const fn with_block_size(allocator: A, block_size: usize) -> Self {
         assert!(block_size.is_power_of_two());
 
         Self { block_size, allocator, allocation_chain: None }
     }
 }
 
-unsafe impl<G: Allocator + Debug> Source for AllocatorSource<G> {
+unsafe impl<A: Allocator + Debug> Source for AllocatorSource<A> {
     fn acquire<B: Binning>(talc: &mut Talc<Self, B>, layout: Layout) -> Result<(), ()> {
         // Account for the size and potential overhead from alignment.
         // Allocating extra space isn't a big deal; more space for future
@@ -101,6 +108,11 @@ unsafe impl<G: Allocator + Debug> Source for AllocatorSource<G> {
         } else {
             let meta = ptr_utils::align_up_by(base.as_ptr(), align_of::<Option<NonNull<Node>>>())
                 .cast::<Option<NonNull<Node>>>();
+
+            unsafe {
+                *meta = None;
+            }
+
             base_offset =
                 size_of::<Option<NonNull<Node>>>() + meta as usize - base.as_ptr() as usize;
 

@@ -16,6 +16,7 @@ panic = "abort"
 panic = "abort"
 # panic for "bench" and "test" are automatically "unwind"
 
+# be realistic about the optimization configuration, even if it's a benchmark
 [profile.release.package.wasm-size]
 opt-level = "z"
 codegen-units = 1
@@ -28,4 +29,3 @@ codegen-units = 1
 # the fuzzer needs debuginfo
 [profile.release.package.talc-fuzz]
 debug = 1
-

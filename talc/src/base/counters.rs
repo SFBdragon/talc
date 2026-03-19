@@ -5,7 +5,7 @@
 /// # Example
 ///
 /// ```
-/// # use ::talc::{TalcCell, Manual};
+/// # use ::talc::{TalcCell, source::Manual};
 /// let talc = TalcCell::new(Manual);
 /// let counters = talc.counters();
 /// assert_eq!(counters.total_freed_bytes(), 0);
@@ -173,7 +173,7 @@ impl core::fmt::Display for Counters {
     }
 }
 
-impl<S: crate::src::Source, B: super::Binning> super::Talc<S, B> {
+impl<S: crate::source::Source, B: super::Binning> super::Talc<S, B> {
     /// Obtain a reference to the internal allocation statistics.
     ///
     /// Avoid holding onto the reference as this will block allocations
@@ -192,7 +192,7 @@ mod tests {
 
     use crate::base::CHUNK_UNIT;
     use crate::base::binning::Binning;
-    use crate::src::Manual;
+    use crate::source::Manual;
 
     #[test]
     fn test_claim_alloc_free_truncate() {
@@ -202,7 +202,7 @@ mod tests {
 
             let mem_base = arena.as_mut_ptr().wrapping_add(99);
             let mem_size = 10001;
-            let end = unsafe { talc.claim(mem_base, mem_size) }.unwrap().as_ptr();
+            let end = unsafe { talc.claim(mem_base, mem_size) }.unwrap();
 
             let pre_alloc_claimed_bytes = talc.counters().claimed_bytes;
             let pre_alloc_avl_bytes = talc.counters().available_bytes;
@@ -227,7 +227,7 @@ mod tests {
             let alloc = unsafe { talc.allocate(alloc_layout).unwrap() };
 
             let allocation_chunk_bytes =
-                crate::base::Talc::<Manual, B>::required_chunk_size(alloc_layout.size());
+                crate::base::chunk::required_chunk_size(alloc_layout.size());
 
             assert_eq!(talc.counters().claimed_bytes, pre_alloc_claimed_bytes);
             assert_eq!(
@@ -254,7 +254,8 @@ mod tests {
             assert_eq!(talc.counters().fragment_count, 1);
 
             let end = unsafe { talc.truncate(end, null_mut()) }.unwrap();
-            let extent = end.as_ptr() as usize - mem_base as usize;
+            let extent = end.as_ptr() as usize
+                - crate::ptr_utils::align_up_by(mem_base, core::mem::size_of::<usize>()) as usize;
             assert!(extent <= max_meta_overhead);
 
             assert_eq!(talc.counters().claimed_bytes, extent);

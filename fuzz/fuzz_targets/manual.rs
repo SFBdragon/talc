@@ -3,12 +3,13 @@
 #![feature(slice_ptr_get)]
 
 use std::alloc::{GlobalAlloc, Layout, alloc, dealloc};
-use std::ptr::null_mut;
-
-use talc::prelude::*;
+use std::ptr::{NonNull, null_mut};
 
 use libfuzzer_sys::arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
+use talc::base::binning::Binning;
+use talc::cell::TalcCell;
+use talc::source::Manual;
 
 #[derive(Arbitrary, Debug)]
 enum Actions {
@@ -62,10 +63,10 @@ impl Binning for FuzzBinning {
 }
 
 fn fuzz_talc(actions: Vec<Actions>) {
-    let allocator: talc::cell::TalcCell<Manual, FuzzBinning> = talc::cell::TalcCell::new(Manual);
+    let allocator: TalcCell<Manual, FuzzBinning> = TalcCell::new(Manual);
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
-    let mut heaps: Vec<(*mut u8, Layout, *mut u8)> = vec![];
+    let mut heaps: Vec<(*mut u8, Layout, NonNull<u8>)> = vec![];
 
     for action in actions {
         match action {
@@ -157,7 +158,7 @@ fn fuzz_talc(actions: Vec<Actions>) {
                 if let Some(end) = unsafe { allocator.claim(mem.add(offset), size) } {
                     /* eprintln!("CLAIM | end {:p}", end); */
 
-                    heaps.push((mem, mem_layout, end.as_ptr()));
+                    heaps.push((mem, mem_layout, end));
                 } else {
                     unsafe {
                         dealloc(mem, mem_layout);
@@ -169,10 +170,12 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     let index = index as usize % heaps.len();
                     let (ptr, mem_layout, end) = &mut heaps[index];
 
-                    let new_end =
-                        end.wrapping_add(bytes as _).min((*ptr).wrapping_add(mem_layout.size()));
+                    let new_end = end
+                        .as_ptr()
+                        .wrapping_add(bytes as _)
+                        .min((*ptr).wrapping_add(mem_layout.size()));
                     unsafe {
-                        let new_end = allocator.extend(*end, new_end).as_ptr();
+                        let new_end = allocator.extend(*end, new_end);
 
                         /* eprintln!("EXTEND | old end: {:p} new end {:p}", *end, new_end); */
 
@@ -185,12 +188,13 @@ fn fuzz_talc(actions: Vec<Actions>) {
                     let index = index as usize % heaps.len();
                     let (mem, mem_layout, end) = heaps.swap_remove(index);
 
-                    let new_end = unsafe { allocator.truncate(end, end.wrapping_sub(bytes as _)) };
+                    let new_end =
+                        unsafe { allocator.truncate(end, end.as_ptr().wrapping_sub(bytes as _)) };
 
                     /* eprintln!("TRUNCATE | old end: {:p} new end: {:?}", end, new_end); */
 
                     if let Some(new_end) = new_end {
-                        heaps.push((mem, mem_layout, new_end.as_ptr()));
+                        heaps.push((mem, mem_layout, new_end));
                     } else {
                         unsafe {
                             dealloc(mem, mem_layout);

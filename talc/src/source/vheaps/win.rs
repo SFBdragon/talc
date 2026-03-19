@@ -1,3 +1,10 @@
+//! UNFINISHED - OPEN AN ISSUE IF YOU WANT OS VIRTUAL MEMORY INTEGRATION
+//!
+//! An attempt at making a decent abstraction over Window's Virtual Allocation API.
+//!
+//! If you know a thing or two about low-level system allocation on Windows,
+//! scrutiny on my implementation would be appreciated.
+
 use windows_sys::Win32::System::Memory::*;
 
 use core::{
@@ -7,7 +14,7 @@ use core::{
 
 use crate::ptr_utils;
 
-use super::ReserveCommitDecommitRelease;
+use super::VirtualHeaps;
 
 const RESERVED_BLOCK_DEFAULT: usize = 8 << 20;
 /// In practice, the Windows allocation granularity, `dwAllocationGranularity`
@@ -18,7 +25,10 @@ const COMMIT_GRANULARITY_DEFAULT: usize = 256 << 10;
 #[derive(Debug)]
 pub struct Win32VirtualAllocSource;
 
-unsafe impl ReserveCommitDecommitRelease for Win32VirtualAllocSource {
+// SAFETY:
+// Does not interact with any Rust allocators, and thus does not create a second mutable reference to Talc.
+// See [`Source`]'s safety contract for why this is important.
+unsafe impl VirtualHeaps for Win32VirtualAllocSource {
     const INIT: Self = Self;
 
     #[inline]
@@ -36,11 +46,11 @@ unsafe impl ReserveCommitDecommitRelease for Win32VirtualAllocSource {
     unsafe fn release(&mut self, base: NonNull<u8>, _reservation_size: usize) {
         let successful = unsafe { VirtualFree(base.as_ptr().cast(), 0, MEM_RELEASE) };
 
-        assert!(successful != 0);
+        debug_assert!(successful != 0);
     }
 
     #[inline]
-    unsafe fn commit(&mut self, base: NonNull<u8>, size: usize) {
+    unsafe fn commit(&mut self, base: NonNull<u8>, size: usize) -> Result<(), ()> {
         let result =
             unsafe { VirtualAlloc(base.as_ptr().cast(), size, MEM_COMMIT, PAGE_READWRITE) };
 
@@ -49,7 +59,7 @@ unsafe impl ReserveCommitDecommitRelease for Win32VirtualAllocSource {
 
     unsafe fn decommit(&mut self, top: NonNull<u8>, size: usize) {
         let decommit_base = top.as_ptr().wrapping_sub(size).cast();
-        let result = unsafe { VirtualFree(decommit_base, size, MEM_DECOMMIT) };
+        let result = unsafe { DiscardVirtualHeaps(decommit_base, size) };
 
         debug_assert!(result != 0);
     }

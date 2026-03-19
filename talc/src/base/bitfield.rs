@@ -1,4 +1,4 @@
-//! Different [`Binning`](crate::Binning) strategies require different numbers
+//! Different [`Binning`](super::binning::Binning) strategies require different numbers
 //! of bins to keep track of free-list availability. Such availability is tracked
 //! by a bit-field type implementing [`BitField`].
 //!
@@ -106,8 +106,8 @@ impl<const N: usize, B: BitField> BitField for [B; N] {
             }
         } else {
             let array_index = b / B::BITS;
-            let bit_index =
-                unsafe { self.get_unchecked(array_index as usize) }.bit_scan_after(b & (B::BITS - 1));
+            let bit_index = unsafe { self.get_unchecked(array_index as usize) }
+                .bit_scan_after(b & (B::BITS - 1));
 
             if bit_index < B::BITS {
                 return array_index * B::BITS + bit_index;
@@ -292,7 +292,7 @@ mod tests {
 /// Contains utilities for testing [`BitField`] implementations
 /// for soundness.
 ///
-/// See [`test_utils::bitfield_tests`](crate::base::bitfield::test_utils::bitfield_tests).
+/// See [`test_utils::check_bitfield_properties`].
 pub mod test_utils {
     use super::BitField;
 

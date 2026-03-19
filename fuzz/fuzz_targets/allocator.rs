@@ -1,14 +1,16 @@
+//! CURRENTLY UNUSED AS OS-BACKED SOURCE IMPLEMENTATION WAS DROPPED FROM V5.0
+
 #![no_main]
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 
-use std::alloc::{GlobalAlloc, Layout};
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::ptr::null_mut;
-
-use talc::prelude::*;
 
 use libfuzzer_sys::arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
+use talc::TalcCell;
+use talc::source::AllocatorSource;
 
 #[derive(Arbitrary, Debug)]
 enum Actions {
@@ -23,7 +25,8 @@ enum Actions {
 fuzz_target!(|actions: Vec<Actions>| fuzz_talc(actions));
 
 fn fuzz_talc(actions: Vec<Actions>) {
-    let allocator = TalcCell::new(Os::new());
+    // Safety: we don't manually manage heaps.
+    let allocator = TalcCell::new(AllocatorSource::new(System));
 
     let mut allocations: Vec<(*mut u8, Layout)> = vec![];
 

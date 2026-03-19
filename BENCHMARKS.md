@@ -60,8 +60,11 @@ use Talc (and most of the allocators shown here).
 ## Notes
 
 There's no good substitute for benchmarking your program with different allocators.
+You'll probably find the different pretty tiny or within noise, depending on the program,
+if only a small fraction of its runtime is spent allocating.
 
-However, I think random actions should give you a rough idea of what to expect.
+It might be worth getting some more serious allocation benchmarks incorporated into this project,
+but for now it's just good ol' random actions benchmarks.
 I'm a little more skeptical of the micro-benchmarks by nature, but I've included it for completeness.
 
 There are a bunch of "hidden" choices in these benchmarks that I've consciously chosen to suite
@@ -96,7 +99,7 @@ pub fn generate_size(max: usize) -> usize {
 /// Strongly bias towards low alignment requirements.
 ///
 /// Most allocations don't need alignment any higher than the system pointer size.
-/// (e.g. malloc doesn't guarantee a higher alignment).
+/// (e.g. malloc doesn't guarantee a higher alignment by default).
 pub fn generate_align() -> usize {
     // 75%    align_of::<usize>
     // 19%    align_of::<usize>*2

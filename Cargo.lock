@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.21"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+checksum = "c880a97d28a3681c0267bd29cff89621202715b065127cd445fa0f0fe0aa2880"
 
 [[package]]
 name = "arbitrary"
@@ -39,13 +39,12 @@ dependencies = [
  "frusa",
  "good_memory_allocator",
  "jemallocator",
- "linked_list_allocator",
  "memory-stats",
  "mimalloc",
  "rlsf",
- "spin",
+ "spinning_top",
  "talc 4.4.2",
- "talc 5.0.0-beta",
+ "talc 5.0.0-beta.1",
 ]
 
 [[package]]
@@ -98,12 +97,6 @@ name = "const-default"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b396d1f76d455557e1218ec8066ae14bba60b4b36ecd55577ba979f5db7ecaa"
-
-[[package]]
-name = "crossbeam-utils"
-version = "0.8.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "derive_arbitrary"
@@ -247,15 +240,6 @@ checksum = "ec9d6fac27761dabcd4ee73571cdb06b7022dc99089acbe5435691edffaac0f4"
 dependencies = [
  "cc",
  "libc",
-]
-
-[[package]]
-name = "linked_list_allocator"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9afa463f5405ee81cdb9cc2baf37e08ec7e4c8209442b5d72c04cfb2cd6e6286"
-dependencies = [
- "spinning_top",
 ]
 
 [[package]]
@@ -406,9 +390,9 @@ dependencies = [
 
 [[package]]
 name = "spinning_top"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b9eb1a2f4c41445a3a0ff9abc5221c5fcd28e1f13cd7c0397706f9ac938ddb0"
+checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
 dependencies = [
  "lock_api",
 ]
@@ -459,25 +443,23 @@ dependencies = [
 
 [[package]]
 name = "talc"
-version = "5.0.0-beta"
+version = "5.0.0-beta.1"
 dependencies = [
  "allocator-api2",
- "crossbeam-utils",
- "libc",
  "lock_api",
- "spin",
- "windows-sys 0.59.0",
+ "spinning_top",
+ "talc 5.0.0-beta.1",
 ]
 
 [[package]]
 name = "talc-fuzz"
 version = "0.0.0"
 dependencies = [
+ "allocator-api2",
  "arbitrary",
  "libfuzzer-sys",
  "rand",
- "spin",
- "talc 5.0.0-beta",
+ "talc 5.0.0-beta.1",
 ]
 
 [[package]]
@@ -565,7 +547,7 @@ dependencies = [
  "lol_alloc",
  "rlsf",
  "spin",
- "talc 5.0.0-beta",
+ "talc 5.0.0-beta.1",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -578,7 +560,7 @@ dependencies = [
  "lol_alloc",
  "rlsf",
  "spin",
- "talc 5.0.0-beta",
+ "talc 5.0.0-beta.1",
 ]
 
 [[package]]

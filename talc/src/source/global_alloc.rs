@@ -18,13 +18,20 @@ use super::Source;
 ///
 /// This will also release memory back to the allocator when memory blocks are freed up.
 ///
+/// # Heap management
+///
+/// This [`Source`] places metadata around heaps to manage them.
+///
+/// Therefore manual heap management (i.e. using [`Talc::claim`], [`Talc::resize`], etc.)
+/// directly is not allowed, and will cause UB.
+///
 /// # Example
 ///
 /// ```
 /// # extern crate talc;
-/// use allocator_api2::alloc::Allocator;
+/// use allocator_api2::alloc::{Allocator, System, Layout};
 ///
-/// let talc = talc::TalcCell::new(talc::src::Os);
+/// let talc = talc::TalcCell::new(unsafe { talc::source::GlobalAllocSource::new(System) });
 /// let allocation = talc.allocate(Layout::new::<[usize; 500]>());
 /// ```
 #[derive(Debug)]
@@ -34,8 +41,8 @@ pub struct GlobalAllocSource<G: GlobalAlloc> {
     allocation_chain: Option<NonNull<Option<NonNull<Node>>>>,
 }
 
-/// 4 MiB, chosen pretty arbitrarily.
-const DEFAULT_BLOCK_SIZE: usize = 4 << 20;
+/// 1 MiB, chosen pretty arbitrarily.
+const DEFAULT_BLOCK_SIZE: usize = 1 << 20;
 
 impl<G: GlobalAlloc> GlobalAllocSource<G> {
     /// Create a new [`GlobalAllocSource`] with the given allocator.
@@ -97,6 +104,11 @@ unsafe impl<G: GlobalAlloc + Debug> Source for GlobalAllocSource<G> {
         } else {
             let meta = ptr_utils::align_up_by(allocation, align_of::<Option<NonNull<Node>>>())
                 .cast::<Option<NonNull<Node>>>();
+
+            unsafe {
+                *meta = None;
+            }
+
             base_offset = size_of::<Option<NonNull<Node>>>() + meta as usize - allocation as usize;
 
             let allocation_chain = NonNull::new(meta);

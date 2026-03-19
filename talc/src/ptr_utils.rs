@@ -1,6 +1,5 @@
 use core::ptr::NonNull;
 
-#[cfg_attr(feature = "disable-realloc-in-place", expect(dead_code))]
 #[inline]
 pub fn is_aligned_to(ptr: *mut u8, align: usize) -> bool {
     debug_assert!(align.is_power_of_two());

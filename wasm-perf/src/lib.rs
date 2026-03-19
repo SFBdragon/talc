@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(all(feature = "talc", not(feature = "talc_arena")))]
 #[global_allocator]
-static TALC: talc::wasm::WasmDynamicTalc = unsafe { talc::wasm::new_wasm_dynamic_allocator() };
+static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 
 #[cfg(all(feature = "talc", feature = "talc_arena"))]
 #[global_allocator]

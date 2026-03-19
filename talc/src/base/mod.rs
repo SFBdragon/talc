@@ -1,6 +1,6 @@
 //! This module provides the core allocation mechanism via the [`Talc`] type and related configuration.
 
-use crate::{node::Node, src::Source};
+use crate::{node::Node, source::Source};
 use binning::Binning;
 use bitfield::BitField;
 use core::{
@@ -12,69 +12,19 @@ use core::{
 use tag::Tag;
 
 use crate::ptr_utils;
+use chunk::*;
 
 pub mod binning;
 pub mod bitfield;
+pub(crate) mod chunk;
 mod tag;
+
+pub use chunk::CHUNK_UNIT;
 
 #[cfg(feature = "counters")]
 mod counters;
 #[cfg(feature = "counters")]
 pub use counters::Counters;
-
-/// The minimum size and alignment that Talc will use for chunks.
-///
-/// Currently, this value changes if the `"cache-aligned-allocations"`
-/// feature is set. It may take on other values in the future.
-#[cfg(not(feature = "cache-aligned-allocations"))]
-pub const CHUNK_UNIT: usize = size_of::<usize>() * 4;
-
-/// The minimum size and alignment that Talc will use for chunks.
-#[cfg(feature = "cache-aligned-allocations")]
-pub const CHUNK_UNIT: usize =
-    if size_of::<usize>() * 4 < align_of::<crossbeam_utils::CachePadded<u8>>() {
-        align_of::<crossbeam_utils::CachePadded<u8>>()
-    } else {
-        size_of::<usize>() * 4
-    };
-
-const GAP_NODE_OFFSET: usize = 0;
-const GAP_BIN_OFFSET: usize = size_of::<usize>() * 2;
-const GAP_LOW_SIZE_OFFSET: usize = size_of::<usize>() * 3;
-const GAP_HIGH_SIZE_OFFSET: usize = size_of::<usize>();
-
-// This value is very arbitrary, could be any thing in the first 4 bits?
-const END_FLAG: usize = tag::Tag::HEAP_END_FLAG as usize;
-
-// WASM perf tanks if these #[inline]'s are not present
-#[inline]
-unsafe fn gap_base_to_node(base: *mut u8) -> *mut Node {
-    base.add(GAP_NODE_OFFSET).cast()
-}
-#[inline]
-unsafe fn gap_base_to_bin(base: *mut u8) -> *mut u32 {
-    base.add(GAP_BIN_OFFSET).cast()
-}
-#[inline]
-unsafe fn gap_base_to_size(base: *mut u8) -> *mut usize {
-    base.add(GAP_LOW_SIZE_OFFSET).cast()
-}
-#[inline]
-unsafe fn gap_end_to_size_and_flag(end: *mut u8) -> *mut usize {
-    end.sub(GAP_HIGH_SIZE_OFFSET).cast()
-}
-#[inline]
-unsafe fn gap_node_to_base(node: NonNull<Node>) -> *mut u8 {
-    node.as_ptr().cast::<u8>().sub(GAP_NODE_OFFSET).cast()
-}
-#[inline]
-unsafe fn gap_node_to_size(node: NonNull<Node>) -> *mut usize {
-    node.as_ptr().cast::<u8>().sub(GAP_NODE_OFFSET).add(GAP_LOW_SIZE_OFFSET).cast()
-}
-#[inline]
-unsafe fn end_to_tag(end: *mut u8) -> *mut Tag {
-    end.sub(size_of::<Tag>()).cast()
-}
 
 /// The core allocator type.
 ///
@@ -93,16 +43,15 @@ unsafe fn end_to_tag(end: *mut u8) -> *mut Tag {
 /// An overview of what to consider:
 ///
 /// - The source contains callbacks for acquiring and reclaiming memory. Implementations provided out of the box include:
-///     - [`Manual`](crate::Manual)
-///     - [`Claim`](crate::Claim)
-///     - [`Os`](crate::src::Os)
-///     - [`GlobalAllocSource`](crate::src::GlobalAllocSource)
-///     - [`AllocatorSource`](crate::src::AllocatorSource)
+///     - [`Manual`](crate::source::Manual)
+///     - [`Claim`](crate::source::Claim)
+///     - [`GlobalAllocSource`](crate::source::GlobalAllocSource)
+///     - [`AllocatorSource`](crate::source::AllocatorSource)
 ///     - WebAssembly also has out-of-the-box sources in [`talc::wasm`](crate::wasm).
 ///
 /// - The binning implementation determines the internal types and operations [`Talc`] uses
 ///     to classify chunks into free-lists and keeps track of free-list occupancy.
-///     The default implementation is [`DefaultBinning`](crate::DefaultBinning).
+///     The default implementation is [`DefaultBinning`](crate::base::binning::DefaultBinning).
 ///     The main reason to deviate from this would be knowing the profile of your allocations
 ///     well, and being able to divvy them up better and/or faster than the generic algorithm.
 ///     See [`Binning`] and the docs on the trait members for more information.
@@ -158,103 +107,23 @@ impl<S: Source, B: Binning> Debug for Talc<S, B> {
 }
 
 impl<S: Source, B: Binning> Talc<S, B> {
-    /// Aligns `ptr` up by `CHUNK_UNIT`.
-    #[inline]
-    pub fn align_up(ptr: *mut u8) -> *mut u8 {
-        ptr_utils::align_up_by(ptr, CHUNK_UNIT)
-    }
-
-    /// Aligns `ptr` down by `CHUNK_UNIT`.
-    #[inline]
-    pub fn align_down(ptr: *mut u8) -> *mut u8 {
-        ptr_utils::align_down_by(ptr, CHUNK_UNIT)
-    }
-
-    /// Returns whether the two pointers are greater than `CHUNK_UNIT` apart.
-    #[inline]
-    fn is_chunk_size(base: *mut u8, end: *mut u8) -> bool {
-        end as usize - base as usize >= CHUNK_UNIT
-    }
-
-    #[inline]
-    pub(crate) const fn required_chunk_size(size: usize) -> usize {
-        (size + size_of::<Tag>() + (CHUNK_UNIT - 1)) & !(CHUNK_UNIT - 1)
-    }
-    #[inline]
-    unsafe fn alloc_to_end(base: *mut u8, size: usize) -> *mut u8 {
-        base.wrapping_add(Self::required_chunk_size(size))
-    }
-
-    #[inline]
-    unsafe fn gap_list_ptr(&self, bin: u32) -> *mut Option<NonNull<Node>> {
-        debug_assert!(bin < B::BIN_COUNT);
-        self.gap_lists.add(bin as usize)
-    }
-
-    /// Registers a gap in memory into the gap lists.
-    #[cfg_attr(not(target_family = "wasm"), inline)]
-    unsafe fn register_gap(&mut self, base: *mut u8, end: *mut u8) {
-        debug_assert!(Self::is_chunk_size(base, end));
-
-        let size = end as usize - base as usize;
-        let bin = B::size_to_bin(size).min(B::BIN_COUNT - 1);
-        let bin_ptr = self.gap_list_ptr(bin);
-
-        if (*bin_ptr).is_none() {
-            debug_assert!(!self.avails.read_bit(bin));
-            self.avails.set_bit(bin);
-        }
-
-        Node::link_at(gap_base_to_node(base), Node { next: *bin_ptr, next_of_prev: bin_ptr });
-        gap_base_to_bin(base).write(bin);
-        gap_base_to_size(base).write(size);
-        gap_end_to_size_and_flag(end).write(size);
-
-        debug_assert!((*bin_ptr).is_some());
-
-        #[cfg(feature = "counters")]
-        self.counters.account_register_gap(size);
-    }
-
-    /// De-registers memory from the gap lists.
-    #[cfg_attr(not(target_family = "wasm"), inline)]
-    unsafe fn deregister_gap(&mut self, base: *mut u8, size: usize) {
-        debug_assert!(
-            (*self.gap_list_ptr(B::size_to_bin(size).min(B::BIN_COUNT - 1))).is_some(),
-            "{} {} {:?}",
-            size,
-            B::size_to_bin(size),
-            self.avails
-        );
-
-        #[cfg(feature = "counters")]
-        self.counters.account_deregister_gap(size);
-
-        Node::unlink(gap_base_to_node(base).read());
-
-        let bin = gap_base_to_bin(base).read();
-        if (*self.gap_list_ptr(bin)).is_none() {
-            debug_assert!(self.avails.read_bit(bin));
-            self.avails.clear_bit(bin);
-        }
-    }
-
     /// Allocate a contiguous region of memory according to `layout`, if possible.
     ///
     /// # Safety
     /// `layout.size()` must be nonzero.
-    pub unsafe fn allocate(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+    pub unsafe fn try_allocate(&mut self, layout: Layout) -> Option<NonNull<u8>> {
         self.scan_for_errors();
 
         debug_assert!(layout.size() != 0);
 
-        let required_chunk_size = Self::required_chunk_size(layout.size());
+        let required_chunk_size = required_chunk_size(layout.size());
 
+        // Never actually repeats, but block labels are unstable on MSRV.
         let (base, chunk_end) = 'search: loop {
             // This is allowed to return values >= B::BIN_COUNT.
             // This indicates that the last bucket is our only bet,
             // and the allocations therein are not necessarily big enough.
-            let bin = B::size_to_bin_ceil(required_chunk_size);
+            let bin = B::size_to_bin_ceil(required_chunk_size.max(layout.align()));
 
             // special case, this is a large allocation, dig around the last bin
             if bin >= (B::BIN_COUNT - 1) {
@@ -268,8 +137,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
                     }
                 }
 
-                S::acquire(self, layout).ok()?;
-                continue 'search;
+                return None;
             }
 
             let mut b = self.avails.bit_scan_after(bin);
@@ -284,8 +152,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
                     }
                 }
 
-                S::acquire(self, layout).ok()?;
-                continue 'search;
+                return None;
             }
 
             if layout.align() <= CHUNK_UNIT {
@@ -328,13 +195,12 @@ impl<S: Source, B: Binning> Talc<S, B> {
                         break 'search res;
                     }
 
-                    S::acquire(self, layout).ok()?;
-                    continue 'search;
+                    return None;
                 }
             }
         };
 
-        debug_assert_eq!(Self::align_down(base), base);
+        debug_assert_eq!(align_down(base), base);
 
         let end = base.add(required_chunk_size);
         let mut tag = Tag::ALLOCATED;
@@ -365,42 +231,18 @@ impl<S: Source, B: Binning> Talc<S, B> {
         Some(NonNull::new_unchecked(base))
     }
 
-    /// `align_mask` must be a power of two minus one greater than CHUNK_UNIT
-    #[cold]
-    unsafe fn full_search_bin(
-        &mut self,
-        bin: u32,
-        required_size: usize,
-        align_mask: usize,
-    ) -> Option<(*mut u8, *mut u8)> {
-        for node_ptr in Node::iter_mut(*self.gap_list_ptr(bin)) {
-            let mut size = gap_node_to_size(node_ptr).read();
-
-            if S::TRACK_HEAP_END {
-                size &= !END_FLAG;
-            }
-
-            let base = gap_node_to_base(node_ptr);
-            let end = base.add(size);
-            // calculate the lowest aligned pointer above the gap base
-            let aligned_base = ptr_utils::align_up_by_mask(base, align_mask);
-
-            // if the remaining size is sufficient, remove the chunk from the books and return
-            if aligned_base.add(required_size) <= end {
-                self.deregister_gap(base, size);
-
-                // if there's a gap below the aligned allocation base, re-register it as a gap
-                if base != aligned_base {
-                    self.register_gap(base, aligned_base);
-                } else {
-                    Tag::clear_above_free(end_to_tag(base));
-                }
-
-                return Some((aligned_base, end));
+    /// Allocate a contiguous region of memory according to `layout`, if possible.
+    ///
+    /// # Safety
+    /// `layout.size()` must be nonzero.
+    pub unsafe fn allocate(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+        loop {
+            if let Some(alloc) = self.try_allocate(layout) {
+                return Some(alloc);
+            } else {
+                S::acquire(self, layout).ok()?;
             }
         }
-
-        None
     }
 
     /// Free an allocation.
@@ -408,19 +250,19 @@ impl<S: Source, B: Binning> Talc<S, B> {
     /// # Safety
     /// `ptr` must have been previously allocated given `layout`.
     pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
-        // self.scan_for_errors();
+        self.scan_for_errors();
 
         #[cfg(feature = "counters")]
         self.counters.account_dealloc(layout.size());
 
         let mut chunk_base = ptr;
-        let mut chunk_end = Self::alloc_to_end(ptr, layout.size());
+        let mut chunk_end = alloc_to_end(ptr, layout.size());
         let tag = end_to_tag(chunk_end).read();
 
         let mut is_heap_end = tag.is_heap_end();
 
         debug_assert!(tag.is_allocated());
-        debug_assert!(Self::is_chunk_size(chunk_base, chunk_end));
+        debug_assert!(is_chunk_size(chunk_base, chunk_end));
 
         // Try to recombine with a gap below, if it's there.
         // This gap is never the end of the heap, so we don't need to worry about the presence of an end flag.
@@ -462,7 +304,6 @@ impl<S: Source, B: Binning> Talc<S, B> {
             // Give the source an opportunity to see if the heap can be truncated or deleted.
             let heap_end = self.source.resize(chunk_base, chunk_end, is_heap_base);
 
-            debug_assert!(heap_end <= chunk_end);
             debug_assert!(chunk_base <= heap_end);
             debug_assert!(ptr_utils::is_aligned_to(heap_end, CHUNK_UNIT));
 
@@ -485,9 +326,6 @@ impl<S: Source, B: Binning> Talc<S, B> {
             // add the full recombined gap back into the books
             self.register_gap(chunk_base, chunk_end);
         }
-
-        // TODO REMOVE
-        self.scan_for_errors();
     }
 
     /// Attempt to grow a previously allocated/reallocated region of memory to `new_size`.
@@ -508,8 +346,8 @@ impl<S: Source, B: Binning> Talc<S, B> {
         debug_assert!(new_size >= layout.size());
         self.scan_for_errors();
 
-        let old_end = Self::alloc_to_end(ptr, layout.size());
-        let new_end = Self::alloc_to_end(ptr, new_size);
+        let old_end = alloc_to_end(ptr, layout.size());
+        let new_end = alloc_to_end(ptr, new_size);
 
         if old_end == new_end {
             #[cfg(feature = "counters")]
@@ -582,11 +420,11 @@ impl<S: Source, B: Binning> Talc<S, B> {
         debug_assert!(new_size <= layout.size());
         self.scan_for_errors();
 
-        let mut chunk_end = Self::alloc_to_end(ptr, layout.size());
-        let new_end = Self::alloc_to_end(ptr, new_size);
+        let mut chunk_end = alloc_to_end(ptr, layout.size());
+        let new_end = alloc_to_end(ptr, new_size);
 
         debug_assert!(end_to_tag(chunk_end).read().is_allocated());
-        debug_assert!(Self::is_chunk_size(ptr, chunk_end));
+        debug_assert!(is_chunk_size(ptr, chunk_end));
 
         // if the difference between the required allocated chunk ends
         // is large enough, register the remainder as a gap, otherwise leave it
@@ -615,7 +453,6 @@ impl<S: Source, B: Binning> Talc<S, B> {
                 // as part of this allocation still occupies space.
                 let heap_end = self.source.resize(new_end, chunk_end, false);
 
-                debug_assert!(heap_end <= chunk_end);
                 debug_assert!(new_end <= heap_end);
                 debug_assert!(ptr_utils::is_aligned_to(heap_end, CHUNK_UNIT));
 
@@ -676,87 +513,99 @@ impl<S: Source, B: Binning> Talc<S, B> {
     /// - The lock-based synchronized [`TalcLock`](crate::sync::TalcLock), for multi-threaded allocation.
     ///     Intended for use as a global allocator.
     ///
-    /// [`TalcCellAssumeSingleThreaded`](crate::cell::TalcCellAssumeSingleThreaded) is also available, if required.
+    /// [`TalcSyncCell`](crate::cell::TalcSyncCell) is also available, if required.
     ///
-    /// [`Talc`] is primarily provided to be wrapped. Making your own wrapper might
-    /// be best for you if the above options don't serve your use-case.
-    pub const fn new(src: S) -> Self {
+    /// As allocators are called with shared references, iterior mutability is required,
+    /// but [`Talc`] doesn't force any particular form of interior mutability to be used
+    /// so different wrappers provide different trade-offs.
+    /// If the the wrapper types above don't quite fit your use-case, making your
+    /// own may be best.
+    pub const fn new(source: S) -> Self {
         Self {
             #[cfg(feature = "counters")]
             counters: Counters::new(),
 
             avails: B::AvailabilityBitField::ZEROES,
             gap_lists: core::ptr::null_mut(),
-            source: src,
+            source,
 
             _phantom: core::marker::PhantomData,
         }
     }
 
-    /// Indicates whether `self` has already established its allocator metadata into its heap.
+    /// Indicates whether `self` has already established its allocator metadata into a heap.
     ///
-    /// How should I use this? It's most useful to ensure enough memory is being claimed
+    /// # When is this the case?
+    ///
+    /// A successful call to [`Talc::claim`] has not been made.
+    ///
+    /// # What does this imply?
+    ///
+    /// If metadata has not been established, the [`Talc::claim`] requires a larger arena to succeed.
+    /// See [`min_first_heap_size`](crate::min_first_heap_size) and [`min_first_heap_layout`](crate::min_first_heap_layout).
+    ///
+    /// If metadata has been extablished, then the heap size requirement is much lower.
+    ///
+    /// See [`Talc::claim`] for more details.
+    ///
+    /// # How should I use this?
+    ///
+    /// It's most useful to ensure enough memory is being claimed
     /// in [`Source`] implementations. If you're not implementing [`Source`], either
     /// the [`Source`] implementation you're using will take care of it for you, or
-    /// you'll be claiming memory immediately or once-off and will know when to consider
-    /// the extra requirement. Use [`min_first_heap_size`](crate::min_first_heap_size).
+    /// you'll be claiming memory manually and will know when to consider
+    /// the extra requirement.
+    /// Use [`min_first_heap_size`](crate::min_first_heap_size) or [`min_first_heap_layout`](crate::min_first_heap_layout).
     ///
-    /// What does this imply? The minimum size of contiguous memory to claim must exceed
-    /// a few kilobytes to be successful. See [`claim`](Talc::claim) for details.
-    ///
-    /// When is this the case? No memory has been successfully claimed yet.
-    ///
-    /// Why?
+    /// # Why is this mechanism the way it is
     /// - [`Talc`], like most allocators, requires a block of metadata to track available memory.
     /// - [`Talc`] thus needs to have enough space in the first claimed memory region to put the metadata.
-    /// - This block of metadata is referenced by other pointers, and thus cannot be moved.
+    /// - This block of metadata is referenced by pointers [`Talc`] uses for bookkeeping, and thus cannot be moved.
     #[inline]
     pub fn is_metadata_established(&self) -> bool {
         !self.gap_lists.is_null()
     }
 
-    // todo fixme
-    /// Establish a new [`Arena`] to allocate into.
+    /// Establish a new heap to allocate into.
     ///
-    /// This does not "combine" with neighboring arenas. Use [`Talc::extend`] to achieve this.
+    /// This does not "combine" with neighboring heaps. Use [`Talc::extend`] to achieve this.
     ///
-    /// Due to alignment requirements, the resulting [`Arena`] may be slightly smaller
-    /// than the provided memory on either side. The resulting [`Arena`] can and will not have
-    /// well-aligned boundaries though.
+    /// Due to alignment requirements, the resulting heap may be slightly smaller
+    /// than the provided memory on either side. The resulting heap can and will not have
+    /// "well-aligned" boundaries though.
     ///
     /// # Failure modes
     ///
-    /// The first [`Arena`] needs to hold [`Talc`]'s allocation metadata,
+    /// The first heap needs to hold [`Talc`]'s allocation metadata,
     /// this has a fixed size that depends on the [`Binning`] configuration.
-    /// Currently, it's a little more than `BIN_COUNT * size_of::<usize>()`
+    /// Currently, it's a little over `BIN_COUNT * PTR_SIZE`
     /// but this is subject to change.
     ///
-    /// Use [`min_first_arena_layout`](crate::min_first_arena_layout) or
-    /// [`min_first_arena_size`](crate::min_first_arena_size) to guarantee a
+    /// Use [`min_first_heap_layout`](crate::min_first_heap_layout) or
+    /// [`min_first_heap_size`](crate::min_first_heap_size) to guarantee a
     /// successful first claim.
-    /// Using a large constant is fine too.
-    /// The size requirement won't more-than-quadruple without a major version bump.
     ///
-    /// Once the first [`Arena`] is established, the allocation metadata permanently
-    /// reserves the start of that [`Arena`] and all subsequent claims are subject to
+    /// Once the first heap is established, the allocation metadata permanently
+    /// reserves the start of that heap and all subsequent claims are subject to
     /// a much less stringent requirement: `None` is returned only if `size` is too
     /// small to tag the base and have enough left over to fit a chunk.
     ///
     /// # Safety
     /// The region of memory described by `base` and `size` must not be mutated externally
-    /// up until the memory is released with [`Talc::truncate`]
+    /// up until the memory is released with [`Talc::truncate`] or [`Talc::resize`]
     /// or the allocator is no longer active.
+    /// - This rule does not apply to memory that is allocated by `self`.
+    ///     That's the caller's memory until deallocated.
+    /// - This rule does not apply to memory after the returned pointer, that's unclaimed.
     ///
-    /// This rule does not apply to memory that will be allocated by `self`.
-    /// That's the caller's memory until deallocated.
-    ///
-    /// This rule does not apply to memory about the returned pointer, that's unclaimed.
+    /// The [`Source`] must not forbid manual heap management, otherwise this can cause UB.
+    /// (The [`Source`] implementation will clearly state this in its documentation.)
     ///
     /// # Example
     ///
     /// ```
     /// # extern crate talc;
-    /// # use talc::prelude::*;
+    /// # use talc::{*, source::*};
     /// static mut ARENA: [u8; 5000] = [0; 5000];
     ///
     /// let talc = TalcCell::new(Manual);
@@ -768,11 +617,11 @@ impl<S: Source, B: Binning> Talc<S, B> {
         // to be able to use them (i.e. support the end wrapping to NULL) however
         // 1. Dealing with this correctly throughout the allocator is very tricky.
         // 2. It's not easy to verify that this code works as intended.
-        // 3. I doubt anyone really cares much about those last few bytes.
-        //      It's common practice to put a guard page or something similar there anyway.
-        //      The main exception I'm aware of is WebAssembly, which has no qualms with you
-        //      using the entire linear address space (besides the null page and such).
-        let heap_end = Self::align_down(ptr_utils::saturating_ptr_add(base, size));
+        // 3. I doubt anyone really cares much about those last few bytes of the address space.
+        //     It's common practice to put a guard page or something similar there anyway.
+        //     The main exception I'm aware of is WebAssembly, which has no qualms with you
+        //     using the entire linear address space.
+        let heap_end = align_down(ptr_utils::saturating_ptr_add(base, size));
         let heap_base;
         let gap_base;
 
@@ -786,7 +635,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
             heap_base = ptr_utils::align_up_by(base, align_of::<Option<NonNull<Node>>>());
 
             let gap_lists_size = size_of::<Option<NonNull<Node>>>() * B::BIN_COUNT as usize;
-            gap_base = Self::align_up(heap_base.wrapping_add(gap_lists_size + size_of::<Tag>()));
+            gap_base = align_up(heap_base.wrapping_add(gap_lists_size + size_of::<Tag>()));
 
             // if calculating gap_base overflowed OR the gap_base is higher than heap_end
             // there isn't enough memory to allocate the metadata and cap it off with a tag
@@ -807,7 +656,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
         } else {
             // Note that adding the header size and aligning up automatically dodges
             // the possibility of claiming null, if `memory` started at null.
-            gap_base = Self::align_up(base.wrapping_add(size_of::<Tag>()));
+            gap_base = align_up(base.wrapping_add(size_of::<Tag>()));
 
             // if calculating gap_base overflowed OR there isn't a CHUNK_UNIT between
             // gap_base and heap_end, then there isn't enough memory to claim
@@ -833,20 +682,29 @@ impl<S: Source, B: Binning> Talc<S, B> {
             }
         }
 
-        // todo why always nonnull?
         NonNull::new(heap_end)
     }
 
-    /// Returns the end of the allocated regions.
+    #[inline]
+    unsafe fn heap_end_to_gap_base(end: *mut u8) -> Option<*mut u8> {
+        // gap size will never have bit 1 set, but a tag will
+        let is_gap_below = !end_to_tag(end).read().is_allocated();
+        is_gap_below.then(|| {
+            if S::TRACK_HEAP_END {
+                end.sub(gap_end_to_size_and_flag(end).read() & !END_FLAG)
+            } else {
+                end.sub(gap_end_to_size_and_flag(end).read())
+            }
+        })
+    }
+
+    /// Obtain information about the reserved region of a heap.
     ///
-    /// Returns `heap_end` if there's no unallocated space at the end.
-    ///
-    /// [`Talc::truncate`] and [`Talc::resize`] will not release bytes below
-    /// the returned pointer. (You can pass null into them and they'll truncate
-    /// down to this return value).
-    ///
+    /// Memory in the arena is reserved if there is allocated memory above/within it.
+    /// The reserved part of a heap cannot be released using [`Talc::truncate`] or [`Talc::resize`].
     ///
     /// ```not_rust
+    /// ---------------- Linear Memory ----------------
     ///
     ///     ├──Heap───────────────────────────────────┤
     /// ────┬─────┬───────────┬─────┬───────────┬─────┬────
@@ -857,82 +715,98 @@ impl<S: Source, B: Binning> Talc<S, B> {
     ///
     /// ```
     ///
+    /// # Return Value
+    ///
+    /// See [`Reserved`]. In short, this function indicated where the top of
+    /// the reserved portion of the heap is, and whether any of the heap is reserved.
+    /// (If none of the heap is reserved, the "top of the reserved portion" is the bottom of the heap.)
+    ///
+    /// [`Talc::truncate`] and [`Talc::resize`] will not release bytes below
+    /// the top of the reserved region.
+    /// (You can pass null into these functions and they'll truncate down to the reserved region,
+    /// but no further.)
+    ///
     /// # Atomicity
     ///
-    /// Be aware that this value may change before you use it if you don't own
+    /// Be aware that the reserved region may change before you use the info if you don't own
     /// the allocator or hold a lock on it.
     ///
     /// However, you can use [`Talc::truncate`] and [`Talc::resize`] correctly without
-    /// consulting this value at all. Atomicity isn't an issue for these calls.
+    /// consulting this value at all, as they respect the reserved region automatically.
     ///
     /// # Safety
     /// - `heap_end` must have been previously acquired from this instance of [`Talc`]
     ///     and has not since changed. (e.g. resizing the heap and then using an old
     ///     `heap_end` pointer is an error.)
     #[inline]
-    pub unsafe fn reserved(&self, heap_end: *mut u8) -> Reserved {
-        debug_assert!(!heap_end.is_null());
-        debug_assert!(ptr_utils::is_aligned_to(heap_end, CHUNK_UNIT));
+    pub unsafe fn reserved(&self, heap_end: NonNull<u8>) -> Reserved {
+        debug_assert!(ptr_utils::is_aligned_to(heap_end.as_ptr(), CHUNK_UNIT));
 
-        if let Some(gap_base) = unsafe { Self::heap_end_to_gap_base(heap_end) } {
+        if let Some(gap_base) = unsafe { Self::heap_end_to_gap_base(heap_end.as_ptr()) } {
             if unsafe { end_to_tag(gap_base).read() }.is_heap_base() {
                 Reserved { up_to: NonNull::new_unchecked(gap_base), any: false }
             } else {
                 Reserved { up_to: NonNull::new_unchecked(gap_base), any: true }
             }
         } else {
-            Reserved { up_to: NonNull::new_unchecked(heap_end), any: true }
+            Reserved { up_to: heap_end, any: true }
         }
     }
 
-    /// TODO FIXME
-    /// Extend the `arena`'s up to `new_size`.
+    /// Extend the heap's end from `heap_end` to `new_end`.
     ///
-    /// Due to alignment requirements, the `arena` may not be quite `new_size`.
-    /// The difference will be less than [`CHUNK_UNIT`](crate::base::CHUNK_UNIT).
+    /// Due to alignment requirements, the resulting pointer indicating the top of the heap
+    /// may not quite reach `new_end`.
+    /// The difference will be less than [`CHUNK_UNIT`].
     ///
-    /// If `new_size` isn't large enough to extend `arena`, this call does nothing.
+    /// If `new_end - heap_end` isn't large enough (less than a [`CHUNK_UNIT`]),
+    /// this call does nothing, returning `heap_end`.
     ///
     /// # Safety
     /// - `arena` must be managed by this instance of the allocator.
-    /// - The memory in `arena.base()..arena.base().add(new_size)`
+    /// - The memory in `heap_end..new_end`
     ///     must be exclusively writeable by this instance of the allocator for
     ///     the lifetime `arena` unless truncated away or the allocator is no longer active.
-    ///     - Note that any memory not contained within `arena` after `extend` returns
+    ///     - Note that any memory above the returned pointer
     ///         is unclaimed by the allocator and not subject to this requirement.
-    ///     - Note that any memory in the resulting `arena` that is allocated by
+    ///     - Note that any memory in the heap that is allocated by
     ///         `self` later on is also not subject to this requirement for the duration
-    ///         of the allocation.
+    ///         of the allocation's lifetime (this is your memory that you allocated; use it).
     ///
     /// # Example
     ///
     /// ```
     /// # extern crate talc;
     /// static mut ARENA: [u8; 5000] = [0; 5000];
-    /// use talc::prelude::*;
+    /// use talc::{*, source::*};
     /// let talc = TalcCell::new(Manual);
     ///
-    /// let mut head_end = unsafe { talc.claim((&raw mut ARENA).cast(), 2500).unwrap() };
-    /// unsafe { talc.extend(head_end, 5000) };
+    /// let mut heap_end = unsafe { talc.claim((&raw mut ARENA).cast(), 2500).unwrap() };
+    /// unsafe { talc.extend(heap_end, ARENA.as_mut_ptr_range().end) };
     /// ```
-    pub unsafe fn extend(&mut self, heap_end: *mut u8, new_end: *mut u8) -> NonNull<u8> {
-        debug_assert!(ptr_utils::is_aligned_to(heap_end, CHUNK_UNIT));
+    pub unsafe fn extend(&mut self, heap_end: NonNull<u8>, new_end: *mut u8) -> NonNull<u8> {
+        self.scan_for_errors();
 
-        let new_end = Self::align_down(new_end);
+        let heap_end_ptr = heap_end.as_ptr();
 
-        if new_end <= heap_end {
-            return NonNull::new_unchecked(heap_end);
-        }
+        // Real heap ends are always aligned.
+        debug_assert!(ptr_utils::is_aligned_to(heap_end_ptr, CHUNK_UNIT));
 
-        debug_assert!(ptr_utils::is_aligned_to(new_end, CHUNK_UNIT));
+        let new_end_ptr = align_down(new_end);
 
-        let mut free_chunk_base = heap_end;
+        // If there isn't more memory to avail, don't do anything.
+        let new_end = match NonNull::new(new_end_ptr) {
+            Some(nn) if new_end_ptr > heap_end_ptr => nn,
+            _ => return heap_end,
+        };
 
-        if let Some(gap_base) = Self::heap_end_to_gap_base(heap_end) {
+        let mut free_chunk_base = heap_end_ptr;
+
+        if let Some(gap_base) = Self::heap_end_to_gap_base(heap_end_ptr) {
             free_chunk_base = gap_base;
-            self.deregister_gap(gap_base, heap_end as usize - gap_base as usize);
+            self.deregister_gap(gap_base, heap_end_ptr as usize - gap_base as usize);
         } else {
-            let tag_ptr = end_to_tag(heap_end);
+            let tag_ptr = end_to_tag(heap_end_ptr);
             Tag::set_above_free(tag_ptr);
 
             if S::TRACK_HEAP_END {
@@ -940,42 +814,41 @@ impl<S: Source, B: Binning> Talc<S, B> {
             }
         }
 
-        self.register_gap(free_chunk_base, new_end);
+        self.register_gap(free_chunk_base, new_end_ptr);
 
         if S::TRACK_HEAP_END {
-            *gap_end_to_size_and_flag(new_end) |= END_FLAG;
+            *gap_end_to_size_and_flag(new_end_ptr) |= END_FLAG;
         }
 
         #[cfg(feature = "counters")]
-        self.counters.account_append(heap_end, new_end);
+        self.counters.account_append(heap_end_ptr, new_end_ptr);
 
-        // SAFETY: todo
-        NonNull::new_unchecked(new_end)
+        new_end
     }
 
-    /// Reduce the arena's end from `arena_end` to `new_end`.
+    /// Reduce the heap's extent from `heap_end` to `new_end`.
     ///
-    /// Returns the new arena end, or otherwise `None` if the arena would be
-    /// empty or too small to allocate into (less than a
-    /// [`CHUNK_UNIT`](crate::base::CHUNK_UNIT)), and is thus deleted.
+    /// Returns the new heap end, or otherwise `None` if the heap would be
+    /// empty or too small to allocate into (less than a [`CHUNK_UNIT`]), and is thus deleted.
     ///
-    /// If `new_end` is greater or equal to `arena_end`, this returns `arena_end`.
+    /// If `new_end` is greater or equal to `heap_end`, this does nothing and returns `heap_end`.
     ///
     /// The extent cannot be reduced further than what is indicated
     /// by [`Talc::reserved`]. Attempting to do so (e.g. setting `new_end` to `null_mut`)
-    /// will truncate as much as possible.
+    /// will truncate as much as valid (i.e. down to the reserved region).
     ///
-    /// Due to alignment requirements, the resulting arena end
+    /// Due to alignment requirements, the resulting heap end
     /// might be slightly lower than requested
-    /// by a difference of less than [`CHUNK_UNIT`](crate::base::CHUNK_UNIT).
+    /// by a difference of less than [`CHUNK_UNIT`].
     ///
-    /// All memory between the resulting pointer and `arena_end`, if any,
+    /// All memory between the resulting pointer and `heap_end`, if any,
     /// is released back to the caller. You no longer need to guarantee that
     /// unallocated memory in this region is not mutated.
+    /// (This is relevant to the safety contract of [`Talc::claim`] and [`Talc::extend`].)
     ///
     /// # Safety
-    /// - The arena must be managed by this instance of the allocator.
-    /// - `arena_end` must have been previously returned as an arena end by this
+    /// - The heap must be managed by this instance of the allocator.
+    /// - `heap_end` must have been previously returned as an arena end by this
     ///     allocator, and not subsequently modified. i.e. it must be the
     ///     up-to-date arena end.
     ///
@@ -983,8 +856,8 @@ impl<S: Source, B: Binning> Talc<S, B> {
     ///
     /// ```
     /// # extern crate talc;
-    /// # use talc::prelude::*;
-    /// # use core::ptr::null_mut();
+    /// # use talc::{*, source::*};
+    /// # use core::ptr::null_mut;
     /// static mut ARENA: [u8; 5000] = [0; 5000];
     ///
     /// let mut talc = TalcCell::new(Manual);
@@ -994,19 +867,25 @@ impl<S: Source, B: Binning> Talc<S, B> {
     /// // reclaim as much of the arena as possible
     /// let opt_new_end = unsafe { talc.truncate(end, null_mut()) };
     /// ```
-    pub unsafe fn truncate(&mut self, heap_end: *mut u8, new_end: *mut u8) -> Option<NonNull<u8>> {
+    pub unsafe fn truncate(
+        &mut self,
+        heap_end: NonNull<u8>,
+        new_end: *mut u8,
+    ) -> Option<NonNull<u8>> {
+        let heap_end_ptr = heap_end.as_ptr();
+
         debug_assert!(
-            ptr_utils::is_aligned_to(heap_end, CHUNK_UNIT),
+            ptr_utils::is_aligned_to(heap_end_ptr, CHUNK_UNIT),
             "This is not the end of a heap. Ends of heaps are always aligned to CHUNK_UNIT."
         );
 
-        let new_end = Self::align_down(new_end);
-        if new_end >= heap_end {
-            return NonNull::new(heap_end);
+        let new_end = align_down(new_end);
+        if new_end >= heap_end_ptr {
+            return Some(heap_end);
         }
 
-        if let Some(gap_base) = unsafe { Self::heap_end_to_gap_base(heap_end) } {
-            self.deregister_gap(gap_base, heap_end as usize - gap_base as usize);
+        if let Some(gap_base) = unsafe { Self::heap_end_to_gap_base(heap_end_ptr) } {
+            self.deregister_gap(gap_base, heap_end_ptr as usize - gap_base as usize);
 
             let mut is_heap_deleted = false;
             if gap_base < new_end {
@@ -1029,34 +908,31 @@ impl<S: Source, B: Binning> Talc<S, B> {
             let new_end = new_end.max(gap_base);
 
             #[cfg(feature = "counters")]
-            self.counters.account_truncate(heap_end, new_end, is_heap_deleted);
+            self.counters.account_truncate(heap_end_ptr, new_end, is_heap_deleted);
 
             if !is_heap_deleted { NonNull::new(new_end) } else { None }
         } else {
-            NonNull::new(heap_end)
+            Some(heap_end)
         }
     }
 
+    /// This calles [`Talc::extend`] or [`Talc::truncate`] depending on whether `new_end`
+    /// is higher or lower than `heap_end`.
+    ///
+    /// This is just a convenience function.
+    ///
+    /// See [`Talc::extend`] and [`Talc::truncate`] for details.
     #[inline]
-    pub unsafe fn resize(&mut self, heap_end: *mut u8, new_end: *mut u8) -> Option<NonNull<u8>> {
-        match new_end.cmp(&heap_end) {
+    pub unsafe fn resize(
+        &mut self,
+        heap_end: NonNull<u8>,
+        new_end: *mut u8,
+    ) -> Option<NonNull<u8>> {
+        match new_end.cmp(&heap_end.as_ptr()) {
             core::cmp::Ordering::Less => self.truncate(heap_end, new_end),
             core::cmp::Ordering::Equal => NonNull::new(new_end),
             core::cmp::Ordering::Greater => Some(self.extend(heap_end, new_end)),
         }
-    }
-
-    #[inline]
-    unsafe fn heap_end_to_gap_base(end: *mut u8) -> Option<*mut u8> {
-        // gap size will never have bit 1 set, but a tag will
-        let is_gap_below = !end_to_tag(end).read().is_allocated();
-        is_gap_below.then(|| {
-            if S::TRACK_HEAP_END {
-                end.sub(gap_end_to_size_and_flag(end).read() & !END_FLAG)
-            } else {
-                end.sub(gap_end_to_size_and_flag(end).read())
-            }
-        })
     }
 
     #[cfg(not(any(test, feature = "error-scanning-std")))]
@@ -1129,21 +1005,114 @@ impl<S: Source, B: Binning> Talc<S, B> {
     }
 }
 
+impl<S: Source, B: Binning> Talc<S, B> {
+    #[inline]
+    unsafe fn gap_list_ptr(&self, bin: u32) -> *mut Option<NonNull<Node>> {
+        debug_assert!(bin < B::BIN_COUNT);
+        self.gap_lists.add(bin as usize)
+    }
+
+    /// Registers a gap in memory into the gap lists.
+    #[cfg_attr(not(target_family = "wasm"), inline)]
+    unsafe fn register_gap(&mut self, base: *mut u8, end: *mut u8) {
+        debug_assert!(is_chunk_size(base, end));
+
+        let size = end as usize - base as usize;
+        let bin = B::size_to_bin(size).min(B::BIN_COUNT - 1);
+        let bin_ptr = self.gap_list_ptr(bin);
+
+        if (*bin_ptr).is_none() {
+            debug_assert!(!self.avails.read_bit(bin));
+            self.avails.set_bit(bin);
+        }
+
+        Node::link_at(gap_base_to_node(base), Node { next: *bin_ptr, next_of_prev: bin_ptr });
+        gap_base_to_bin(base).write(bin);
+        gap_base_to_size(base).write(size);
+        gap_end_to_size_and_flag(end).write(size);
+
+        debug_assert!((*bin_ptr).is_some());
+
+        #[cfg(feature = "counters")]
+        self.counters.account_register_gap(size);
+    }
+
+    /// De-registers memory from the gap lists.
+    #[cfg_attr(not(target_family = "wasm"), inline)]
+    unsafe fn deregister_gap(&mut self, base: *mut u8, size: usize) {
+        debug_assert!((*self.gap_list_ptr(B::size_to_bin(size).min(B::BIN_COUNT - 1))).is_some());
+
+        #[cfg(feature = "counters")]
+        self.counters.account_deregister_gap(size);
+
+        Node::unlink(gap_base_to_node(base).read());
+
+        let bin = gap_base_to_bin(base).read();
+        if (*self.gap_list_ptr(bin)).is_none() {
+            debug_assert!(self.avails.read_bit(bin));
+            self.avails.clear_bit(bin);
+        }
+    }
+
+    /// `align_mask` must be a power of two minus one greater than CHUNK_UNIT
+    // #[cold]
+    unsafe fn full_search_bin(
+        &mut self,
+        bin: u32,
+        required_size: usize,
+        align_mask: usize,
+    ) -> Option<(*mut u8, *mut u8)> {
+        for node_ptr in Node::iter_mut(*self.gap_list_ptr(bin)) {
+            let mut size = gap_node_to_size(node_ptr).read();
+
+            if S::TRACK_HEAP_END {
+                size &= !END_FLAG;
+            }
+
+            let base: *mut u8 = gap_node_to_base(node_ptr);
+            let end: *mut u8 = base.add(size);
+            // calculate the lowest aligned pointer above the gap base
+            let aligned_base: *mut u8 = ptr_utils::align_up_by_mask(base, align_mask);
+
+            // if the remaining size is sufficient, remove the chunk from the books and return
+            if aligned_base.add(required_size) <= end {
+                self.deregister_gap(base, size);
+
+                // if there's a gap below the aligned allocation base, re-register it as a gap
+                if base != aligned_base {
+                    self.register_gap(base, aligned_base);
+                } else {
+                    Tag::clear_above_free(end_to_tag(base));
+                }
+
+                return Some((aligned_base, end));
+            }
+        }
+
+        None
+    }
+}
+
 /// Information about the reserved portion of a heap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reserved {
     /// The reserved part of the heap is `[heap_base, up_to)`.
     ///
     /// The heap base is indicated for clarity, but is not actually
-    /// determinable in general. (Talc doesn't do enough bookkeeping to
-    /// make sure it can be found, which helps with performance. The user
-    /// can track this information if necessary.)
+    /// knowable in general. Talc doesn't do enough bookkeeping to
+    /// make sure it can be found, which helps with performance.
+    ///
+    /// The user can track this information if necessary.
+    /// For an example, see the
+    /// [`VirtualHeaps`](crate::source::vmem::VirtualHeaps)
+    /// implementation.
     pub up_to: NonNull<u8>,
     /// Indicated whether any of the heap is reserved.
     ///
     /// If this is true, the heap contains allocations.
     ///
     /// If this is false, the heap does not contain allocations,
-    /// and `up_to` is actually the bottom of the allocatable heap.
+    /// and `up_to` is actually `heap_base`; the bottom of the allocatable heap.
     /// Passing `up_to` or a lower pointer into [`Talc::truncate`] will
     /// delete the heap.
     pub any: bool,
@@ -1154,7 +1123,7 @@ mod tests {
     use core::ptr::null_mut;
     use std::alloc::{alloc, dealloc};
 
-    use crate::{min_first_heap_size, src::Manual};
+    use crate::{min_first_heap_size, source::Manual};
 
     use super::*;
 
@@ -1172,10 +1141,9 @@ mod tests {
                 let gap_end = talc.claim(gap_mem.cast(), gap_mem.len()).unwrap().as_ptr();
 
                 assert!(gap_end <= gap_mem.cast::<u8>().add(gap_mem.len()));
-                assert!(gap_end.add(CHUNK_UNIT) > gap_mem.cast::<u8>().add(gap_mem.len()));
+                assert!(gap_end.wrapping_add(CHUNK_UNIT) > gap_mem.cast::<u8>().add(gap_mem.len()));
 
-                let gap_base =
-                    Talc::<Manual, B>::align_up(gap_mem.cast::<u8>().add(size_of::<Tag>()));
+                let gap_base = align_up(gap_mem.cast::<u8>().add(size_of::<Tag>()));
                 let gap_size = gap_end as usize - gap_base as usize;
                 assert!(gap_size <= 999);
                 assert!(999 - CHUNK_UNIT * 2 < gap_size);
@@ -1195,7 +1163,7 @@ mod tests {
                     gap_end_to_size_and_flag(gap_end),
                     gap_end.sub(size_of::<usize>()).cast()
                 );
-                assert_eq!(gap_end_to_size_and_flag(gap_end).read(), gap_size | END_FLAG);
+                assert_eq!(gap_end_to_size_and_flag(gap_end).read(), gap_size);
 
                 talc.deregister_gap(gap_base, gap_size);
 
@@ -1257,7 +1225,7 @@ mod tests {
             unsafe {
                 let mut tiny_heap = [0u8; 200];
 
-                let mut talc = Talc::<_, B>::new(crate::src::Manual);
+                let mut talc = Talc::<_, B>::new(crate::source::Manual);
                 assert!(talc.claim(tiny_heap.as_mut_ptr().cast(), tiny_heap.len()).is_none());
 
                 assert!(talc.gap_lists.is_null());
@@ -1300,12 +1268,12 @@ mod tests {
                 // big enough with plenty of extra
                 let big_heap = Box::into_raw(Box::<[u8]>::new_uninit_slice(100000));
                 let mut talc = Talc::<_, B>::new(Manual);
-                let heap_end = talc.claim(big_heap.cast(), big_heap.len()).unwrap().as_ptr();
+                let heap_end = talc.claim(big_heap.cast(), big_heap.len()).unwrap();
 
-                let heap_end = talc.truncate(heap_end, null_mut()).unwrap().as_ptr();
+                let heap_end = talc.truncate(heap_end, null_mut()).unwrap();
                 assert!(talc.allocate(Layout::new::<u128>()).is_none());
 
-                let heap_end = talc.extend(heap_end, heap_end.add(256)).as_ptr();
+                let heap_end = talc.extend(heap_end, heap_end.as_ptr().add(256));
                 let a1 = talc.allocate(Layout::new::<u128>()).unwrap().as_ptr();
                 a1.write_bytes(0, Layout::new::<u128>().size());
 

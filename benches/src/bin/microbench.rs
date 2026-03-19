@@ -89,8 +89,7 @@ fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csv_file: &mut F
             break;
         }
 
-        // bias towards smaller values over larger ones
-        let size = generate_size(0x10000);
+        let size = generate_size(0x8000);
         let align = generate_align();
         let layout = Layout::from_size_align(size, align).unwrap();
 
