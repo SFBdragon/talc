@@ -12,8 +12,8 @@
 
 ## Why Talc?
 Performance:
-- Fast & Efficient: [Benchmarks (Linux x86_64)](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS.md)
-- Fast & Small: [WebAssembly Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md)
+- Fast & Efficient: [Benchmarks (Linux x86_64)](./BENCHMARKS.md)
+- Fast & Small: [WebAssembly Benchmarks](./BENCHMARKS_WASM.md)
 
 Features:
 - Safe, zero-locking-overhead\* `TalcCell` for single-threaded allocation with `GlobalAlloc` and `Allocator`
@@ -36,6 +36,6 @@ Even the default allocator for Rust on Linux, for example, has impressive perfor
 
 ## Getting started
 
-- [The `talc` README](https://github.com/SFBdragon/talc/blob/master/talc/README.md)
-- [The `talc` README for WebAssembly](https://github.com/SFBdragon/talc/blob/master/talc/README_WASM.md)
+- [The `talc` README](./talc/README.md)
+- [The `talc` README for WebAssembly](./talc/README_WASM.md)
 - [The API reference](https://docs.rs/talc/latest/talc/)
