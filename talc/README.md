@@ -72,7 +72,7 @@ See the following two examples of how this looks in practice.
 use talc::{*, source::Claim};
 
 #[global_allocator]
-static TALC: TalcLock<RawSpinlock, Claim> = TalcLock::new(unsafe {
+static TALC: TalcLock<spinning_top::RawSpinlock, Claim> = TalcLock::new(unsafe {
     static mut INITIAL_HEAP: [u8; min_first_heap_size::<DefaultBinning>() + 100000] =
         [0; min_first_heap_size::<DefaultBinning>() + 100000];
 
@@ -93,8 +93,8 @@ See [examples/global_allocator.rs](https://github.com/SFBdragon/talc/blob/master
 // if "nightly" is enabled, core::alloc::Allocator can be used instead of allocator-api2
 // #![feature(allocator_api)]
 
-use allocator_api2::alloc::{Allocator, Layout}
-use talc::*;
+use allocator_api2::alloc::{Allocator, Layout};
+use talc::{TalcCell, source::Claim};
 
 fn main() {
     let mut heap = [0u8; 10000];
