@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) [![Downloads](https://img.shields.io/crates/d/talc?style=flat-square)](https://crates.io/crates/talc) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/)
 
-Note that this README acts as a guide to using Talc. For a brief explanation of what Talc is and why you should or shouldn't use it, see TODO link github readme
+Note that this README acts as a guide to using Talc. For a brief explanation of what Talc is and why you should or shouldn't use it, see the [repository README.md](https://github.com/SFBdragon/talc/blob/master/README.md).
 
 ## Table of Contents
 
