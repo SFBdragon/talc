@@ -112,9 +112,11 @@ Whether you're using `Talc`, `TalcLock` (call `lock` to get the `Talc`), or `Tal
 
 `Talc` exposes the allocation primitives
 - `allocate`
+- `try_allocate`
 - `deallocate`
 - `try_grow_in_place`
 - `shrink`
+- `try_realloc_in_place`
 
 #### Heap Management
 * `claim` - establish a heap
@@ -168,6 +170,14 @@ Feel free to reach out or open a PR if you have any unaddressed questions.
 ## Changelog
 
 The full changelog can be [found here](./CHANGELOG.md). The most recent changes are:
+
+#### v5.0.0-beta.3
+
+- README.md improvements and fixes.
+
+#### v5.0.0-beta.2
+
+Fixed docs.rs build failure as a result of https://github.com/rust-lang/rust/pull/138907
 
 #### v5.0.0-beta.1
 
