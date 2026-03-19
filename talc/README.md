@@ -100,7 +100,7 @@ fn main() {
     let mut heap = [0u8; 10000];
     let talc = TalcCell::new(Claim::array(&raw mut heap));
 
-    let my_vec = allocator_api2::vec::Vec::new_in(&talc);
+    let my_vec = allocator_api2::vec::Vec::<u8>::with_capacity_in(234, &talc);
     let my_allocation = talc.allocate(Layout::new::<[u32; 16]>()).unwrap();
 }
 ```
