@@ -10,23 +10,21 @@ In general, the allocator got a lot better at doing its job. Also took the oppor
 
 Here are some highlights:
 
-- Large performance improvements.
-- Large size improvements on WebAssembly.
+- Performance improvements.
+- Size improvements on WebAssembly.
 - `Source` (previously `OomHandler`) is now powerful enough for releasing memory automatically.
 - `TalcCell` introduced: safe, `!Sync`, zero-runtime-overhead implementor of `GlobalAlloc` and `Allocator`
-- The crate is now stable-by-default, and the MSRV has _dropped_ to Rust 1.63
-- Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly.
+- The crate is now stable-by-default, with an MSRV of Rust 1.64
+- Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly performance.
 
 Changes:
-- `AssumeUnlockable`, the never-safe lock is gone (good riddance). Instead:
-    - See if `TalcCell` meets your use-case.
-    - If you really need `Sync`, use `TalcCellAssumeSingleThreaded`.
+- `AssumeUnlockable` - the never-safe lock - is gone (good riddance). Instead consider `TalcCell` and `TalcSyncCell`.
 - `Talc`'s heap management APIs have changed. Most notably the base of heaps are now fixed.
 - The available features have changed, see [Features](#conditional-features)
 - WebAssembly-specific things are all in `talc::wasm` now. `WasmHandler` became `WasmGrowAndExtend`. `WasmGrowAndClaim` is the default though.
 - `Span` is gone, rest in peace.
 
-A bunch of other things have changed.
+And more.
 
 #### v4.4.2
 
