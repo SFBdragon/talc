@@ -19,11 +19,6 @@ Targeting WebAssembly? Check out [the WebAssembly README](https://github.com/SFB
 ## Optional Features
 - `"counters"`: `Talc` will track heap and allocation metrics. Use the `counters` associated function to access them.
 - `"nightly"`: Enable nightly-only APIs. Currently allows `TalcLock` and `TalcCell` to implement `core::alloc::Allocator`.
-- `"cache-aligned-allocation"`: `Talc` will align all of its chunks according to `crossbeam_utils::CachePadded`.
-    - This is intended to mitigate [false sharing](https://en.wikipedia.org/wiki/False_sharing) between different
-        allocations that will be used from different threads.
-    - Using this is strongly recommended as opposed to always demanding very-high alignments from Talc
-
 - `"disable-grow-in-place"`: Never uses the grow-in-place routine to implement `GlobalAlloc` or `Allocator`. Intended to reduce size for WebAssembly.
 - `"disable-realloc-in-place"`: Never uses grow- or shrink-in-place routines to implement `GlobalAlloc` or `Allocator`. Intended to reduce size for WebAssembly.
 
