@@ -1,0 +1,19 @@
+[package]
+name = "benches"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+fastrand = "1.9"
+spinning_top = "0.3"
+talc = { path = "../talc", default-features = false }
+prev-talc = { package = "talc", version = "4" }
+good_memory_allocator = { version = "0.1", features = ["spin", "allocator"] }
+buddy-alloc = "0.6"
+dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
+frusa = "0.1"
+rlsf = "0.2"
+jemallocator = "0.5.4"
+mimalloc = "0.1.46"
+memory-stats = "1.2.0"

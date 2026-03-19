@@ -1,26 +1,42 @@
 [package]
 name = "talc"
-version = "4.4.3"
-rust-version = "1.67.1"
+version = "5.0.0-beta.1"
+rust-version = "1.64.0"
 edition = "2021"
 readme = "README.md"
-authors = ["Shaun Beautement <sf.beautement@protonmail.com>"]
+authors = ["Shaun Beautement"]
 description = "A fast and flexible allocator for no_std and WebAssembly"
 repository = "https://github.com/SFBdragon/talc"
-keywords = ["allocator", "no_std", "memory", "heap", "wasm"]
+keywords = ["allocator", "no_std", "memory", "wasm"]
 categories = ["memory-management", "no-std", "embedded", "wasm"]
 license = "MIT"
 
 [features]
-fuzzing = []
 counters = []
-nightly_api = []
-allocator = ["lock_api"]
-default = ["lock_api", "allocator", "nightly_api"]
+nightly = []
+disable-grow-in-place = []
+disable-realloc-in-place = []
+# internal, requires std
+error-scanning-std = ["allocator-api2/std"]
+
+# os = [
+#     "dep:libc",
+#     "dep:windows-sys",
+# ]
+# [target.'cfg(unix)'.dependencies]
+# libc = { version = "0.2", default-features = false, optional = true }
+# [target.'cfg(windows)'.dependencies]
+# windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_System_Threading"], optional = true }
 
 [dependencies]
-allocator-api2 = { version = "0.2", optional = true, default-features = false }
-lock_api = { version = "0.4", optional = true, default-features = false }
+allocator-api2 = { version = "0.4", default-features = false, features = ["alloc"] }
+lock_api = { version = "0.4", default-features = false }
 
 [dev-dependencies]
-spin = { version =  "0.9.8", default-features = false, features = ["lock_api", "spin_mutex"] }
+talc = { path = ".", features = ["error-scanning-std"] }
+spinning_top = "0.3"
+allocator-api2 = { version = "0.4", default-features = false, features = ["std"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

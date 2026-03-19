@@ -1,36 +1,95 @@
-//! The Talc allocator crate.
-//!
-//! For getting started:
-//! - Check out the crate's [README](https://github.com/SFBdragon/talc)
-//! - Read check out the `Talc` and `Talck` structures.
-//!
-//! Your first step will be `Talc::new(...)`, then `claim`.
-//! Calling `Talc::lock()` on it will yield a `Talck` which implements
-//! [`GlobalAlloc`] and [`Allocator`] (if the appropriate feature flags are set).
+#![doc = include_str!("../README.md")]
+#![cfg_attr(not(any(test, feature = "error-scanning-std")), no_std)]
+#![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![warn(missing_docs)]
+#![allow(type_alias_bounds)]
 
-#![cfg_attr(not(any(test, feature = "fuzzing")), no_std)]
-#![cfg_attr(feature = "allocator", feature(allocator_api))]
+#[cfg(test)]
+#[macro_use]
+mod test_utils;
+pub(crate) mod node;
+pub(crate) mod ptr_utils;
 
-mod oom_handler;
-mod ptr_utils;
-mod span;
-mod talc;
+pub mod base;
+pub mod cell;
+pub mod source;
+pub mod sync;
+pub mod wasm;
 
-#[cfg(feature = "lock_api")]
-pub mod locking;
-#[cfg(feature = "lock_api")]
-mod talck;
+pub use base::binning::DefaultBinning;
 
-pub use oom_handler::{ClaimOnOom, ErrOnOom, OomHandler};
-pub use span::Span;
-pub use talc::Talc;
-#[cfg(feature = "counters")]
-pub use talc::counters::Counters;
+/// This is a type alias for [`TalcCell`](crate::cell::TalcCell) with the default binning strategy.
+///  See [`TalcCell`](crate::cell::TalcCell) for documentation.
+pub type TalcCell<S: source::Source> = cell::TalcCell<S, base::binning::DefaultBinning>;
+/// This is a type alias for [`TalcLock`](crate::sync::TalcLock) with the default binning strategy.
+/// See [`TalcLock`](crate::sync::TalcLock) for documentation.
+pub type TalcLock<R: lock_api::RawMutex, S: source::Source> =
+    sync::TalcLock<R, S, base::binning::DefaultBinning>;
 
-#[cfg(feature = "lock_api")]
-pub use talck::Talck;
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
-pub use talck::TalckWasm;
+/// [`Talc`](base::Talc) can always successfully perform the first claim
+/// if the provided `size` is at least the returned value.
+///
+/// Note that this size is larger than [`min_first_heap_layout`]'s size
+/// as extra padding is added to ensure a badly-aligned heap always
+/// has enough well-aligned memory.
+///
+/// # Example
+///
+/// ```rust
+/// # extern crate talc;
+/// use talc::{*, source::Manual};
+///
+/// static mut ARENA: [u8; min_first_heap_size::<DefaultBinning>()] = [0; min_first_heap_size::<DefaultBinning>()];
+///
+/// let talc = TalcCell::new(Manual);
+/// let arena = unsafe {
+///     talc.claim(ARENA.as_mut_ptr().cast(), ARENA.len()).unwrap()
+/// };
+/// ```
+pub const fn min_first_heap_size<B: base::binning::Binning>() -> usize {
+    let size =
+        base::chunk::required_chunk_size(B::BIN_COUNT as usize * core::mem::size_of::<*mut u8>());
 
-#[cfg(all(target_family = "wasm", feature = "lock_api"))]
-pub use oom_handler::WasmHandler;
+    let max_overhead = crate::base::CHUNK_UNIT + core::mem::align_of::<usize>() - 1;
+
+    size + max_overhead
+}
+
+/// [`Talc`](base::Talc) can always successfully perform the first claim
+/// if the provided `base` and `size` fit the returned
+/// [`Layout`](::core::alloc::Layout).
+///
+/// # Example
+///
+/// ```rust
+/// # extern crate talc;
+/// use talc::{*, source::Manual};
+///
+/// let talc = TalcCell::new(Manual);
+/// let heap_layout = min_first_heap_layout::<DefaultBinning>();
+///
+/// unsafe {
+///     let heap_ptr = std::alloc::alloc(heap_layout);
+///
+///     if !heap_ptr.is_null() {
+///         let _heap_end = talc.claim(heap_ptr, heap_layout.size()).unwrap();
+///     }
+///
+///     // ...
+///
+///     unsafe { std::alloc::dealloc(heap_ptr, heap_layout) };
+/// }
+/// ```
+pub const fn min_first_heap_layout<B: base::binning::Binning>() -> ::core::alloc::Layout {
+    let size = B::BIN_COUNT as usize * core::mem::size_of::<usize>();
+
+    let max_overhead = crate::base::CHUNK_UNIT;
+
+    unsafe {
+        ::core::alloc::Layout::from_size_align_unchecked(
+            size + max_overhead,
+            core::mem::align_of::<usize>(),
+        )
+    }
+}

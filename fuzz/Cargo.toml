@@ -10,15 +10,27 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-spin = "0.9.8"
 rand = "0.8.5"
+allocator-api2 = { version = "0.4", default-features = false, features = ["std"] }
 
 [dependencies.talc]
 path = "../talc"
-features = ["fuzzing", "counters"]
+features = ["error-scanning-std", "counters"]
 
 [[bin]]
-name = "fuzz_talc"
-path = "fuzz_targets/fuzz_talc.rs"
+name = "manual"
+path = "fuzz_targets/manual.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "global_alloc"
+path = "fuzz_targets/global_alloc.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "allocator"
+path = "fuzz_targets/allocator.rs"
 test = false
 doc = false

@@ -3,11 +3,10 @@ name: ci
 on:
   push:
     branches:
-    - master
+      - master
   pull_request:
     branches:
-    - master
-
+      - master
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,45 +23,55 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: |
-          rustup run nightly cargo check -p talc --verbose
-
-          rustup run nightly cargo test -p talc --features=counters --verbose
-          rustup run nightly cargo test -p talc --tests --no-default-features --verbose
-          rustup run nightly cargo test -p talc --tests --no-default-features --features=lock_api,allocator-api2,counters --verbose
-
-          rustup run nightly cargo miri test -p talc --tests --verbose
-          rustup run nightly cargo miri test -p talc --tests --target i686-unknown-linux-gnu --verbose
-
-          rustup run nightly cargo check -p benchmarks --bin microbench --verbose
-          rustup run nightly cargo check -p benchmarks --bin random_actions --verbose
+          # check the benchmarks
+          rustup run nightly cargo check -p benches --bin microbench --verbose
+          rustup run nightly cargo check -p benches --bin random_actions --verbose
+          rustup run nightly cargo check -p benches --bin heap_efficiency --verbose
+          # test everything
+          rustup run stable cargo test -p talc --all-targets --features=counters --verbose
+          rustup run stable cargo test -p talc --doc --features=counters --verbose
+          rustup run stable cargo test -p talc --all-targets --features=disable-realloc-in-place --verbose
+          rustup run stable cargo test -p talc --doc --features=disable-realloc-in-place --verbose
+          # miri
+          rustup run nightly cargo miri test -p talc --all-targets --features=counters --verbose
+          rustup run nightly cargo miri test -p talc --all-targets --target i686-unknown-linux-gnu --features=disable-realloc-in-place --verbose
+          # rustup run nightly cargo miri test -p talc --doc --features=counters --verbose
+          # rustup run nightly cargo miri test -p talc --doc --target i686-unknown-linux-gnu --features=disable-realloc-in-place --verbose
+          # nightly
+          rustup run nightly cargo test -p talc --features=nightly,counters --verbose
 
   job2:
-      name: Check Stable
-      runs-on: ubuntu-latest
-      steps:
+    name: Check Stable
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu, wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: |
-          rustup run stable cargo check --no-default-features -p talc --verbose
-          rustup run stable cargo check --no-default-features -p talc --features=lock_api --verbose
-          rustup run stable cargo check --no-default-features -p talc --features=lock_api,allocator-api2,counters --verbose
+          # STABLE CONFIGURATIONS
+          rustup run stable cargo check -p talc --verbose
+          rustup run stable cargo check -p talc --features=disable-grow-in-place --verbose
+          rustup run stable cargo check -p talc --features=disable-realloc-in-place --verbose
+          rustup run stable cargo check -p talc --features=disable-grow-in-place,disable-realloc-in-place --verbose
+          rustup run stable cargo check -p talc --features=counters --verbose
+          rustup run stable cargo check -p talc --target wasm32-unknown-unknown --verbose
+          rustup run stable cargo check -p talc --features=disable-grow-in-place --target wasm32-unknown-unknown --verbose
+          rustup run stable cargo check -p talc --features=disable-realloc-in-place --target wasm32-unknown-unknown --verbose
 
-          rustup run stable cargo check -p talc --no-default-features --target wasm32-unknown-unknown --verbose
-          rustup run stable cargo check -p talc --no-default-features --features=lock_api,counters --target wasm32-unknown-unknown --verbose
-
-          rustup run stable cargo check -p stable_examples --example stable_allocator_api --verbose
-          rustup run stable cargo check -p stable_examples --example std_global_allocator --verbose
+          # check that the examples aren't broken
+          rustup run stable cargo check -p talc --example allocator_api --verbose
+          rustup run stable cargo check -p talc --example global_allocator --verbose
+          rustup run stable cargo check -p talc --example no_std_global_allocator --verbose
 
   job3:
-      name: Check MSRV
-      runs-on: ubuntu-latest
-      steps:
+    name: Check MSRV
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: |
-          rustup toolchain add 1.67.1 --profile minimal
-          rustup run 1.67.1 cargo check -p talc --no-default-features --features lock_api,allocator-api2,counters --verbose
+          rustup toolchain add 1.64.0 --profile minimal
+          rustup run 1.64.0 cargo check -p talc --features=counters --verbose
