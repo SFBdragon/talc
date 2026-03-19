@@ -150,7 +150,7 @@ Provided `Source` implementations include:
 As an example of a custom implementation, recovering by extending the heap is implemented below.
 
 ```rust
-use talc::prelude::*;
+use talc::{*, source::*};
 use core::alloc::Layout;
 
 struct MySource {
@@ -248,4 +248,3 @@ Changes:
 - `Span` is gone, rest in peace.
 
 And more.
-
