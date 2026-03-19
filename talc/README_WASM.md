@@ -2,7 +2,7 @@
 
 Talc is also a drop-in replacement for the default Rust WebAssembly allocator, DLmalloc.
 
-Talc is much faster than DLmalloc and much smaller. See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md).
+Talc is much faster than DLmalloc and much smaller. See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/BENCHMARKS_WASM.md).
 
 ---
 
@@ -23,7 +23,7 @@ Reducing WebAssembly module size:
 * `"disable-realloc-in-place"` - disables realloc-in-place (grow and shrink), saving WebAssembly module bytes, but sacrifices some runtime speed
     * `"disable-grow-in-place"` has no effect if `"disable-realloc-in-place"` is enabled
 
-See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/talc/BENCHMARK_RESULTS_WASM.md) to get a sense for the tradeoffs between performance and size, as a bunch of possible configuration are tested.
+See the [WebAssembly Allocator Benchmarks](https://github.com/SFBdragon/talc/blob/master/BENCHMARKS_WASM.md) to get a sense for the tradeoffs between performance and size, as a bunch of possible configuration are tested.
 
 Not WebAssembly-specific:
 - `"counters"`: `Talc` will track heap and allocation metrics. Use the `counters` associated function to access them.

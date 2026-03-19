@@ -24,8 +24,7 @@ pub(crate) unsafe fn alloc_to_end(base: *mut u8, size: usize) -> *mut u8 {
 
 /// The minimum size and alignment that Talc will use for chunks.
 ///
-/// Currently, this value changes if the `"cache-aligned-allocations"`
-/// feature is set. It may take on other values in the future.
+/// It may situationally take on other values in the future.
 pub const CHUNK_UNIT: usize = size_of::<usize>() * 4;
 
 const GAP_NODE_OFFSET: usize = 0;

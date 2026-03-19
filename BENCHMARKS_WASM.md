@@ -18,7 +18,7 @@ Run with`just wasm-size`. Source code can be found in `wasm-size/`.
 - If all you care about is performance, use `Talc`
 - If you want a "best of both worlds" then use `Talc` (consider setting `"disable-realloc-in-place"` or `"disable-grow-in-place"`), or RLSF's `SmallGlobalTlsf`.
 
-- `DLmalloc` and RLSF's `GlobalTlsf` are worse in both size and performance to `Talc
+- `DLmalloc` and RLSF's `GlobalTlsf` are worse in both size and performance to `Talc`.
 
 ## Caveats
 

@@ -571,8 +571,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
     /// This does not "combine" with neighboring heaps. Use [`Talc::extend`] to achieve this.
     ///
     /// Due to alignment requirements, the resulting heap may be slightly smaller
-    /// than the provided memory on either side. The resulting heap can and will not have
-    /// "well-aligned" boundaries though.
+    /// than the provided memory on either side.
     ///
     /// # Failure modes
     ///
@@ -717,7 +716,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
     ///
     /// # Return Value
     ///
-    /// See [`Reserved`]. In short, this function indicated where the top of
+    /// See [`Reserved`]. In short, this function indicates where the top of
     /// the reserved portion of the heap is, and whether any of the heap is reserved.
     /// (If none of the heap is reserved, the "top of the reserved portion" is the bottom of the heap.)
     ///
@@ -772,6 +771,8 @@ impl<S: Source, B: Binning> Talc<S, B> {
     ///     - Note that any memory in the heap that is allocated by
     ///         `self` later on is also not subject to this requirement for the duration
     ///         of the allocation's lifetime (this is your memory that you allocated; use it).
+    /// - The [`Source`] must not forbid manual heap management, otherwise this can cause UB.
+    ///     (The [`Source`] implementation will clearly state this in its documentation.)
     ///
     /// # Example
     ///
@@ -851,6 +852,8 @@ impl<S: Source, B: Binning> Talc<S, B> {
     /// - `heap_end` must have been previously returned as an arena end by this
     ///     allocator, and not subsequently modified. i.e. it must be the
     ///     up-to-date arena end.
+    /// - The [`Source`] must not forbid manual heap management, otherwise this can cause UB.
+    ///     (The [`Source`] implementation will clearly state this in its documentation.)
     ///
     /// # Example
     ///
