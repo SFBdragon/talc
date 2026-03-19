@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(any(test, feature = "error-scanning-std")), no_std)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(missing_docs)]
 #![allow(type_alias_bounds)]
 
