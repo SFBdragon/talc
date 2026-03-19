@@ -147,56 +147,7 @@ Provided `Source` implementations include:
     - `GlobalAllocSource` and `AllocatorSource`: obtains and frees memory back to another allocator
     - `WasmGrow*`: use platform APIs to manage memory
 
-As an example of a custom implementation, recovering by extending the heap is implemented below.
-
-```rust
-use talc::{*, source::*};
-use core::alloc::Layout;
-
-struct MySource {
-    heap: Span,
-}
-
-// SAFETY: I promise not to try to access `talc` via its wrapper type here.
-// This includes accidentally allocating when `talc` is the `global_allocator`.
-// This may cause deadlocking or panics or even UB in release mode.
-// See `Source`'s documentation for more.
-unsafe impl Source for MySource {
-    fn acquire<B: Binning>(talc: &mut Talc<Self, B>, layout: Layout) -> Result<(), ()> {
-        // Talc doesn't have enough memory, and we just got called!
-        // We'll go through an example of how to handle this situation.
-
-        // We can inspect `layout` to estimate how much we should free up for this allocation
-        // or we can extend by any amount (increasing powers of two has good time complexity).
-        // (Creating another heap with `claim` will also work.)
-
-        // This function will be repeatedly called until we free up enough memory or
-        // we return Err(()) causing allocation failure. Be careful to avoid conditions where
-        // the heap isn't sufficiently extended indefinitely, causing an infinite loop.
-
-        // an arbitrary address limit for the sake of example
-        const HEAP_TOP_LIMIT: *mut u8 = 0x80000000 as *mut u8;
-
-        let old_heap: Span = talc.source.heap;
-
-        // we're going to extend the heap upward, doubling its size
-        // but we'll be sure not to extend past the limit
-        let new_heap: Span = old_heap.extend(0, old_heap.size()).below(HEAP_TOP_LIMIT);
-
-        if new_heap == old_heap {
-            // we won't be extending the heap, so we should return Err
-            return Err(());
-        }
-
-        unsafe {
-            // we're assuming the new memory up to HEAP_TOP_LIMIT is unused and allocatable
-            talc.source.heap = talc.extend(old_heap, new_heap);
-        }
-
-        Ok(())
-    }
-}
-```
+Custom ones can be implemented too.
 
 ## Algorithm
 This is a dlmalloc-style linked list allocator with boundary tagging and binning, aimed at general-purpose use cases. Allocation is O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
