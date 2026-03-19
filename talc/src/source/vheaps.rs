@@ -215,7 +215,6 @@ pub unsafe trait VirtualHeaps {
     ///
     /// [`VirtualHeaps::commit_granularity`] is expected to be at least
     /// as large as [`CHUNK_UNIT`] at the moment.
-    /// This can be as large as a cache line if `"cache-aligned-allocations"` are enabled, so ~256 bytes at most.
     /// In practice, you probably want this value to be much larger;
     /// at least a page of virtual memory, if not a substantial multiple of a page.
     fn commit_granularity(&mut self) -> usize;

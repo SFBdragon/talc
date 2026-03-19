@@ -20,7 +20,6 @@ Features:
 - Flexible locking using `lock_api` for multi-threaded allocation using `TalcLock`
 - Supports `allocator-api2` for using the `Allocator` API in safe Rust
 - `"counters"`: Provides allocation statistics for debugging and performance insights
-- `"cache-aligned-allocations"`: Mitigates false sharing between allocations
 - Supports creating and resizing arbitrarily many heaps, manually or automatically
 - Supports automatic reclaim of unused memory
 - Correctness verified with tests, MIRI, and fuzzing
