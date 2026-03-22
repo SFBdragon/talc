@@ -2,6 +2,10 @@
 
 [![Crates.io](https://img.shields.io/crates/v/talc?style=flat-square&color=orange)](https://crates.io/crates/talc) [![Downloads](https://img.shields.io/crates/d/talc?style=flat-square)](https://crates.io/crates/talc) [![docs.rs](https://img.shields.io/docsrs/talc?style=flat-square)](https://docs.rs/talc/latest/talc/)
 
+<sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ) or [Ko-Fi](https://ko-fi.com/shaunbeautement)</i></sub>
+
+<sep>
+
 Note that this README acts as a guide to using Talc. For a brief explanation of what Talc is and why you should or shouldn't use it, see the [repository README.md](https://github.com/SFBdragon/talc/blob/master/README.md).
 
 ## Table of Contents
@@ -126,7 +130,7 @@ Whether you're using `Talc`, `TalcLock` (call `lock` to get the `Talc`), or `Tal
 #### Statistics - requires `"counters"` feature
 * `counters` - obtains the `Counters` struct which contains heap and allocation statistics
 
-Read their [documentation](https://docs.rs/talc/latest/talc/struct.Talc.html) for more info.
+Read their [documentation](https://docs.rs/talc/latest/talc/base/struct.Talc.html) for more info.
 
 ## Sources
 
@@ -171,15 +175,7 @@ Feel free to reach out or open a PR if you have any unaddressed questions.
 
 The full changelog can be [found here](./CHANGELOG.md). The most recent changes are:
 
-#### v5.0.0-beta.3
-
-- README.md improvements and fixes.
-
-#### v5.0.0-beta.2
-
-Fixed docs.rs build failure as a result of https://github.com/rust-lang/rust/pull/138907
-
-#### v5.0.0-beta.1
+#### v5.0.0
 
 Heads up: the API might break between this release and v5.
 
@@ -204,3 +200,7 @@ Changes:
 - `Span` is gone, rest in peace.
 
 And more.
+
+#### v5.0.1
+
+Fix broken `docs.rs` links due to API changes.

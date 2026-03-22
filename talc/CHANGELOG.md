@@ -1,5 +1,9 @@
 # Changelog
 
+#### v5.0.1
+
+Fix broken `docs.rs` links due to API changes.
+
 #### v5.0.0
 
 Heads up: the API might break between this release and v5.
@@ -132,7 +136,7 @@ And more.
     - All of the above now have different behavior and documentation.
 - Each heap now has a fixed overhead of one `usize` at the bottom.
 
-To migrate from v2 to v3, keep in mind that you must keep track of the heaps if you want to resize them, by storing the returned `Span`s. Read [`claim`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.claim), [`extend`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.extend) and [`truncate`](https://docs.rs/talc/latest/talc/struct.Talc.html#method.truncate)'s documentation for all the details.
+To migrate from v2 to v3, keep in mind that you must keep track of the heaps if you want to resize them, by storing the returned `Span`s. Read [`claim`](https://docs.rs/talc/latest/talc/base/struct.Talc.html#method.claim), [`extend`](https://docs.rs/talc/latest/talc/base/struct.Talc.html#method.extend) and [`truncate`](https://docs.rs/talc/latest/talc/base/struct.Talc.html#method.truncate)'s documentation for all the details.
 
 #### v2.2.1
 - Rewrote the allocator internals to place allocation metadata above the allocation.
