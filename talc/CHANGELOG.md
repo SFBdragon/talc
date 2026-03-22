@@ -1,6 +1,6 @@
 # Changelog
 
-#### v5.0.0-beta.1
+#### v5.0.0
 
 Heads up: the API might break between this release and v5.
 
