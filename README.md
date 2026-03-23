@@ -4,7 +4,7 @@
 
 <sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ) or [Ko-Fi](https://ko-fi.com/shaunbeautement)</i></sub>
 
-<sep>
+---
 
 ## What is this for?
 - Embedded systems, OS kernels, and other `no_std` environments

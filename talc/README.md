@@ -4,7 +4,7 @@
 
 <sub><i>If you find Talc useful, please consider leaving tip via [Paypal](https://www.paypal.com/donate/?hosted_button_id=8CSQ92VV58VPQ) or [Ko-Fi](https://ko-fi.com/shaunbeautement)</i></sub>
 
-<sep>
+---
 
 Note that this README acts as a guide to using Talc. For a brief explanation of what Talc is and why you should or shouldn't use it, see the [repository README.md](https://github.com/SFBdragon/talc/blob/master/README.md).
 
