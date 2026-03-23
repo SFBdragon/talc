@@ -204,3 +204,7 @@ And more.
 #### v5.0.1
 
 Fix broken `docs.rs` links due to API changes.
+
+#### v5.0.2
+
+Change README to avoid `<sep>` HTML tag usage as `crates.io` is not a fan.
