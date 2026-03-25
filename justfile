@@ -38,14 +38,14 @@ check: && check-wasm-size check-wasm-perf
     # check that the documentation isn't broken
     rustup run stable cargo test -p talc --doc
     rustup run stable cargo test -p doctest --doc
-    # check for performance regressions
-    rustup run stable cargo run -p benches --bin high_alignment_test --release
     # check whether MSRV has been broken
     rustup run 1.64.0 cargo check -p talc --features=counters
     # check the benchmarks
     rustup run nightly cargo check -p benches --bin microbench
     rustup run nightly cargo check -p benches --bin random_actions
     rustup run nightly cargo check -p benches --bin heap_efficiency
+    # check for performance regressions
+    rustup run nightly cargo run -p benches --bin high_alignment_test --release
     # test everything
     rustup run stable cargo test -p talc --all-targets --features=counters
     rustup run stable cargo test -p talc --doc --features=counters
