@@ -44,7 +44,7 @@ dependencies = [
  "rlsf",
  "spinning_top",
  "talc 4.4.2",
- "talc 5.0.2",
+ "talc 5.0.3",
 ]
 
 [[package]]
@@ -118,6 +118,16 @@ dependencies = [
  "cfg-if",
  "libc",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "doctest"
+version = "0.1.0"
+dependencies = [
+ "allocator-api2",
+ "fastrand 1.9.0",
+ "spinning_top",
+ "talc 5.0.3",
 ]
 
 [[package]]
@@ -443,12 +453,12 @@ dependencies = [
 
 [[package]]
 name = "talc"
-version = "5.0.2"
+version = "5.0.3"
 dependencies = [
  "allocator-api2",
  "lock_api",
  "spinning_top",
- "talc 5.0.2",
+ "talc 5.0.3",
 ]
 
 [[package]]
@@ -459,7 +469,7 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "rand",
- "talc 5.0.2",
+ "talc 5.0.3",
 ]
 
 [[package]]
@@ -547,7 +557,7 @@ dependencies = [
  "lol_alloc",
  "rlsf",
  "spin",
- "talc 5.0.2",
+ "talc 5.0.3",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -560,7 +570,7 @@ dependencies = [
  "lol_alloc",
  "rlsf",
  "spin",
- "talc 5.0.2",
+ "talc 5.0.3",
 ]
 
 [[package]]

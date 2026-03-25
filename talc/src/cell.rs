@@ -562,8 +562,23 @@ unsafe impl<S: Source, B: Binning> Sync for TalcSyncCell<S, B> {}
 
 impl<S: Source, B: Binning> TalcSyncCell<S, B> {
     /// Safely create a new [`TalcSyncCell`] on single-threaded WebAssembly, where it is safe to do so.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the target is not single-threaded WebAssembly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use talc::{cell::TalcSyncCell, wasm::*};
+    ///
+    /// #[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
+    /// #[global_allocator]
+    /// static TALC: TalcSyncCell<WasmGrowAndExtend, WasmBinning>
+    ///     = TalcSyncCell::new_wasm(WasmGrowAndExtend::new());
+    /// ```
     pub const fn new_wasm(source: S) -> Self {
-        if cfg!(all(not(target_feature = "atomics"), any(target_family = "wasm"))) {
+        if cfg!(all(not(target_feature = "atomics"), target_family = "wasm")) {
             Self(TalcCell::new(source))
         } else {
             panic!("Not running on single-threaded WebAssembly; `TalcSyncCell` is unsafe.")

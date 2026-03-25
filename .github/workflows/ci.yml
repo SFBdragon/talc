@@ -65,6 +65,10 @@ jobs:
           rustup run stable cargo check -p talc --example global_allocator --verbose
           rustup run stable cargo check -p talc --example no_std_global_allocator --verbose
 
+          # check that the documentation isn't broken
+          rustup run stable cargo test -p talc --doc
+          rustup run stable cargo test -p doctest --doc
+
   job3:
     name: Check MSRV
     runs-on: ubuntu-latest

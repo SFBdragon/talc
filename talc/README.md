@@ -208,3 +208,8 @@ Fix broken `docs.rs` links due to API changes.
 #### v5.0.2
 
 Change README to avoid `<sep>` HTML tag usage as `crates.io` is not a fan.
+
+#### v5.0.3
+
+- Update WASM examples to match current API.
+- Included checks in `just check` and the GitHub CI to ensure the docs in markdown files don't break.

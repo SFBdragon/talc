@@ -1,6 +1,6 @@
 [package]
 name = "talc"
-version = "5.0.2"
+version = "5.0.3"
 rust-version = "1.64.0"
 edition = "2021"
 readme = "README.md"
@@ -16,7 +16,8 @@ counters = []
 nightly = []
 disable-grow-in-place = []
 disable-realloc-in-place = []
-# internal, requires std
+# internal, requires std, turns on thorough error checking
+# of allocator invariants with large performance cost
 error-scanning-std = ["allocator-api2/std"]
 
 # os = [

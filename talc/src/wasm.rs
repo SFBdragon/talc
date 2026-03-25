@@ -51,6 +51,22 @@ pub type WasmArenaTalc = TalcSyncCell<Claim, WasmBinning>;
 /// # Safety
 ///
 /// The safety invariants required by [`Claim::array`] must be upheld for `arena`.
+///
+/// In short, you're handing full control of the memory to the allocator;
+/// do not mutate it until the allocator is dropped or the memory arena is manually truncated.
+///
+/// # Example
+///
+/// ```
+/// #[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
+/// #[global_allocator]
+/// static TALC: talc::wasm::WasmArenaTalc = {
+///     use core::mem::MaybeUninit;
+///     static mut MEMORY: [MaybeUninit<u8>; 0x8000000] = [MaybeUninit::uninit(); 0x8000000];
+///     // SAFETY: the memory for MEMORY is never modified externally. It's the allocator's.
+///     unsafe { talc::wasm::new_wasm_arena_allocator(&raw mut MEMORY) }
+/// };
+/// ```
 pub const unsafe fn new_wasm_arena_allocator<T, const N: usize>(
     arena: *mut [T; N],
 ) -> WasmArenaTalc {
@@ -70,6 +86,16 @@ pub type WasmDynamicTalc = TalcSyncCell<WasmGrowAndClaim, WasmBinning>;
 /// Panics if the target is not single-threaded WebAssembly.
 /// This is required to avoid creating a `TalcSyncCell` on
 /// a platform where it is unsafe.
+///
+/// # Examples
+///
+/// ```
+/// use talc::wasm::*;
+///
+/// #[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
+/// #[global_allocator]
+/// static TALC: WasmDynamicTalc = new_wasm_dynamic_allocator();
+/// ```
 pub const fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
     TalcSyncCell::new_wasm(WasmGrowAndClaim)
 }

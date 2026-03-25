@@ -8,10 +8,10 @@ Talc is much faster than DLmalloc and much smaller. See the [WebAssembly Allocat
 
 Run `cargo add talc` and add the following lines somewhere in your code:
 
-```rust,ignore
-// SAFETY: The runtime environment must be single-threaded WASM.
+```rust
+#[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: talc::wasm::WasmDynamicTalc = unsafe { talc::wasm::new_wasm_dynamic_allocator() };
+static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 ```
 
 ---
@@ -35,28 +35,22 @@ Run `cargo add talc`
 
 Then add these lines into your source code somewhere...
 
-```rust,ignore
-use talc::wasm::*;
-
-// `WasmDynamicTalc` dynamically obtains memory from the WebAssembly
-// memory subsystem on-demand.
-// SAFETY: The runtime environment must be single-threaded WASM.
+```rust
+#[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: WasmDynamicTalc = unsafe { new_wasm_dynamic_allocator() };
+static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 ```
 
 Or if arena allocation is desired...
 
-```rust,ignore
-use talc::wasm::*;
-
-// `WasmArenaTalc` reserves a fixed-width arena for allocation.
-// SAFETY: The runtime environment must be single-threaded WASM.
+```rust
+#[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: WasmArenaTalc = {
+static TALC: talc::wasm::WasmArenaTalc = {
     use core::mem::MaybeUninit;
     static mut MEMORY: [MaybeUninit<u8>; 0x8000000] = [MaybeUninit::uninit(); 0x8000000];
-    unsafe { new_wasm_arena_allocator(&raw mut MEMORY) }
+    // SAFETY: the memory for MEMORY is never modified externally. It's the allocator's.
+    unsafe { talc::wasm::new_wasm_arena_allocator(&raw mut MEMORY) }
 };
 ```
 
@@ -64,9 +58,10 @@ static TALC: WasmArenaTalc = {
 
 Using a dynamically-sized heap with WebAssembly memory integration...
 
-```rust,ignore
+```rust
 use talc::{wasm::*, sync::TalcLock};
 
+#[cfg(target_family = "wasm")]
 #[global_allocator]
 static TALC: TalcLock<spinning_top::RawSpinlock, ClaimWasmMemOnOom, WasmBinning> = TalcLock::new(ClaimWasmMemOnOom);
 ```

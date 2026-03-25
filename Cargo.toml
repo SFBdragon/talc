@@ -8,6 +8,7 @@ members = [
     "talc",
     "wasm-perf",
     "wasm-size",
+    "doctest",
 ]
 
 [profile.dev]

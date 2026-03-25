@@ -39,11 +39,9 @@ An alternative to consider is `ExtendWasmMemOnOom`:
 - Requires ~250 more bytes of WebAssembly module size due to pulling in the `Talc::extend` code.
 
 ```rust
-use talc::{wasm::{ExtendWasmMemOnOom, WasmBinning}, cell::{TalcCell, TalcCellAssumeSingleThreaded}};
+use talc::{wasm::*, cell::TalcSyncCell};
 
-// SAFETY: The runtime environment must be single-threaded WASM.
+#[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: TalcCellAssumeSingleThreaded<WasmBinning, ExtendWasmMemOnOom> = unsafe {
-    TalcCellAssumeSingleThreaded::new(TalcCell::new(ExtendWasmMemOnOom::new()))
-};
+static TALC: TalcSyncCell<WasmBinning, ExtendWasmMemOnOom> = TalcSyncCell::new_wasm(ExtendWasmMemOnOom::new());
 ```

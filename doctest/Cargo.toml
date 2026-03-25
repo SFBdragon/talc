@@ -1,0 +1,11 @@
+[package]
+name = "doctest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+allocator-api2 = { version = "0.4", default-features = false, features = ["std"] }
+talc = { path = "../talc", features = ["error-scanning-std", "counters"] }
+spinning_top = "0.3"
+fastrand = "1.9"
