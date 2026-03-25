@@ -27,16 +27,22 @@ jobs:
           rustup run nightly cargo check -p benches --bin microbench --verbose
           rustup run nightly cargo check -p benches --bin random_actions --verbose
           rustup run nightly cargo check -p benches --bin heap_efficiency --verbose
+
+          # check for performance regressions
+          rustup run stable cargo run -p benches --bin high_alignment_test --release
+
           # test everything
           rustup run stable cargo test -p talc --all-targets --features=counters --verbose
           rustup run stable cargo test -p talc --doc --features=counters --verbose
           rustup run stable cargo test -p talc --all-targets --features=disable-realloc-in-place --verbose
           rustup run stable cargo test -p talc --doc --features=disable-realloc-in-place --verbose
+
           # miri
           rustup run nightly cargo miri test -p talc --all-targets --features=counters --verbose
           rustup run nightly cargo miri test -p talc --all-targets --target i686-unknown-linux-gnu --features=disable-realloc-in-place --verbose
           # rustup run nightly cargo miri test -p talc --doc --features=counters --verbose
           # rustup run nightly cargo miri test -p talc --doc --target i686-unknown-linux-gnu --features=disable-realloc-in-place --verbose
+
           # nightly
           rustup run nightly cargo test -p talc --features=nightly,counters --verbose
 
@@ -68,9 +74,6 @@ jobs:
           # check that the documentation isn't broken
           rustup run stable cargo test -p talc --doc
           rustup run stable cargo test -p doctest --doc
-
-          # check for performance regressions
-          rustup run stable cargo run -p benches --bin high_alignment_test --release
 
   job3:
     name: Check MSRV
