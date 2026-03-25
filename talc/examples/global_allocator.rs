@@ -1,5 +1,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 
+#[cfg(not(miri))]
 use spinning_top::RawSpinlock;
 
 #[cfg(not(miri))]
