@@ -69,6 +69,9 @@ jobs:
           rustup run stable cargo test -p talc --doc
           rustup run stable cargo test -p doctest --doc
 
+          # check for performance regressions
+          rustup run stable cargo run -p benches --bin high_alignment_test --release
+
   job3:
     name: Check MSRV
     runs-on: ubuntu-latest
