@@ -28,13 +28,13 @@ Expect a 10%-15% higher runtime memory usage, though I've only taken rough measu
 
 `Talc`'s memory efficiency is almost entirely dependent on the `Binning` configuration used. You can swap out `WasmBinning` if desirable.
 
-Using `ExtendWasmMemOnOom` instead of `ClaimWasmMemOnOom` will also help.
+Using `WasmGrowAndExtend` instead of `WasmGrowAndClaim` will also help.
 
-#### `ClaimWasmMemOnOom` vs. `ExtendWasmMemOnOom`
+#### `WasmGrowAndExtend` vs. `WasmGrowAndClaim`
 
-By default, Talc claims new WebAssembly pages on demand using the `ClaimWasmMemOnOom` OOM handler.
+By default, Talc claims new WebAssembly pages on demand using the `WasmGrowAndClaim` OOM handler.
 
-An alternative to consider is `ExtendWasmMemOnOom`:
+An alternative to consider is `WasmGrowAndExtend`:
 - Extends the heap instead of claiming new heaps. This reduces memory fragmentation and thus may improve memory efficiency somewhat.
 - Requires ~250 more bytes of WebAssembly module size due to pulling in the `Talc::extend` code.
 
@@ -43,5 +43,5 @@ use talc::{wasm::*, cell::TalcSyncCell};
 
 #[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: TalcSyncCell<WasmBinning, ExtendWasmMemOnOom> = TalcSyncCell::new_wasm(ExtendWasmMemOnOom::new());
+static TALC: TalcSyncCell<WasmBinning, WasmGrowAndExtend> = TalcSyncCell::new_wasm(WasmGrowAndExtend::new());
 ```

@@ -63,7 +63,7 @@ use talc::{wasm::*, sync::TalcLock};
 
 #[cfg(target_family = "wasm")]
 #[global_allocator]
-static TALC: TalcLock<spinning_top::RawSpinlock, ClaimWasmMemOnOom, WasmBinning> = TalcLock::new(ClaimWasmMemOnOom);
+static TALC: TalcLock<spinning_top::RawSpinlock, WasmGrowAndClaim, WasmBinning> = TalcLock::new(WasmGrowAndClaim);
 ```
 
 Simple arena allocation...
