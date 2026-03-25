@@ -29,7 +29,7 @@ jobs:
           rustup run nightly cargo check -p benches --bin heap_efficiency --verbose
 
           # check for performance regressions
-          rustup run stable cargo run -p benches --bin high_alignment_test --release
+          rustup run nightly cargo run -p benches --bin high_alignment_test --release
 
           # test everything
           rustup run stable cargo test -p talc --all-targets --features=counters --verbose
