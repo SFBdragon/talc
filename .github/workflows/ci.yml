@@ -71,10 +71,6 @@ jobs:
           rustup run stable cargo check -p talc --example global_allocator --verbose
           rustup run stable cargo check -p talc --example no_std_global_allocator --verbose
 
-          # check that the documentation isn't broken
-          rustup run stable cargo test -p talc --doc
-          rustup run stable cargo test -p doctest --doc
-
   job3:
     name: Check MSRV
     runs-on: ubuntu-latest
@@ -85,3 +81,20 @@ jobs:
       - run: |
           rustup toolchain add 1.64.0 --profile minimal
           rustup run 1.64.0 cargo check -p talc --features=counters --verbose
+
+  job4:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu, wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          # check that the documentation isn't broken
+          rustup run stable cargo test -p talc --doc
+          rustup run stable cargo test -p doctest --doc
+          just check-wasm32-docs talc
+          just check-wasm32-docs doctest

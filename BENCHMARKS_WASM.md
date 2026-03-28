@@ -43,5 +43,5 @@ use talc::{wasm::*, cell::TalcSyncCell};
 
 #[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
 #[global_allocator]
-static TALC: TalcSyncCell<WasmBinning, WasmGrowAndExtend> = TalcSyncCell::new_wasm(WasmGrowAndExtend::new());
+static TALC: TalcSyncCell<WasmGrowAndExtend, WasmBinning> = TalcSyncCell::new_wasm(WasmGrowAndExtend::new());
 ```
