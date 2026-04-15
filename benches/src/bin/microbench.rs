@@ -32,30 +32,82 @@ fn main() {
     }
 }
 
-fn now() -> u64 {
+// some insiration for the x86_64 instruction usage
+// https://apeleg.com/blog/posts/2022/09/05/benchmarking-in-c-x86-and-x64/
+// https://blog.codingconfessions.com/p/rdtsc
+
+#[cfg(target_arch = "x86_64")]
+fn warmup_measurement() {
+    unsafe {
+        std::arch::x86_64::_mm_lfence();
+        std::arch::x86_64::_rdtsc();
+        std::arch::x86_64::_mm_lfence();
+        std::arch::x86_64::_rdtsc();
+        std::arch::x86_64::_mm_lfence();
+        std::arch::x86_64::_rdtsc();
+        std::arch::x86_64::_mm_lfence();
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn start_measurement() -> u64 {
     std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 
-    #[cfg(target_arch = "x86_64")]
-    let ret = {
-        let mut x = 0u32;
-        let ret = unsafe { std::arch::x86_64::__rdtscp(&mut x) };
-        ret
-    };
-
-    #[cfg(target_arch = "aarch64")]
-    let ret = {
-        let mut timer: u64;
-        unsafe {
-            std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
-        }
-        return timer;
+    let m = unsafe {
+        std::arch::x86_64::_mm_lfence();
+        std::arch::x86_64::_rdtsc()
     };
 
     std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 
-    ret
-    // If a compiler error crops up here, that's because a hardware-based counter
-    // is not implemented for this architecture.
+    m
+}
+
+#[cfg(target_arch = "x86_64")]
+fn end_measurement() -> u64 {
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+
+    let mut x = 0u32;
+    unsafe {
+        let m = std::arch::x86_64::__rdtscp(&mut x);
+        std::arch::x86_64::_mm_lfence();
+        m
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn warmup_measurement() {
+    let mut timer: u64;
+    unsafe {
+        std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+        std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+        std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+    }
+    timer
+}
+
+#[cfg(target_arch = "aarch64")]
+fn start_measurement() {
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+
+    let mut timer: u64;
+    unsafe {
+        std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    }
+    timer
+}
+
+#[cfg(target_arch = "aarch64")]
+fn end_measurement() {
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+
+    let mut timer: u64;
+    unsafe {
+        std::arch::asm!("mrs {0}, cntvct_el0", out(reg) timer, options(nomem, nostack));
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    }
+    timer
 }
 
 fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csv_file: &mut File) {
@@ -93,9 +145,11 @@ fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csv_file: &mut F
         let align = generate_align();
         let layout = Layout::from_size_align(size, align).unwrap();
 
-        let alloc_begin = now();
+        warmup_measurement();
+        let alloc_begin = start_measurement();
         let alloc = unsafe { allocator.alloc(layout) };
-        let alloc_ticks = now().wrapping_sub(alloc_begin);
+        let alloc_end = end_measurement();
+        let alloc_ticks = alloc_end.wrapping_sub(alloc_begin);
 
         if std::ptr::null_mut() != alloc {
             alloc_ticks_vec.push(alloc_ticks);
@@ -116,11 +170,13 @@ fn benchmark_allocator(allocator: &dyn GlobalAlloc, name: &str, csv_file: &mut F
                 let index = fastrand::usize(..active_allocations.len());
                 let allocation = active_allocations.swap_remove(index);
 
-                let dealloc_begin = now();
+                warmup_measurement();
+                let dealloc_begin = start_measurement();
                 unsafe {
                     allocator.dealloc(allocation.0, allocation.1);
                 }
-                let dealloc_ticks = now().wrapping_sub(dealloc_begin);
+                let dealloc_end = end_measurement();
+                let dealloc_ticks = dealloc_end.wrapping_sub(dealloc_begin);
                 dealloc_ticks_vec.push(dealloc_ticks);
             }
         }

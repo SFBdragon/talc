@@ -58,11 +58,11 @@ use a `no_std` allocator like Talc (nor most of the allocators shown here).
 ## Notes
 
 There's no good substitute for benchmarking your program with different allocators.
-You'll probably find the different pretty tiny or within noise, depending on the program,
+You'll probably find the difference small or within noise, depending on the program,
 if only a small fraction of its runtime is spent allocating.
 
 It might be worth getting some more serious allocation benchmarks incorporated into this project,
-but for now it's just good ol' random actions benchmarks.
+but for now it's just simple random actions benchmarks.
 I'm a little more skeptical of the micro-benchmarks by nature, but I've included it for completeness.
 
 There are a bunch of "hidden" choices in these benchmarks that I've consciously chosen to suite
