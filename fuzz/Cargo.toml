@@ -10,7 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-rand = "0.9"
+rand = "0.9.3"
 allocator-api2 = { version = "0.4", default-features = false, features = ["std"] }
 
 [dependencies.talc]

@@ -52,8 +52,8 @@ slower compared to the alternatives, making some of the plots unreadable.
 Jemalloc/Mimalloc/HeapAlloc/etc. aren't included mostly because they're not alternatives to Talc.
 These are allocators written for hosted systems and scale very well with multi-threaded workloads.
 They don't support `no_std` or WebAssembly.
-If you are doing allocation-heavy multithreaded work in a hosted environment, you absolutely should not
-use Talc (and most of the allocators shown here).
+If you are doing allocation-heavy multithreaded work in a hosted environment, you probably shouldn't
+use a `no_std` allocator like Talc (nor most of the allocators shown here).
 
 ## Notes
 
