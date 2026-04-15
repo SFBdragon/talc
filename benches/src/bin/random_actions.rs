@@ -152,7 +152,7 @@ pub fn random_actions(
 ) -> usize {
     let mut score = 0;
     let mut v: Vec<AllocationWrapper<'_>> = Vec::with_capacity(100000);
-    let rng = fastrand::Rng::new();
+    let mut rng = fastrand::Rng::new();
 
     let mut allocation_failure_count = 0usize;
     let mut reallocation_failure_count = 0usize;

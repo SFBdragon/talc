@@ -177,8 +177,6 @@ The full changelog can be [found here](./CHANGELOG.md). The most recent changes 
 
 #### v5.0.0
 
-Heads up: the API might break between this release and v5.
-
 Check out the [migration guide](#migrating-from-v4-to-v5)
 
 In general, the allocator got a lot better at doing its job. Also took the opportunity to clean up the APIs, setup, and configuration.

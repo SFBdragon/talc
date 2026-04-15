@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-fastrand = "1.9"
+fastrand = "2.0"
 spinning_top = "0.3"
 talc = { path = "../talc", default-features = false }
 prev-talc = { package = "talc", version = "4" }
