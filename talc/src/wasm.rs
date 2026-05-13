@@ -120,14 +120,15 @@ unsafe impl crate::source::Source for WasmGrowAndClaim {
     ) -> Result<(), ()> {
         // Growth strategy: just try to grow enough to avoid OOM again on this allocation
         // Performance testing shows that it works well even in random actions.
-        let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
+        let requested_size = wasm_grow_request_size::<B>(talc.is_metadata_established(), layout);
+        let delta_pages = (requested_size + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
         let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
             prev => prev,
         };
 
-        let grown_base = (prev_memory_end * PAGE_SIZE) as *mut u8;
+        let grown_base = wasm_pages_to_ptr(prev_memory_end);
         let grown_size = delta_pages * PAGE_SIZE;
 
         // This should always succeed. If it doesn't though, return Err(())
@@ -171,14 +172,15 @@ unsafe impl crate::source::Source for WasmGrowAndExtend {
         layout: core::alloc::Layout,
     ) -> Result<(), ()> {
         // growth strategy: just try to grow enough to avoid OOM again on this allocation
-        let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
+        let requested_size = wasm_grow_request_size::<B>(talc.is_metadata_established(), layout);
+        let delta_pages = (requested_size + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
         let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
             prev => prev,
         };
 
-        let new_base = (prev_memory_end * PAGE_SIZE) as *mut u8;
+        let new_base = wasm_pages_to_ptr(prev_memory_end);
         let new_bytes = delta_pages * PAGE_SIZE;
         let new_end = ptr_utils::saturating_ptr_add(new_base, new_bytes);
 
@@ -199,6 +201,23 @@ unsafe impl crate::source::Source for WasmGrowAndExtend {
     }
 }
 
+#[inline]
+fn wasm_grow_request_size<B: Binning>(
+    metadata_established: bool,
+    layout: core::alloc::Layout,
+) -> usize {
+    // Account for the allocation itself, its alignment requirements, and internal heap alignment
+    // This mirrors the logic in GlobalAllocSource to ensure sufficient growth.
+    let mut requested_size = layout.size() + layout.align();
+    requested_size += crate::base::CHUNK_UNIT + crate::base::CHUNK_UNIT;
+
+    if !metadata_established {
+        requested_size += crate::min_first_heap_layout::<B>().size();
+    }
+
+    requested_size
+}
+
 /// WASM page size is 64KiB
 const PAGE_SIZE: usize = 1024 * 64;
 
@@ -209,4 +228,9 @@ use core::arch::wasm64::memory_grow;
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 fn memory_grow<const M: usize>(_pages: usize) -> usize {
     panic!("not running on wasm32 or wasm64")
+}
+
+#[inline]
+fn wasm_pages_to_ptr(page_start: usize) -> *mut u8 {
+    (page_start * PAGE_SIZE) as *mut u8
 }
