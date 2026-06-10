@@ -120,7 +120,7 @@ unsafe impl crate::source::Source for WasmGrowAndClaim {
     ) -> Result<(), ()> {
         // Growth strategy: just try to grow enough to avoid OOM again on this allocation
         // Performance testing shows that it works well even in random actions.
-        let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
+        let delta_pages = delta_pages_for(layout);
 
         let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
@@ -171,7 +171,7 @@ unsafe impl crate::source::Source for WasmGrowAndExtend {
         layout: core::alloc::Layout,
     ) -> Result<(), ()> {
         // growth strategy: just try to grow enough to avoid OOM again on this allocation
-        let delta_pages = (layout.size() + crate::base::CHUNK_UNIT + (PAGE_SIZE - 1)) / PAGE_SIZE;
+        let delta_pages = delta_pages_for(layout);
 
         let prev_memory_end = match memory_grow::<0>(delta_pages) {
             usize::MAX => return Err(()),
@@ -201,6 +201,19 @@ unsafe impl crate::source::Source for WasmGrowAndExtend {
 
 /// WASM page size is 64KiB
 const PAGE_SIZE: usize = 1024 * 64;
+
+/// Pages a claimed/extended heap needs to fit `layout`, accounting for the
+/// chunk's required size, claim overhead, and alignment padding. Undersizing
+/// this makes `allocate` acquire heaps that can never fit the allocation,
+/// looping until the wasm memory limit.
+fn delta_pages_for(layout: core::alloc::Layout) -> usize {
+    let mut required =
+        crate::base::chunk::required_chunk_size(layout.size()) + crate::base::CHUNK_UNIT;
+    if layout.align() > crate::base::CHUNK_UNIT {
+        required += layout.align();
+    }
+    (required + (PAGE_SIZE - 1)) / PAGE_SIZE
+}
 
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::memory_grow;

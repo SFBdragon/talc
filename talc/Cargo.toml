@@ -38,6 +38,9 @@ talc = { path = ".", features = ["error-scanning-std"] }
 spinning_top = "0.3"
 allocator-api2 = { version = "0.4", default-features = false, features = ["std"] }
 
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
