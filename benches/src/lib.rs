@@ -47,7 +47,7 @@ pub const SYSTEM_ALLOCATORS: &[NamedAllocator] = &[
 /// Bias towards smaller values over larger ones.
 ///
 /// Why not a linear distribution:
-/// This concentrates most of the generated sizes around 2-3 neighboring
+/// Linear distribution concentrates most of the generated sizes around 2-3 neighboring
 /// binary orders of magnitude, near the maximum.
 ///
 /// Speculation:

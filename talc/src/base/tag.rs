@@ -2,7 +2,7 @@
 
 /// Tag for allocated chunk metadata.
 #[derive(Clone, Copy)]
-pub struct Tag(pub u8);
+pub struct Tag(pub usize);
 
 impl core::fmt::Debug for Tag {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -41,10 +41,10 @@ impl core::ops::BitOrAssign for Tag {
 }
 
 impl Tag {
-    pub const ALLOCATED_FLAG: u8 = 1 << 0;
-    pub const ABOVE_FREE_FLAG: u8 = 1 << 1;
-    pub const HEAP_BASE_FLAG: u8 = 1 << 2;
-    pub const HEAP_END_FLAG: u8 = 1 << 3;
+    pub const ALLOCATED_FLAG: usize = 1 << 0;
+    pub const ABOVE_FREE_FLAG: usize = 1 << 1;
+    pub const HEAP_BASE_FLAG: usize = 1 << 2;
+    pub const HEAP_END_FLAG: usize = 1 << 3;
 
     pub const ALLOCATED: Tag = Tag(Self::ALLOCATED_FLAG);
     pub const ABOVE_FREE: Tag = Tag(Self::ABOVE_FREE_FLAG);

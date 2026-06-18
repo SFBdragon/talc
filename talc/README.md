@@ -211,3 +211,16 @@ Change README to avoid `<sep>` HTML tag usage as `crates.io` is not a fan.
 
 - Update WASM examples to match current API.
 - Included checks in `just check` and the GitHub CI to ensure the docs in markdown files don't break.
+
+#### v5.0.4
+
+- Bug fix: chunk tagging was not robust to chunks over `pow(2, 8 * (size_of::<usize>() - 1))`.
+  Thanks [João Lucas](https://github.com/jlucaso1)!
+- Bug fix: `WasmGrowAndClaim` was broken due to undersizing the claimed memory in certain circumstances.
+  This could cause infinite recusion, growing the WASM linear memory until that failed.
+  Thanks [max-dau](https://github.com/max-dau) and [João Lucas](https://github.com/jlucaso1)!
+
+This incurred a regression: allocation metadata overhead is a `usize`, not a `u8`.
+(This has no impact on allocations of 24 bytes or less.)
+
+The internal details may change in a future update to optimize chunk overhead.

@@ -74,7 +74,8 @@ unsafe impl<G: GlobalAlloc + Debug> Source for GlobalAllocSource<G> {
         let mut required_size = layout.size() + layout.align();
 
         // Extra space for Talc's internal heap alignment on either side.
-        // This is more than absolutely necessary but whatever.
+        // I believe this is 1 byte more than absolutely necessary.
+        // (TODO document the memory layout well and confirm this.)
         required_size += CHUNK_UNIT + CHUNK_UNIT;
         // Extra space for the footer.
         required_size += size_of::<Footer>();
