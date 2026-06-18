@@ -634,7 +634,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
             heap_base = ptr_utils::align_up_by(base, align_of::<Option<NonNull<Node>>>());
 
             let gap_lists_size = size_of::<Option<NonNull<Node>>>() * B::BIN_COUNT as usize;
-            gap_base = align_up(heap_base.wrapping_add(gap_lists_size + size_of::<Tag>()));
+            gap_base = align_up(heap_base.wrapping_add(gap_lists_size + TAIL_SIZE));
 
             // if calculating gap_base overflowed OR the gap_base is higher than heap_end
             // there isn't enough memory to allocate the metadata and cap it off with a tag
@@ -655,7 +655,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
         } else {
             // Note that adding the header size and aligning up automatically dodges
             // the possibility of claiming null, if `memory` started at null.
-            gap_base = align_up(base.wrapping_add(size_of::<Tag>()));
+            gap_base = align_up(base.wrapping_add(TAIL_SIZE));
 
             // if calculating gap_base overflowed OR there isn't a CHUNK_UNIT between
             // gap_base and heap_end, then there isn't enough memory to claim
@@ -1146,7 +1146,7 @@ mod tests {
                 assert!(gap_end <= gap_mem.cast::<u8>().add(gap_mem.len()));
                 assert!(gap_end.wrapping_add(CHUNK_UNIT) > gap_mem.cast::<u8>().add(gap_mem.len()));
 
-                let gap_base = align_up(gap_mem.cast::<u8>().add(size_of::<Tag>()));
+                let gap_base = align_up(gap_mem.cast::<u8>().add(TAIL_SIZE));
                 let gap_size = gap_end as usize - gap_base as usize;
                 assert!(gap_size <= 999);
                 assert!(999 - CHUNK_UNIT * 2 < gap_size);
