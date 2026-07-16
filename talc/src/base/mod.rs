@@ -939,11 +939,11 @@ impl<S: Source, B: Binning> Talc<S, B> {
     }
 
     #[cfg(not(any(test, feature = "error-scanning-std")))]
-    fn scan_for_errors(&self) {}
+    pub(crate) fn scan_for_errors(&self) {}
 
     #[cfg(any(test, feature = "error-scanning-std"))]
     /// Debugging function for checking various assumptions.
-    fn scan_for_errors(&self) {
+    pub(crate) fn scan_for_errors(&self) {
         use core::ops::Range;
 
         // allocator-api2 doesn't re-export this correctly
@@ -963,6 +963,16 @@ impl<S: Source, B: Binning> Talc<S, B> {
                     for node in Node::iter_mut(*self.gap_list_ptr(b)) {
                         any = true;
                         assert!(self.avails.read_bit(b));
+
+                        // Check next_of_prev validity for each gap
+                        let data = *node.as_ptr();
+                        assert!(!data.next_of_prev.is_null());
+                        assert_eq!(*data.next_of_prev, Some(node));
+
+                        // Dereference the pointers to unlink and link the gap. Assert unlink+link cancels each other out.
+                        Node::unlink(*node.as_ptr());
+                        Node::link_at(node.as_ptr(), data);
+                        assert_eq!(data, *node.as_ptr());
 
                         let base = gap_node_to_base(node);
                         let mut size = gap_base_to_size(base).read();
@@ -1126,7 +1136,7 @@ mod tests {
     use core::ptr::null_mut;
     use std::alloc::{alloc, dealloc};
 
-    use crate::{min_first_heap_size, source::Manual};
+    use crate::{cell::TalcCell, min_first_heap_size, source::Manual};
 
     use super::*;
 
@@ -1294,5 +1304,73 @@ mod tests {
         }
 
         for_many_talc_configurations!(claim_truncate_extend_test_inner);
+    }
+
+    #[test]
+    fn issue_53_repro_allocator_api() {
+        fn issue_53_repro_allocator_api_inner<B: Binning>() {
+            use allocator_api2::{boxed::Box, vec::Vec};
+
+            unsafe {
+                // Allocate a 8MiB-aligned 8MiB-sized heap from the system/global allocator
+                let size = 8 << 20;
+                let heap_layout = Layout::from_size_align(size, size).unwrap();
+                let heap = alloc(heap_layout);
+                assert!(!heap.is_null());
+
+                // Claim it
+                let talc = TalcCell::<_, B>::new(Manual);
+                talc.claim(heap, size).unwrap();
+
+                // Allocate and drop box
+                let b = Box::new_in(1, &talc);
+                drop(b);
+
+                // Allocate 64-byte vec
+                let mut v = Vec::<u8, _>::with_capacity_in(64, &talc);
+                v.fill(0);
+
+                talc.scan_for_errors();
+
+                drop(v);
+
+                dealloc(heap, heap_layout);
+            }
+        }
+
+        for_many_talc_configurations!(issue_53_repro_allocator_api_inner);
+    }
+
+    #[test]
+    fn issue_53_repro_talc_api() {
+        fn issue_53_repro_talc_api_inner<B: Binning>() {
+            unsafe {
+                // Allocate a well-aligned 8MiB heap
+                let size = 8 << 20;
+                let heap_layout = Layout::from_size_align(size, size).unwrap();
+                let heap = alloc(heap_layout);
+                assert!(!heap.is_null());
+
+                // Claim it
+                let mut talc = Talc::<_, B>::new(Manual);
+                let _heap_end = talc.claim(heap, size).unwrap();
+
+                // Allocation 1 and deallocate
+                let layout1 = Layout::from_size_align(4, 4).unwrap();
+                let a1 = talc.allocate(layout1).unwrap().as_ptr();
+                talc.deallocate(a1, layout1);
+
+                // Allocate 64-byte vec
+                let layout2 = Layout::from_size_align(64, 1).unwrap();
+                let a2 = talc.allocate(layout2).unwrap().as_ptr();
+                std::ptr::write(a2, 0u8);
+
+                talc.scan_for_errors();
+
+                dealloc(heap, heap_layout);
+            }
+        }
+
+        for_many_talc_configurations!(issue_53_repro_talc_api_inner);
     }
 }

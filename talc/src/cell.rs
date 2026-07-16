@@ -199,6 +199,12 @@ impl<S: Source, B: Binning> TalcCell<S, B> {
     pub unsafe fn resize(&self, heap_end: NonNull<u8>, new_end: *mut u8) -> Option<NonNull<u8>> {
         self.borrow().resize(heap_end, new_end)
     }
+
+    pub(crate) fn scan_for_errors(&self) {
+        unsafe {
+            self.borrow().scan_for_errors();
+        }
+    }
 }
 
 impl<S: Source + Clone, B: Binning> TalcCell<S, B> {

@@ -8,7 +8,7 @@ use core::ptr::NonNull;
 /// referentially unsound and may lead to undefined behavior. Moving `Node`s will also not do what you expect.
 ///
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub(crate) struct Node {
     pub next: Option<NonNull<Node>>,
