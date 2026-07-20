@@ -200,6 +200,7 @@ impl<S: Source, B: Binning> TalcCell<S, B> {
         self.borrow().resize(heap_end, new_end)
     }
 
+    #[cfg(test)]
     pub(crate) fn scan_for_errors(&self) {
         unsafe {
             self.borrow().scan_for_errors();

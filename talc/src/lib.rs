@@ -10,6 +10,7 @@
 mod test_utils;
 pub(crate) mod node;
 pub(crate) mod ptr_utils;
+pub(crate) mod tag;
 
 pub mod base;
 pub mod cell;

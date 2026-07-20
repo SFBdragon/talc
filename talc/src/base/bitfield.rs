@@ -27,7 +27,7 @@ pub trait BitField:
     /// This is usually accomplished with a shift and a trailing-zeros-count.
     ///
     /// `b` will be less than [`BITS`](BitField::BITS).
-    fn bit_scan_after(&self, b: u32) -> u32;
+    fn bit_scan_from(&self, b: u32) -> u32;
 
     /// Set the bit at index b.
     ///
@@ -59,7 +59,7 @@ macro_rules! impl_bitfield_for_integer {
             const ZEROES: Self = 0;
 
             #[inline(always)]
-            fn bit_scan_after(&self, b: u32) -> u32 {
+            fn bit_scan_from(&self, b: u32) -> u32 {
                 $tzcnt_fn(*self >> b << b)
             }
 
@@ -92,22 +92,22 @@ impl<const N: usize, B: BitField> BitField for [B; N] {
     const BITS: u32 = B::BITS * N as u32;
     const ZEROES: Self = [B::ZEROES; N];
 
-    fn bit_scan_after(&self, b: u32) -> u32 {
+    fn bit_scan_from(&self, b: u32) -> u32 {
         if N == 0 {
             0
         } else if N == 1 {
-            self[0].bit_scan_after(b)
+            self[0].bit_scan_from(b)
         } else if N == 2 {
             if b < B::BITS {
-                let s = self[0].bit_scan_after(b);
-                if s < B::BITS { s } else { self[1].bit_scan_after(0) + B::BITS }
+                let s = self[0].bit_scan_from(b);
+                if s < B::BITS { s } else { self[1].bit_scan_from(0) + B::BITS }
             } else {
-                self[1].bit_scan_after(b - B::BITS) + B::BITS
+                self[1].bit_scan_from(b - B::BITS) + B::BITS
             }
         } else {
             let array_index = b / B::BITS;
             let bit_index = unsafe { self.get_unchecked(array_index as usize) }
-                .bit_scan_after(b & (B::BITS - 1));
+                .bit_scan_from(b & (B::BITS - 1));
 
             if bit_index < B::BITS {
                 return array_index * B::BITS + bit_index;
@@ -115,7 +115,7 @@ impl<const N: usize, B: BitField> BitField for [B; N] {
 
             for array_index in (array_index + 1)..(N as u32) {
                 let bit_index =
-                    unsafe { self.get_unchecked(array_index as usize) }.bit_scan_after(0);
+                    unsafe { self.get_unchecked(array_index as usize) }.bit_scan_from(0);
 
                 if bit_index < B::BITS {
                     return array_index * B::BITS + bit_index;
@@ -202,7 +202,7 @@ impl<L1B: BitField, L2B: BitField + core::fmt::UpperHex, const L1LEN: usize> Bit
 
     const ZEROES: Self = Self { l1: L1B::ZEROES, l2: [L2B::ZEROES; L1LEN] };
 
-    fn bit_scan_after(&self, b: u32) -> u32 {
+    fn bit_scan_from(&self, b: u32) -> u32 {
         if L1LEN as u32 == L1B::BITS {
             panic!(
                 "To avoid an extra branch in `bit_scan_after` here, we require that L1LEN is less than L1B::BITS."
@@ -211,16 +211,16 @@ impl<L1B: BitField, L2B: BitField + core::fmt::UpperHex, const L1LEN: usize> Bit
 
         let array_index = b / L2B::BITS;
         let bit_index = unsafe { self.l2.get_unchecked(array_index as usize) }
-            .bit_scan_after(b & (L2B::BITS - 1));
+            .bit_scan_from(b & (L2B::BITS - 1));
 
         if bit_index < L2B::BITS {
             return array_index * L2B::BITS + bit_index;
         }
 
-        let set_array_index = self.l1.bit_scan_after(array_index + 1);
+        let set_array_index = self.l1.bit_scan_from(array_index + 1);
         if set_array_index < L1B::BITS {
             let bit_index =
-                unsafe { self.l2.get_unchecked(set_array_index as usize) }.bit_scan_after(0);
+                unsafe { self.l2.get_unchecked(set_array_index as usize) }.bit_scan_from(0);
 
             debug_assert!(bit_index <= L2B::BITS);
 
@@ -347,7 +347,7 @@ pub mod test_utils {
     fn bsf_zero<F: BitField>() {
         let bf = F::ZEROES;
         for i in 0..F::BITS {
-            assert_eq!(bf.bit_scan_after(i), F::BITS);
+            assert_eq!(bf.bit_scan_from(i), F::BITS);
         }
     }
 
@@ -355,7 +355,7 @@ pub mod test_utils {
         for i in 0..F::BITS {
             let mut bf = F::ZEROES;
             bf.set_bit(i);
-            assert_eq!(bf.bit_scan_after(0), i);
+            assert_eq!(bf.bit_scan_from(0), i);
         }
     }
 
@@ -364,9 +364,9 @@ pub mod test_utils {
         bf.set_bit(0);
         bf.set_bit(F::BITS - 1);
 
-        assert_eq!(bf.bit_scan_after(0), 0);
+        assert_eq!(bf.bit_scan_from(0), 0);
         for i in 1..F::BITS {
-            assert_eq!(bf.bit_scan_after(i), F::BITS - 1);
+            assert_eq!(bf.bit_scan_from(i), F::BITS - 1);
         }
     }
 
@@ -374,7 +374,7 @@ pub mod test_utils {
         for i in 1..F::BITS {
             let mut bf = F::ZEROES;
             bf.set_bit(i - 1);
-            assert_eq!(bf.bit_scan_after(i), F::BITS);
+            assert_eq!(bf.bit_scan_from(i), F::BITS);
         }
     }
     fn bsf_one_behind_one_forward<F: BitField>() {
@@ -382,14 +382,14 @@ pub mod test_utils {
             let mut bf = F::ZEROES;
             bf.set_bit(i - 1);
             bf.set_bit(i + 1);
-            assert_eq!(bf.bit_scan_after(i), i + 1);
+            assert_eq!(bf.bit_scan_from(i), i + 1);
         }
     }
     fn bsf_one_forward<F: BitField>() {
         for i in 0..(F::BITS - 1) {
             let mut bf = F::ZEROES;
             bf.set_bit(i + 1);
-            assert_eq!(bf.bit_scan_after(i), i + 1);
+            assert_eq!(bf.bit_scan_from(i), i + 1);
         }
     }
     fn bsf_one_behind_one_forward_one_on_point<F: BitField>() {
@@ -398,7 +398,7 @@ pub mod test_utils {
             bf.set_bit(i - 1);
             bf.set_bit(i);
             bf.set_bit(i + 1);
-            assert_eq!(bf.bit_scan_after(i), i);
+            assert_eq!(bf.bit_scan_from(i), i);
         }
     }
 
@@ -409,7 +409,7 @@ pub mod test_utils {
             for j in i..F::BITS {
                 bf.set_bit(j);
             }
-            assert_eq!(bf.bit_scan_after(0), i);
+            assert_eq!(bf.bit_scan_from(0), i);
         }
     }
 
@@ -417,7 +417,7 @@ pub mod test_utils {
         let mut bf = F::ZEROES;
         bf.set_bit(0);
         for i in 1..F::BITS {
-            assert_eq!(bf.bit_scan_after(i), F::BITS);
+            assert_eq!(bf.bit_scan_from(i), F::BITS);
         }
     }
 
@@ -428,7 +428,7 @@ pub mod test_utils {
                 bf.set_bit(j);
             }
 
-            assert_eq!(bf.bit_scan_after(i), F::BITS);
+            assert_eq!(bf.bit_scan_from(i), F::BITS);
         }
     }
 
@@ -441,7 +441,7 @@ pub mod test_utils {
             }
 
             for j in 0..F::BITS {
-                assert_eq!(bf.bit_scan_after(j), i.max(j));
+                assert_eq!(bf.bit_scan_from(j), i.max(j));
             }
         }
     }

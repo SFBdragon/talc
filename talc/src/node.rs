@@ -1,5 +1,7 @@
 use core::ptr::NonNull;
 
+use crate::tag::Tag;
+
 /// Describes a linked list node.
 ///
 /// # Safety:
@@ -8,11 +10,11 @@ use core::ptr::NonNull;
 /// referentially unsound and may lead to undefined behavior. Moving `Node`s will also not do what you expect.
 ///
 /// This data structure is not thread-safe, use mutexes/locks to mutually exclude data access.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub(crate) struct Node {
     pub next: Option<NonNull<Node>>,
-    pub next_of_prev: *mut Option<NonNull<Node>>,
+    pub next_of_prev: Tag,
 }
 
 impl Node {
@@ -23,26 +25,61 @@ impl Node {
 
     /// Create a new node as a member of an existing linked list at `node`.
     #[inline]
-    pub unsafe fn link_at(ptr: *mut Self, data: Self) {
+    pub unsafe fn link_at(
+        ptr: *mut Self,
+        next: Option<NonNull<Node>>,
+        next_of_prev: *mut Option<NonNull<Node>>,
+    ) {
         debug_assert!(!ptr.is_null());
-        debug_assert!(!data.next_of_prev.is_null());
+        debug_assert!(!next_of_prev.is_null());
 
-        *data.next_of_prev = Some(NonNull::new_unchecked(ptr));
+        *next_of_prev = Some(NonNull::new_unchecked(ptr));
 
-        if let Some(next) = data.next {
-            (*next.as_ptr()).next_of_prev = Self::addr_of_next(ptr);
+        if let Some(next) = next {
+            (*next.as_ptr()).next_of_prev = Tag::new_next_of_prev(Self::addr_of_next(ptr));
         }
 
-        ptr.write(data);
+        ptr.write(Self { next, next_of_prev: Tag::new_next_of_prev(next_of_prev) });
+    }
+
+    #[inline]
+    pub unsafe fn small_link_at(
+        ptr: *mut Self,
+        next: Option<NonNull<Node>>,
+        next_of_prev: *mut Option<NonNull<Node>>,
+    ) {
+        debug_assert!(!ptr.is_null());
+        debug_assert!(!next_of_prev.is_null());
+
+        *next_of_prev = Some(NonNull::new_unchecked(ptr));
+
+        if let Some(next) = next {
+            (*next.as_ptr()).next_of_prev = Tag::new_next_of_prev_small(Self::addr_of_next(ptr));
+        }
+
+        ptr.write(Self { next, next_of_prev: Tag::new_next_of_prev_small(next_of_prev) });
     }
 
     /// Remove `node` from it's linked list.
     #[inline]
     pub unsafe fn unlink(self) {
         let Node { next, next_of_prev } = self;
-        debug_assert!(!next_of_prev.is_null());
+        debug_assert!(!next_of_prev.assume_next_of_prev().is_null());
 
-        *next_of_prev = next;
+        *next_of_prev.assume_next_of_prev() = next;
+
+        if let Some(next) = next {
+            (*next.as_ptr()).next_of_prev = next_of_prev;
+        }
+    }
+
+    /// Remove `node` from it's linked list.
+    #[inline]
+    pub unsafe fn small_unlink(self) {
+        let Node { next, next_of_prev } = self;
+        debug_assert!(!next_of_prev.next_of_prev_small().is_null());
+
+        *next_of_prev.next_of_prev_small() = next;
 
         if let Some(next) = next {
             (*next.as_ptr()).next_of_prev = next_of_prev;
@@ -50,6 +87,10 @@ impl Node {
     }
 
     /// Creates an iterator over the linked list from the specified node.
+    ///
+    /// The iterator moves "forward" over the linked list.
+    /// `next_of_prev` is never read or dereferenced by the iterator.
+    /// This means that it works for gaps with flags in `next_of_prev`.
     #[inline]
     pub unsafe fn iter_mut(first: Option<NonNull<Self>>) -> IterMut {
         IterMut::new(first)
@@ -94,11 +135,8 @@ mod tests {
             let y = Box::into_raw(Box::new(MaybeUninit::<Node>::uninit())).cast::<Node>();
             let z = Box::into_raw(Box::new(MaybeUninit::<Node>::uninit())).cast::<Node>();
 
-            Node::link_at(y, Node { next: None, next_of_prev: Node::addr_of_next(x) });
-            Node::link_at(
-                z,
-                Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::addr_of_next(x) },
-            );
+            Node::link_at(y, None, Node::addr_of_next(x));
+            Node::link_at(z, Some(NonNull::new(y).unwrap()), Node::addr_of_next(x));
 
             let mut iter = Node::iter_mut(Some(NonNull::new(x)).unwrap());
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));
@@ -117,10 +155,7 @@ mod tests {
             assert!(iter.next().is_some_and(|n| n.as_ptr() == y));
             assert!(iter.next().is_none());
 
-            Node::link_at(
-                z,
-                Node { next: Some(NonNull::new(y).unwrap()), next_of_prev: Node::addr_of_next(x) },
-            );
+            Node::link_at(z, Some(NonNull::new(y).unwrap()), Node::addr_of_next(x));
 
             let mut iter = Node::iter_mut(Some(NonNull::new(x).unwrap()));
             assert!(iter.next().is_some_and(|n| n.as_ptr() == x));

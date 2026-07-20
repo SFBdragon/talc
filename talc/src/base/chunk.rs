@@ -4,7 +4,7 @@
 
 use core::{mem::size_of, ptr::NonNull};
 
-use crate::{base::tag::Tag, node::Node, ptr_utils};
+use crate::{node::Node, ptr_utils, tag::Tag};
 
 /// Returns whether the two pointers are greater than `CHUNK_UNIT` apart.
 #[inline]
@@ -25,25 +25,25 @@ pub(crate) unsafe fn alloc_to_end(base: *mut u8, size: usize) -> *mut u8 {
 /// The minimum size and alignment that Talc will use for chunks.
 ///
 /// It may situationally take on other values in the future.
-pub const CHUNK_UNIT: usize = size_of::<usize>() * 4;
+pub const CHUNK_UNIT: usize = size_of::<usize>() * 2;
 
 /// Every chunk ends in a word-sized metadata slot: allocated chunks keep
 /// their [`Tag`] in its low byte, gaps fill it with their size and flags.
 /// A gap size's low bits are always zero, so the low byte distinguishes
 /// allocations from gaps no matter how large the gap is.
-pub(crate) const TAIL_SIZE: usize = size_of::<usize>();
+pub(crate) const TAIL_SIZE: usize = size_of::<Tag>();
 
 const GAP_NODE_OFFSET: usize = 0;
 const GAP_BIN_OFFSET: usize = size_of::<usize>() * 2;
 const GAP_LOW_SIZE_OFFSET: usize = size_of::<usize>() * 3;
-const GAP_HIGH_SIZE_OFFSET: usize = TAIL_SIZE;
-
-pub const END_FLAG: usize = Tag::HEAP_END_FLAG as usize;
 
 // WASM perf tanks if these #[inline]'s are not present
 #[inline]
 pub(crate) unsafe fn gap_base_to_node(base: *mut u8) -> *mut Node {
     base.add(GAP_NODE_OFFSET).cast()
+}
+pub(crate) unsafe fn gap_base_to_tagged_next_of_prev(base: *mut u8) -> *mut Tag {
+    base.add(size_of::<usize>()).cast()
 }
 #[inline]
 pub(crate) unsafe fn gap_base_to_bin(base: *mut u8) -> *mut u32 {
@@ -52,10 +52,6 @@ pub(crate) unsafe fn gap_base_to_bin(base: *mut u8) -> *mut u32 {
 #[inline]
 pub(crate) unsafe fn gap_base_to_size(base: *mut u8) -> *mut usize {
     base.add(GAP_LOW_SIZE_OFFSET).cast()
-}
-#[inline]
-pub(crate) unsafe fn gap_end_to_size_and_flag(end: *mut u8) -> *mut usize {
-    end.sub(GAP_HIGH_SIZE_OFFSET).cast()
 }
 #[inline]
 pub(crate) unsafe fn gap_node_to_base(node: NonNull<Node>) -> *mut u8 {

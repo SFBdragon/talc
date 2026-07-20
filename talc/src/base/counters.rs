@@ -1,5 +1,7 @@
 //! Track allocation statistics for Talc.
 
+use crate::tag::Tag;
+
 /// Allocation statistics struct for [`Talc`](crate::base::Talc).
 ///
 /// # Example
@@ -138,7 +140,7 @@ impl Counters {
     ) {
         if deleted_heap {
             self.heap_count -= 1;
-            self.claimed_bytes -= core::mem::size_of::<super::tag::Tag>();
+            self.claimed_bytes -= core::mem::size_of::<Tag>();
         }
 
         self.claimed_bytes -= old_end as usize - new_end as usize;

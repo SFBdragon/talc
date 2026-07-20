@@ -1,6 +1,4 @@
 #![no_main]
-#![feature(allocator_api)]
-#![feature(slice_ptr_get)]
 
 use std::alloc::{GlobalAlloc, Layout, alloc, dealloc};
 use std::ptr::{NonNull, null_mut};

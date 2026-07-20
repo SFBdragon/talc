@@ -134,7 +134,7 @@ unsafe impl<A: Allocator + Debug> Source for AllocatorSource<A> {
 
         unsafe {
             let footer = heap_end.as_ptr().cast::<Footer>();
-            Node::link_at(addr_of_mut!((*footer).node), Node { next: *meta, next_of_prev: meta });
+            Node::link_at(addr_of_mut!((*footer).node), *meta, meta);
             (*footer).base = base;
             (*footer).size = required_blocks;
         }

@@ -129,7 +129,7 @@ unsafe impl<G: GlobalAlloc + Debug> Source for GlobalAllocSource<G> {
 
         unsafe {
             let footer = heap_end.as_ptr().cast::<Footer>();
-            Node::link_at(addr_of_mut!((*footer).node), Node { next: *meta, next_of_prev: meta });
+            Node::link_at(addr_of_mut!((*footer).node), *meta, meta);
             (*footer).base = allocation;
             (*footer).size = required_blocks;
         }
