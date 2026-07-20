@@ -13,7 +13,7 @@ use benches::{
     generate_size, touch_the_whole_heap,
 };
 
-const TRIALS_AMOUNT: usize = 7;
+const TRIALS_AMOUNT: usize = 14;
 const WARMUP: Duration = Duration::from_millis(2);
 const DURATION: Duration = Duration::from_millis(200);
 const RA_MAX_REALLOC_SIZE_MULTI: usize = 3;

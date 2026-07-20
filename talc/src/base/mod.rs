@@ -123,7 +123,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
             // This is allowed to return values >= B::BIN_COUNT.
             // This indicates that the last bucket is our only bet,
             // and the allocations therein are not necessarily big enough.
-            let bin = B::size_to_bin_ceil(required_chunk_size.max(layout.align()));
+            let bin = B::size_to_bin(required_chunk_size.max(layout.align()));
 
             // special case, this is a large allocation, dig around the last bin
             if bin >= (B::BIN_COUNT - 1) {
@@ -155,49 +155,47 @@ impl<S: Source, B: Binning> Talc<S, B> {
                 return None;
             }
 
-            if layout.align() <= CHUNK_UNIT {
-                let node_ptr = self.gap_list_ptr(b).read().unwrap_unchecked();
-                let mut size = gap_node_to_size(node_ptr).read();
+            // if layout.align() <= CHUNK_UNIT {
+            //     let node_ptr = self.gap_list_ptr(b).read().unwrap_unchecked();
+            //     let mut size = gap_node_to_size(node_ptr).read();
 
-                if S::TRACK_HEAP_END {
-                    size &= !END_FLAG;
+            //     if S::TRACK_HEAP_END {
+            //         size &= !END_FLAG;
+            //     }
+
+            //     debug_assert!(size >= required_chunk_size);
+
+            //     let base = gap_node_to_base(node_ptr);
+            //     self.deregister_gap(base, size);
+
+            //     Tag::clear_above_free(end_to_tag(base));
+
+            //     break 'search (base, base.add(size));
+            // } else {
+            // a larger than CHUNK_UNIT alignment is demanded
+            // therefore each chunk is manually checked to be sufficient accordingly
+            let align_mask = layout.align() - 1;
+
+            loop {
+                if let Some(res) = self.full_search_bin(b, required_chunk_size, align_mask) {
+                    break 'search res;
                 }
 
-                debug_assert!(size >= required_chunk_size);
+                if b + 1 < B::BIN_COUNT || B::AvailabilityBitField::BITS > B::BIN_COUNT {
+                    b = self.avails.bit_scan_after(b + 1);
 
-                let base = gap_node_to_base(node_ptr);
-                self.deregister_gap(base, size);
-
-                Tag::clear_above_free(end_to_tag(base));
-
-                break 'search (base, base.add(size));
-            } else {
-                // a larger than CHUNK_UNIT alignment is demanded
-                // therefore each chunk is manually checked to be sufficient accordingly
-                let align_mask = layout.align() - 1;
-
-                loop {
-                    if let Some(res) = self.full_search_bin(b, required_chunk_size, align_mask) {
-                        break 'search res;
+                    if b < B::BIN_COUNT {
+                        continue;
                     }
-
-                    if b + 1 < B::BIN_COUNT || B::AvailabilityBitField::BITS > B::BIN_COUNT {
-                        b = self.avails.bit_scan_after(b + 1);
-
-                        if b < B::BIN_COUNT {
-                            continue;
-                        }
-                    }
-
-                    if let Some(res) =
-                        self.full_search_bin(bin - 1, required_chunk_size, align_mask)
-                    {
-                        break 'search res;
-                    }
-
-                    return None;
                 }
+
+                // if let Some(res) = self.full_search_bin(bin - 1, required_chunk_size, align_mask) {
+                //     break 'search res;
+                // }
+
+                return None;
             }
+            // }
         };
 
         debug_assert_eq!(align_down(base), base);

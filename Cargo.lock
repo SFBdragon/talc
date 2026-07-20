@@ -56,6 +56,7 @@ dependencies = [
  "spinning_top",
  "talc 4.4.2",
  "talc 5.0.4",
+ "talc 5.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -614,6 +615,16 @@ dependencies = [
  "spinning_top",
  "talc 5.0.4",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "talc"
+version = "5.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40a5888b3189a89207eea4190e74387b5db3150d213f84186cac637dcd55259d"
+dependencies = [
+ "allocator-api2",
+ "lock_api",
 ]
 
 [[package]]

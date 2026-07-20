@@ -28,7 +28,8 @@ pub struct NamedAllocator {
 pub const ARENA_ALLOCATORS: &[NamedAllocator] = &[
     NamedAllocator { name: "DLmalloc", init_fn: init_dlmalloc },
     NamedAllocator { name: "Talc", init_fn: init_talc },
-    NamedAllocator { name: "Talc v4", init_fn: init_talc_old },
+    NamedAllocator { name: "Talc v4", init_fn: init_talc_v4 },
+    NamedAllocator { name: "Talc v5.0", init_fn: init_talc_v5_0 },
     NamedAllocator { name: "RLSF", init_fn: init_rlsf },
     NamedAllocator { name: "Galloc", init_fn: init_galloc },
     NamedAllocator { name: "Buddy Alloc", init_fn: init_buddy_alloc },
@@ -60,7 +61,7 @@ pub const SYSTEM_ALLOCATORS: &[NamedAllocator] = &[
 ///
 /// This could probably be improved by sampling empirical allocation data or something.
 pub fn generate_size(max: usize) -> usize {
-    let cap = fastrand::usize(16..max);
+    let cap = fastrand::usize(8..max);
     fastrand::usize(4..cap)
 }
 
@@ -118,9 +119,14 @@ unsafe fn init_talc() -> Box<dyn GlobalAlloc + Sync> {
     talc.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
     Box::new(talc)
 }
-
-unsafe fn init_talc_old() -> Box<dyn GlobalAlloc + Sync> {
-    use prev_talc::{ErrOnOom, Talc};
+unsafe fn init_talc_v5_0() -> Box<dyn GlobalAlloc + Sync> {
+    use talc_v5_0::{TalcLock, source::Manual};
+    let talc: TalcLock<RawSpinlock, _> = TalcLock::new(Manual);
+    talc.lock().claim((&raw mut HEAP.0).cast(), HEAP_SIZE).unwrap();
+    Box::new(talc)
+}
+unsafe fn init_talc_v4() -> Box<dyn GlobalAlloc + Sync> {
+    use talc_v4::{ErrOnOom, Talc};
 
     unsafe {
         let talc = Talc::new(ErrOnOom).lock::<RawSpinlock>();
