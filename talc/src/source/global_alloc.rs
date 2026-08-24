@@ -41,6 +41,9 @@ pub struct GlobalAllocSource<G: GlobalAlloc> {
     allocation_chain: Option<NonNull<Option<NonNull<Node>>>>,
 }
 
+// SAFETY: GlobalAllocSource has ownership semantics over the `allocation_chain` pointee.
+unsafe impl<G: GlobalAlloc + Send> Send for GlobalAllocSource<G> {}
+
 /// 1 MiB, chosen pretty arbitrarily.
 const DEFAULT_BLOCK_SIZE: usize = 1 << 20;
 

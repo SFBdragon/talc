@@ -150,12 +150,11 @@ Provided `Source` implementations include:
 
 Custom ones can be implemented too.
 
-## Algorithm
-This is a dlmalloc-style linked list allocator with boundary tagging and binning, aimed at general-purpose use cases. Allocation is O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
+## Algorithm & Internals
+
+This is a dlmalloc-style linked list allocator with boundary tagging and binning, aimed at general-purpose use cases. Allocation O(n) worst case (but in practice its near-constant time, see microbenchmarks), while in-place reallocations and deallocations are O(1).
 
 The implementation shares a lot of similarities with the TLSF algorithm, but is nowhere near as pure as `rlsf`.
-
-Additionally, the layout of chunk metadata is rearranged to allow for smaller minimum-size chunks to reduce memory overhead of small allocations. The minimum chunk size is `3 * usize`, with a single `usize` being reserved per allocation. This is more efficient than `dlmalloc` and `galloc`, despite using a similar algorithm.
 
 ## Migrating from v4 to v5
 
@@ -224,3 +223,27 @@ This incurred a regression: allocation metadata overhead is a `usize`, not a `u8
 (This has no impact on allocations of 24 bytes or less.)
 
 The internal details may change in a future update to optimize chunk overhead.
+
+#### v5.1.0
+
+- Bug fix for [#54](https://github.com/SFBdragon/talc/issues/54): GlobalAllocSource and AllocatorSource did not implement `Send`.
+  Thanks [funsafemath](https://github.com/funsafemath) for the issue!
+
+- (Possible API Break) Switched `talc::wasm::new_wasm_dynamic_allocator()` and `talc::wasm::WasmDynamicTalc`
+  to use `WasmGrowAndExtend` instead of `WasmGrowAndClaim`.
+
+  The rationale for this change is given [in this issue](https://github.com/SFBdragon/talc/issues/51):
+    - Advantage: `WasmClaimAndExtend` is significantly more memory-efficient than `WasmGrowAndClaim`
+      which certain pathological cases, including growing a vector repeatedly consuming as much as 10x more memory.
+    - Disadvantage: `WasmClaimAndExtend` costs 97B of additional binary size (8~9% regression).
+    - Deciding factor: binary size is a much more visible artifact to WASM developers than memory efficiency.
+      Therefore it's better for the default to compromise on the more visible downside (and alternative tradeoffs).
+      For those who wish to minimize their binary size as much as possible at the cost of other metrics should
+      check out [the WASM README for options and alternatives for reducing binary size](https://github.com/SFBdragon/talc/README_WASM.md).
+    
+  Because `WasmDynamicTalc` is a type alias, not a type itself, this could potentially
+  lead to breaking changes, but they should be easy to rectify:
+  - to revert back to `WasmGrowAndClaim` use e.g.
+  `static TALC: TalcSyncCell<WasmGrowAndClaim, WasmBinning> = TalcSyncCell::new_wasm(WasmGrowAndClaim);`
+  - to use `WasmGrowAndExtend` use e.g.
+  `static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();`

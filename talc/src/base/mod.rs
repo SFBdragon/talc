@@ -140,7 +140,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
                 return None;
             }
 
-            let mut b = self.avails.bit_scan_after(bin);
+            let mut b = self.avails.bit_scan_forward(bin);
 
             // Handle the case where it turns out there's no feasible bins available.
             if b >= B::BIN_COUNT {
@@ -182,7 +182,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
                     }
 
                     if b + 1 < B::BIN_COUNT || B::AvailabilityBitField::BITS > B::BIN_COUNT {
-                        b = self.avails.bit_scan_after(b + 1);
+                        b = self.avails.bit_scan_forward(b + 1);
 
                         if b < B::BIN_COUNT {
                             continue;
@@ -1003,7 +1003,7 @@ impl<S: Source, B: Binning> Talc<S, B> {
                 }
             }
         } else {
-            assert!(self.avails.bit_scan_after(0) >= B::BIN_COUNT);
+            assert!(self.avails.bit_scan_forward(0) >= B::BIN_COUNT);
         }
     }
 }
@@ -1232,7 +1232,7 @@ mod tests {
                 assert!(talc.claim(tiny_heap.as_mut_ptr().cast(), tiny_heap.len()).is_none());
 
                 assert!(talc.gap_lists.is_null());
-                assert!(talc.avails.bit_scan_after(0) >= B::BIN_COUNT);
+                assert!(talc.avails.bit_scan_forward(0) >= B::BIN_COUNT);
             }
         }
 
@@ -1251,7 +1251,7 @@ mod tests {
                 let _heap_end = talc.claim(big_heap.cast(), meta_layout.size()).unwrap();
 
                 assert!(!talc.gap_lists.is_null());
-                assert!(talc.avails.bit_scan_after(0) >= B::BIN_COUNT);
+                assert!(talc.avails.bit_scan_forward(0) >= B::BIN_COUNT);
 
                 let mut tiny_heap = [0u8; 300];
                 let _tiny_heap_end =

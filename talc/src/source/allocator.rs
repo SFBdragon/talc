@@ -44,6 +44,9 @@ pub struct AllocatorSource<A: Allocator> {
     allocation_chain: Option<NonNull<Option<NonNull<Node>>>>,
 }
 
+// SAFETY: AllocatorSource has ownership semantics over the `allocation_chain` pointee.
+unsafe impl<A: Allocator + Send> Send for AllocatorSource<A> {}
+
 /// 1 MiB, chosen pretty arbitrarily.
 const DEFAULT_BLOCK_SIZE: usize = 4 << 20;
 

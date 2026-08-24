@@ -38,7 +38,7 @@ unsafe extern "C" {
 const ACTIONS: usize = 100000;
 const ITERATIONS: usize = 100;
 
-const TARGET_MIN_ACTIVE_ALLOCATIONS: usize = 50;
+const TARGET_MIN_ACTIVE_ALLOCATIONS: usize = 100;
 
 #[wasm_bindgen]
 pub fn bench() {

@@ -1,5 +1,30 @@
 # Changelog
 
+#### v5.1.0
+
+- Bug fix for [#54](https://github.com/SFBdragon/talc/issues/54): GlobalAllocSource and AllocatorSource did not implement `Send`.
+  Thanks [funsafemath](https://github.com/funsafemath) for the issue!
+
+- (Possible API Break) Switched `talc::wasm::new_wasm_dynamic_allocator()` and `talc::wasm::WasmDynamicTalc`
+  to use `WasmGrowAndExtend` instead of `WasmGrowAndClaim`.
+
+  The rationale for this change is given [in this issue](https://github.com/SFBdragon/talc/issues/51):
+    - Advantage: `WasmClaimAndExtend` is significantly more memory-efficient than `WasmGrowAndClaim`
+      which certain pathological cases, including growing a vector repeatedly consuming as much as 10x more memory.
+    - Disadvantage: `WasmClaimAndExtend` costs 97B of additional binary size (8~9% regression).
+    - Deciding factor: binary size is a much more visible artifact to WASM developers than memory efficiency.
+      Therefore it's better for the default to compromise on the more visible downside (and alternative tradeoffs).
+      For those who wish to minimize their binary size as much as possible at the cost of other metrics should
+      check out [the WASM README for options and alternatives for reducing binary size](https://github.com/SFBdragon/talc/README_WASM.md).
+    
+  Because `WasmDynamicTalc` is a type alias, not a type itself, this could potentially
+  lead to breaking changes, but they should be easy to rectify:
+  - to revert back to `WasmGrowAndClaim` use e.g.
+  `static TALC: TalcSyncCell<WasmGrowAndClaim, WasmBinning> = TalcSyncCell::new_wasm(WasmGrowAndClaim);`
+  - to use `WasmGrowAndExtend` use e.g.
+  `static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();`
+
+
 #### v5.0.4
 
 - Bug fix: chunk tagging was not robust to chunks over `pow(2, 8 * (size_of::<usize>() - 1))`.

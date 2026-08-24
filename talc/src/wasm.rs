@@ -74,7 +74,7 @@ pub const unsafe fn new_wasm_arena_allocator<T, const N: usize>(
 }
 
 /// Type alias for the return value of [`new_wasm_dynamic_allocator`].
-pub type WasmDynamicTalc = TalcSyncCell<WasmGrowAndClaim, WasmBinning>;
+pub type WasmDynamicTalc = TalcSyncCell<WasmGrowAndExtend, WasmBinning>;
 
 /// Yields a [`GlobalAlloc`](core::alloc::GlobalAlloc) implementation that
 /// dynamically requests memory from the WebAssembly memory space as needed.
@@ -97,7 +97,7 @@ pub type WasmDynamicTalc = TalcSyncCell<WasmGrowAndClaim, WasmBinning>;
 /// static TALC: WasmDynamicTalc = new_wasm_dynamic_allocator();
 /// ```
 pub const fn new_wasm_dynamic_allocator() -> WasmDynamicTalc {
-    TalcSyncCell::new_wasm(WasmGrowAndClaim)
+    TalcSyncCell::new_wasm(WasmGrowAndExtend::new())
 }
 
 /// This source requests memory from the WebAssembly memory subsystem as needed.
