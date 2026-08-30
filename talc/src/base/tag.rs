@@ -1,4 +1,13 @@
-//! A `Tag` just above every allocation and contains a number of bits for the allocation algorithm.
+//! The metadata word at the end of every chunk: an allocation's flag bits, or a
+//! gap's size.
+//!
+//! Talc tells them apart by testing [`Tag::ALLOCATED_FLAG`]: a gap's size is
+//! `CHUNK_UNIT`-aligned so its low (flag) bits are zero, while an allocation sets
+//! `ALLOCATED`. `Tag` wraps a `usize` so the test reads the whole word as an
+//! integer, independent of byte order. A `u8` would, on big-endian, land on the
+//! high byte of a large gap's size instead of the always-zero low bits.
+//!
+//! See `crate::base::chunk` for the full layout.
 
 /// Tag for allocated chunk metadata.
 #[derive(Clone, Copy)]
