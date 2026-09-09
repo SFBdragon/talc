@@ -5,6 +5,14 @@
 #![warn(missing_docs)]
 #![allow(type_alias_bounds)]
 
+// We re-export `lock_api` to make library consumer's dependency management
+// easier. This may avoid an additional import, and ensures they can easily
+// use the same `lock_api` version and keep it in sync with upgrades to Talc.
+//
+// It's mostly a convenience feature, but I don't have plans to remove
+// lock_api from Talc's public API, so it shouldn't be an API liability.
+pub use lock_api;
+
 #[cfg(test)]
 #[macro_use]
 mod test_utils;

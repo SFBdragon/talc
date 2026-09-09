@@ -174,43 +174,6 @@ Feel free to reach out or open a PR if you have any unaddressed questions.
 
 The full changelog can be [found here](./CHANGELOG.md). The most recent changes are:
 
-#### v5.0.0
-
-Check out the [migration guide](#migrating-from-v4-to-v5)
-
-In general, the allocator got a lot better at doing its job. Also took the opportunity to clean up the APIs, setup, and configuration.
-
-Here are some highlights:
-
-- Performance improvements.
-- Size improvements on WebAssembly.
-- `Source` (previously `OomHandler`) is now powerful enough for releasing memory automatically.
-- `TalcCell` introduced: safe, `!Sync`, zero-runtime-overhead implementor of `GlobalAlloc` and `Allocator`
-- The crate is now stable-by-default, with an MSRV of Rust 1.64
-- Binning configuration for Talc has been added. This primarily benefitted Talc for WebAssembly performance.
-
-Changes:
-- `AssumeUnlockable` - the never-safe lock - is gone (good riddance). Instead consider `TalcCell` and `TalcSyncCell`.
-- `Talc`'s heap management APIs have changed. Most notably the base of heaps are now fixed.
-- The available features have changed, see [Features](#conditional-features)
-- WebAssembly-specific things are all in `talc::wasm` now. `WasmHandler` became `WasmGrowAndExtend`. `WasmGrowAndClaim` is the default though.
-- `Span` is gone, rest in peace.
-
-And more.
-
-#### v5.0.1
-
-Fix broken `docs.rs` links due to API changes.
-
-#### v5.0.2
-
-Change README to avoid `<sep>` HTML tag usage as `crates.io` is not a fan.
-
-#### v5.0.3
-
-- Update WASM examples to match current API.
-- Included checks in `just check` and the GitHub CI to ensure the docs in markdown files don't break.
-
 #### v5.0.4
 
 - Bug fix: chunk tagging was not robust to chunks over `pow(2, 8 * (size_of::<usize>() - 1))`.
@@ -247,3 +210,9 @@ The internal details may change in a future update to optimize chunk overhead.
   `static TALC: TalcSyncCell<WasmGrowAndClaim, WasmBinning> = TalcSyncCell::new_wasm(WasmGrowAndClaim);`
   - to use `WasmGrowAndExtend` use e.g.
   `static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();`
+
+#### v5.1.1
+
+- Re-export `lock_api` as `talc::lock_api`. This is mostly for convenience, and potentially reducing
+  the number of dependencies to manage by library consumers. This addresses [Issue #55](https://github.com/SFBdragon/talc/issues/55),
+  thanks [gzp79](https://github.com/gzp79)!

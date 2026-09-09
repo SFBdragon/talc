@@ -1,5 +1,12 @@
 # Changelog
 
+#### v5.1.1
+
+- Re-export `lock_api` as `talc::lock_api`. This is mostly for convenience, and potentially reducing
+  the number of dependencies to manage by library consumers. This addresses [Issue #55](https://github.com/SFBdragon/talc/issues/55),
+  thanks [gzp79](https://github.com/gzp79)!
+
+
 #### v5.1.0
 
 - Bug fix for [#54](https://github.com/SFBdragon/talc/issues/54): GlobalAllocSource and AllocatorSource did not implement `Send`.
